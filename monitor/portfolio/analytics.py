@@ -45,11 +45,22 @@ def _norm(h: pd.Series) -> pd.Series:
 
 
 def _price_on(h: pd.Series, date: pd.Timestamp) -> float | None:
+    """What a line is worth on `date`: the last close on or before it — a day without a bar (31 Dec
+    on Xetra, a holiday) keeps the close before, never the next session's (that put the new year's
+    first move into the old year). Before the first bar: the first bar."""
+    past = h[h.index <= date]
+    if not past.empty:
+        return float(past.values.flatten()[-1])
+    return float(h.values.flatten()[0]) if not h.empty else None
+
+
+def _fill_price(h: pd.Series, date: pd.Timestamp) -> float | None:
+    """Where a buy dated `date` fills: the first close on or after it (a Sunday trade fills at
+    Monday's close). After the last bar: the last bar."""
     future = h[h.index >= date]
     if not future.empty:
-        #return float(future.iloc[0])
         return float(future.values.flatten()[0])
-    return float(h.iloc[-1]) if not h.empty else None
+    return float(h.values.flatten()[-1]) if not h.empty else None
 
 
 # ── Core time-series builder ──────────────────────────────────────────────────
@@ -302,10 +313,10 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
             while buy_idx < len(buy_events) and buy_events[buy_idx][0] <= ds:
                 bdate, eur_amt, fee = buy_events[buy_idx]
                 bts = pd.Timestamp(bdate)
-                bm_px = _price_on(bm_hist, bts)
+                bm_px = _fill_price(bm_hist, bts)
                 if bm_px:
                     if currency == "USD" and not eurusd.empty:
-                        fx = _price_on(eurusd, bts) or 1.0
+                        fx = _fill_price(eurusd, bts) or 1.0
                         bm_shares += ((eur_amt - fee) * fx) / bm_px
                     else:
                         bm_shares += (eur_amt - fee) / bm_px

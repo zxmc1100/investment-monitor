@@ -61,6 +61,24 @@ def test_benchmarks_ignore_bonus_shares(calls):
         pd.testing.assert_series_equal(bm[name], bm0[name])
 
 
+def test_a_day_without_a_bar_is_valued_at_the_last_close_never_the_next(calls, monkeypatch):
+    """Xetra and Frankfurt are shut on 31 Dec: no bar. That day is worth the 30 Dec close — the
+    next session's close (2 Jan) would put the new year's first move into the old year, and every
+    YTD (both KPIs, NORM) would start after it. Buys still fill at the next session's close."""
+    shut = pd.Timestamp("2025-12-31")
+    real = fakes_yf.series
+    monkeypatch.setattr(fakes_yf, "series", lambda t, end=None: real(t, end).drop(shut, errors="ignore"))
+    roi, bm, av = build_roi_timeseries(TX)
+    px, spx = real("AAA.F"), real("CSPX.AS")
+    before, nxt = pd.Timestamp("2025-12-30"), pd.Timestamp("2026-01-01")
+    assert av["AAA.F"][shut] == pytest.approx(10 * px[before]) and roi[shut] == roi[before]
+    assert bm["S&P 500"][shut] == bm["S&P 500"][before]
+    twr = av["__twr__"]["S&P 500"]
+    assert twr[shut] == twr[before] and twr[nxt] / twr[shut] == pytest.approx(spx[nxt] / spx[before])
+    fill = build_roi_timeseries([{**TX[0], "date": "2025-12-31"}])[1]["S&P 500"]   # a buy on the shut day
+    assert fill[nxt] == pytest.approx((999 / 1000 - 1) * 100, abs=1e-3)               # filled at 1 Jan's close
+
+
 def test_benchmark_twr_is_the_price_through_buys_less_only_the_fee(calls, monkeypatch):
     """__twr__: each benchmark's time-weighted growth — a buy's money is taken out of its day (it buys
     at that close), so a line follows its price; an order fee is the only cost, on the day it is paid."""
