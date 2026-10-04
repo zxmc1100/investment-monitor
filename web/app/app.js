@@ -735,6 +735,8 @@ const keyHandlers = {
 function openOverlay(title, html) {
   const ov = $("#overlay");
   ov.innerHTML = `<div class="h"><span>${esc(title)}</span><span class="ctx">Esc close</span></div><div class="ov-body">${html}</div>`;
+  ov.classList.remove("ask");                       // whatever was asked before is no longer on screen
+  S.confirmFn = null;
   ov.hidden = false;
 }
 

@@ -162,3 +162,11 @@ def test_a_locked_file_is_423_with_one_line(env, monkeypatch):
     monkeypatch.setattr(TB, "write_text_atomic", lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "in use")))
     r = c.post("/api/trades/reset", json={"etag": etag(c)})
     assert r.status_code == 423 and r.json()["detail"]["error"].startswith("CANNOT WRITE portfolio.csv")
+
+
+def test_a_recompute_hiccup_after_a_write_is_logged_not_the_writes_failure(env, monkeypatch, caplog):
+    c, eng, csv, _, _ = env
+    monkeypatch.setattr(eng, "inputs_changed", lambda: (_ for _ in ()).throw(RuntimeError("store unreadable")))
+    with caplog.at_level("WARNING"):
+        r = c.post("/api/trades/reset", json={"etag": etag(c)})
+    assert r.status_code == 200 and csv.read_text(encoding="utf-8") == HEAD + "\n" and "store unreadable" in caplog.text

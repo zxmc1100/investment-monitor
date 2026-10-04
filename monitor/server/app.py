@@ -285,7 +285,10 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
             raise HTTPException(404, {"error": str(e)})
         except Invalid as e:
             raise HTTPException(400, {"error": str(e), "errors": e.errors})
-        engine.inputs_changed()
+        try:
+            engine.inputs_changed()
+        except Exception:                        # the file is written: a recompute hiccup is not the write's failure
+            log.warning("recomputing after a trade write failed", exc_info=True)
         return out
 
     def need_etag(body: dict) -> str:
