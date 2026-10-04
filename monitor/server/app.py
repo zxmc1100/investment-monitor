@@ -15,6 +15,8 @@ from fastapi.staticfiles import StaticFiles
 
 from monitor import config
 from monitor.alerts import watchlist
+from monitor.data.buffer import cached_quotes
+from monitor.portfolio.tradebook import Conflict, Invalid, Missing, TradeBook
 from monitor.server.alerting import AlertLoop, AlertService
 from monitor.server.engine import Engine
 from monitor.server.schedule import BuildSchedule
@@ -66,10 +68,25 @@ class _SameOriginWrites:
         await self.app(scope, receive, send)
 
 
+def quote_check(ticker: str, buffer_dir: Path | None = None) -> dict | None:
+    """TRADES' one quote for a ticker new to your file, through the quote buffer (a ticker PORT already quoted
+    costs no network): {price, …, ccy?} or None when Yahoo has none."""
+    quotes, _, _ = cached_quotes([ticker], buffer_dir=buffer_dir)
+    return quotes.get(ticker)
+
+
+def terminal_book(engine: Engine) -> TradeBook:
+    """The terminal's TradeBook over the engine's input/portfolio.csv: Yahoo for new tickers, the universe for
+    ISINs."""
+    return TradeBook(engine.ctx.portfolio_csv, example=config.EXAMPLES_DIR / "portfolio.example.csv",
+                     quote=lambda t: quote_check(t, engine.ctx.buffer_dir), isin=lookup.by_isin)
+
+
 def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
-               schedule_file: Path | None = config.SCHEDULE_FILE) -> FastAPI:
+               schedule_file: Path | None = config.SCHEDULE_FILE, trade_book: TradeBook | None = None) -> FastAPI:
     engine = engine or Engine.default()
     alerts = AlertService(engine, engine.ctx.alerts) if engine.ctx.alerts is not None else None
+    book = trade_book or terminal_book(engine)
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -252,6 +269,70 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
         except KeyError:
             raise HTTPException(404, {"error": f"NO RULE {rid.upper()}"})
         return {"removed": rid.upper()}
+
+    # ── TRADES: your trades, read and written through TradeBook ─────────────────────────────────────
+    def written(call):
+        """Run a TradeBook write; refusals become one line (409 changed meanwhile, 404 no such row, 400 a wrong
+        file). A write brings TRADES up to date at once and the portfolio screens after it."""
+        try:
+            out = call()
+        except Conflict:
+            raise HTTPException(409, {"error": "YOUR TRADES CHANGED MEANWHILE — RELOADED: CHECK AND SAVE AGAIN"})
+        except Missing as e:
+            raise HTTPException(404, {"error": str(e)})
+        except Invalid as e:
+            raise HTTPException(400, {"error": str(e), "errors": e.errors})
+        engine.inputs_changed()
+        return out
+
+    def need_etag(body: dict) -> str:
+        tag = body.get("etag")
+        if not isinstance(tag, str) or not tag:
+            raise HTTPException(400, {"error": "ETAG REQUIRED — RELOAD"})
+        return tag
+
+    def need(body: dict, key: str, kind: type):
+        value = body.get(key)
+        if not isinstance(value, kind):
+            raise RequestValidationError([{"loc": ("body", key), "msg": f"{key} must be a {kind.__name__}"}])
+        return value
+
+    @app.get("/api/trades")
+    def get_trades():
+        return book.read()
+
+    @app.post("/api/trades")
+    def add_trade(body: dict = Body(...)):
+        tag, trade = need_etag(body), need(body, "trade", dict)
+        return written(lambda: book.add(tag, trade))
+
+    @app.put("/api/trades/{rid}")
+    def edit_trade(rid: str, body: dict = Body(...)):
+        tag, trade = need_etag(body), need(body, "trade", dict)
+        return written(lambda: book.update(tag, rid, trade))
+
+    @app.delete("/api/trades/{rid}")
+    def delete_trade(rid: str, body: dict = Body(...)):
+        tag = need_etag(body)
+        return written(lambda: book.delete(tag, rid))
+
+    @app.post("/api/trades/preview")
+    def preview_trades(body: dict = Body(...)):
+        text, mode = need(body, "text", str), body.get("mode") or "append"
+        try:
+            return book.preview(text, mode)
+        except Invalid as e:
+            raise HTTPException(400, {"error": str(e)})
+
+    @app.post("/api/trades/import")
+    def import_trades(body: dict = Body(...)):
+        tag, text, mode = need_etag(body), need(body, "text", str), body.get("mode") or "append"
+        return written(lambda: book.import_text(tag, text, mode))
+
+    @app.post("/api/trades/reset")
+    def reset_trades(body: dict = Body(...)):
+        tag = need_etag(body)
+        return written(lambda: book.reset(tag))
 
     @app.get("/api/jobs")
     def jobs():

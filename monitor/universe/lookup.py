@@ -132,6 +132,14 @@ def infos(tickers, root: Path | None = None) -> dict[str, dict]:
     return {r.ticker: {"name": r.name, "sector": r.sector} for r in hit.itertuples()}
 
 
+def by_isin(code: str, root: Path | None = None) -> str | None:
+    """The Yahoo home ticker of the live name with exactly this ISIN, else None (a paste or a broker's CSV
+    names ISINs — TRADES resolves them here)."""
+    df = load_universe(root)
+    hit = df[(df["isin"] == str(code or "").strip().upper()) & df["live"]]
+    return str(hit["ticker"].iloc[0]) if len(hit) else None
+
+
 def is_tradeable(ticker: str, root: Path | None = None) -> bool:
     """True if `ticker` is the Yahoo home ticker of a live Trade Republic ISIN."""
     return info(ticker, root) is not None

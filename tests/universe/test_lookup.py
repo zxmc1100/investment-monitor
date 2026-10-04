@@ -115,3 +115,9 @@ def test_identify_works_on_the_meta_fallback(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "UNIVERSE_DIR", _meta_only(tmp_path / "u"))
     got = identify(["AAPL"], buffer_dir=tmp_path)["AAPL"]
     assert got == {"name": "Apple", "sector": "Information Technology", "country": "United States"}
+
+
+def test_by_isin_is_an_exact_match_of_a_live_name_or_none():
+    assert lookup.by_isin("DE0007030009") == "RHM.DE" and lookup.by_isin(" de0007030009 ") == "RHM.DE"
+    assert lookup.by_isin("US0000000001") is None                 # Deadco: delisted
+    assert lookup.by_isin("DE0007030") is None and lookup.by_isin("") is None
