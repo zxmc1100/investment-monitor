@@ -8,7 +8,9 @@ WEB = Path(__file__).resolve().parents[2] / "web"
 def test_index_references_exist():
     html = (WEB / "index.html").read_text(encoding="utf-8")
     refs = re.findall(r'(?:src|href)="(app/[^"]+)"', html)
-    assert len(refs) == 4, refs
+    assert len(refs) == 6, refs
+    assert '<link rel="icon" href="app/icon.svg" type="image/svg+xml">' in html       # the bookmark's icon
+    assert '<link rel="apple-touch-icon" href="app/icon-180.png">' in html            # Safari's
     missing = [r for r in refs if not (WEB / r).exists()]
     assert not missing, missing
     assert '<meta name="im-mode" content="live">' in html
