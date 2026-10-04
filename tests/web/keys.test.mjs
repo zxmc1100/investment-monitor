@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fieldKey } from "../../web/app/keys.js";
+import { fieldKey, keyAction } from "../../web/app/keys.js";
 
 const cmd = { tagName: "INPUT", id: "cmd" };
 const el = (tagName, extra = {}) => ({ tagName, ...extra });
@@ -31,4 +31,12 @@ test("a focused button keeps Enter, Space and Tab; other keys work the terminal;
   assert.equal(fieldKey(k("a"), cmd, cmd), null);
   assert.equal(fieldKey(k("a"), el("BODY"), cmd), null);
   assert.equal(fieldKey(k("a"), null, cmd), null);
+});
+
+test("Alt+N normalizes the charts — by the physical key (a Mac's Option+N types a dead key); Shift+N types N", () => {
+  const s = { field: null, empty: true, overlay: false, asking: false, onOverlay: false, askAge: 0, typed: false, ac: false };
+  assert.equal(keyAction(k("Dead", { code: "KeyN", altKey: true }), s).act, "norm");
+  assert.equal(keyAction(k("n", { code: "KeyN", altKey: true }), { ...s, empty: false }).act, "norm");
+  assert.equal(keyAction(k("N", { code: "KeyN", shiftKey: true }), s).act, "type");
+  assert.equal(keyAction(k("n", { code: "KeyN", altKey: true }), { ...s, field: "field" }).act, "field");   // a form keeps it
 });

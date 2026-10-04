@@ -39,6 +39,7 @@ export function keyAction(e, s) {
   if (e.key === "F1" || (e.key === "?" && s.empty)) return r("help");
   if (e.altKey && /^Digit[1-9]$/.test(e.code ?? "")) return r("maximize", true, Number(e.code.slice(5)));
   if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) return r("history", true, e.key === "ArrowUp" ? 1 : -1);
+  if (e.altKey && e.code === "KeyN") return r("norm");      // the physical key: a Mac's Option+N is a dead key
   if (e.metaKey || e.ctrlKey || e.altKey || (s.overlay && !cancel)) return r("none", false);
   if (s.ac && (e.key === "ArrowDown" || e.key === "ArrowUp")) return r("acMove", true, e.key === "ArrowDown" ? 1 : -1);
   if (s.ac && e.key === "Tab") return r("acAccept");
@@ -71,6 +72,7 @@ export function bindKeys(k) {
       case "escape": k.escape(); break;
       case "maximize": k.maximize(a.arg); break;
       case "history": k.history(a.arg); break;
+      case "norm": k.norm(); break;
       case "acMove": k.acMove(a.arg); break;
       case "acAccept": k.acAccept(); break;
       case "drill": k.drill(); break;

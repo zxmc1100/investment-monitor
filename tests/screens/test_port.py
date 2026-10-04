@@ -53,6 +53,28 @@ def test_value_weights_and_roi_reconcile(frozen, tmp_path):
     assert kpi(p, "summary", "ROI") == pytest.approx(kpi(p, "summary", "TOTAL P&L") / 3990.0 * 100)
 
 
+def test_roi_lines_carry_their_time_weighted_growth_privately(frozen, tmp_path):
+    """NORM draws each line from its `twr` (growth of 1 € with buys, sells and dividends taken out of
+    their days). Your line's is the YTD TWR KPI's chain; the public view keeps none of it — with the
+    ROI lines it would give away when, and how much, money was added."""
+    from datetime import date
+    from monitor.portfolio.analytics import year_returns
+    ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=FIX, equity_log=None)
+    parts = {t: port.compute(t, ctx) for t in port.SCREEN.tiers}
+    p = port.assemble(parts, dict(META))
+    roi = panel(p, "roi")
+    assert [s["name"] for s in roi["series"]][0] == "YOU" and len(roi["series"]) > 1
+    for s in roi["series"]:
+        assert len(s["twr"]) == len(roi["x"]) and s["twr"][-1] > 0
+    you = roi["series"][0]["twr"]
+    jan1 = max(i for i, t in enumerate(roi["x"]) if t < 1767225600)           # 2025's last close
+    q, d = parts["quote"], parts["daily"]
+    closes = year_returns(d["hold"], q["txns"], q["dividends"], today=date(2026, 6, 30))[0]   # no live step
+    assert (you[-1] / you[jan1] - 1) * 100 == pytest.approx(closes["twr"], abs=0.01)   # twr has 4 decimals
+    pub = panel(public_view(p), "roi")
+    assert pub["series"] and not any("twr" in s for s in pub["series"])
+
+
 def test_port_payload_is_strict_json(frozen, tmp_path):
     json.dumps(build(tmp_path), allow_nan=False)
 

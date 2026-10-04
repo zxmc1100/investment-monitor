@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from monitor.portfolio.analytics import daily_flows, year_returns
+from monitor.portfolio.analytics import daily_flows, twr_index, year_returns
 
 
 def tx(d, action, price, ticker="X.F", shares=1.0):
@@ -168,3 +168,26 @@ def test_money_dated_after_today_is_not_counted():
     rows = year_returns(HOLD, TXNS + [tx("2026-07-15", "buy", 100.0)], DIVS, live_value=1800.0,
                         today=date(2026, 7, 4))
     assert by_year(rows)[2026]["buys"] == pytest.approx(500.0)
+
+
+# ── twr_index: the time-weighted growth curve a normalized (NORM) chart is drawn from ─────────────
+
+def test_twr_index_is_flat_through_a_deposit_in_a_flat_market():
+    idx = pd.bdate_range("2026-01-05", "2026-01-16")
+    hold = pd.Series(1000.0, index=idx)
+    hold.loc["2026-01-12":] = 1500.0                       # 500 more money, prices unchanged
+    t = twr_index(hold, [tx("2026-01-05", "buy", 1000.0), tx("2026-01-12", "buy", 500.0)], [])
+    assert t.index.equals(idx) and list(t) == pytest.approx([1.0] * len(idx))
+
+
+def test_twr_index_reconciles_to_the_year_table():
+    t = twr_index(HOLD, TXNS, DIVS)
+    y = by_year(year_returns(HOLD, TXNS, DIVS, today=date(2026, 6, 30)))
+    assert (t["2026-06-30"] / t["2025-12-31"] - 1) * 100 == pytest.approx(y[2026]["twr"])
+    assert (t["2025-12-31"] - 1) * 100 == pytest.approx(y[2025]["twr"])
+
+
+def test_twr_index_is_one_until_money_is_at_work():
+    idx = pd.bdate_range("2026-01-05", "2026-01-09")
+    hold = pd.Series([0.0, 0.0, 100.0, 110.0, 121.0], index=idx)
+    assert list(twr_index(hold, [tx("2026-01-07", "buy", 100.0)], [])) == pytest.approx([1.0, 1.0, 1.0, 1.1, 1.21])

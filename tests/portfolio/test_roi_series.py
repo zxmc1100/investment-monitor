@@ -61,6 +61,24 @@ def test_benchmarks_ignore_bonus_shares(calls):
         pd.testing.assert_series_equal(bm[name], bm0[name])
 
 
+def test_benchmark_twr_is_the_price_through_buys_less_only_the_fee(calls, monkeypatch):
+    """__twr__: each benchmark's time-weighted growth — a buy's money is taken out of its day (it buys
+    at that close), so a line follows its price; an order fee is the only cost, on the day it is paid."""
+    monkeypatch.setattr(config, "SAVINGS_PLAN_TICKERS", ("PLAN.F",))
+    two = [TX[0], {**TX[0], "date": "2025-04-01", "price": 3000.0}]
+    _, bm, av = build_roi_timeseries([{**t, "ticker": "PLAN.F"} for t in two])        # fee-free
+    twr = av["__twr__"]["S&P 500"]
+    assert twr.index.equals(bm["S&P 500"].index) and twr.iloc[0] == pytest.approx(1.0)
+    px = fakes_yf.series("CSPX.AS")
+    a, b = pd.Timestamp("2025-01-06"), pd.Timestamp("2025-06-30")
+    assert twr[b] / twr[a] == pytest.approx(px[b] / px[a])                   # a buy between: price only
+    t = build_roi_timeseries(two)[2]["__twr__"]["S&P 500"]                   # 1 EUR fee per buy
+    assert t.iloc[0] == pytest.approx(0.999)                                 # bought 999, put in 1000
+    c = pd.Timestamp("2025-04-02")
+    assert t[b] / t[c] == pytest.approx(px[b] / px[c])                       # no fee after the last buy
+    assert t[b] / t[a] < twr[b] / twr[a]
+
+
 # ── Yahoo throttling: a degraded answer must fail the build, never price positions at cost ──
 from monitor.portfolio import analytics                                     # noqa: E402
 

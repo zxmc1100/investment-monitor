@@ -5,6 +5,8 @@ versions, which differ in the last bit). These are the very numbers the retired 
 gathered from the same functions; the golden was checked against that report's gather() before it was
 deleted, and replaces its golden test. Regenerated once since, when two unread outputs left the pin
 (the correlation matrix — its function was deleted — and daily_tier's `ytd`); no pinned number moved.
+Regenerated again when asset_values gained "__twr__" (the benchmarks' time-weighted growth): with that
+key removed the payload hashed to the previous golden, so again no pinned number moved.
 
 Regenerate ONLY when a change to the numbers is intended:  UPDATE_GOLDEN=1 pytest <this file>
 (DUMP_GOLDEN=<path> writes the canonical JSON for a diff)."""

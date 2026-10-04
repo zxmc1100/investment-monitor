@@ -1,7 +1,9 @@
-// Chart range slicing and legend ranking. Pure. x values are unix seconds.
+// Chart range slicing and legend ranking. Pure. x values are unix seconds. A range is a name ("1M" …
+// "ALL") or a period dragged on the chart: {from, to, prev} (prev: the named range it came from).
 const DAY = 86400;
 
 export function rangeStart(xs, range) {
+  if (range && typeof range === "object") return range.from;
   if (!xs?.length) return -Infinity;
   const last = xs[xs.length - 1];
   switch (range) {
@@ -13,11 +15,38 @@ export function rangeStart(xs, range) {
   }
 }
 
-export function sliceFrom(x, series, start) {
+export const rangeEnd = (range) => (range && typeof range === "object" ? range.to : Infinity);
+
+// The points from `start` to `end`. `anchor`: open on the last point BEFORE start instead — the close a
+// period's return is measured from (YTD: the year before's last close). Every series slices with x,
+// its `twr` too.
+export function sliceFrom(x, series, start, end = Infinity, anchor = false) {
   let i = 0;
   while (i < x.length && x[i] < start) i++;
-  i = Math.min(i, Math.max(0, x.length - 2));            // never fewer than two points
-  return { x: x.slice(i), series: series.map((s) => ({ ...s, y: s.y.slice(i) })) };
+  if (anchor && i > 0) i--;
+  let j = i;
+  while (j < x.length && x[j] <= end) j++;
+  j = Math.max(j, Math.min(i + 2, x.length));            // never fewer than two points
+  i = Math.min(i, Math.max(0, j - 2));
+  const cut = (a) => a?.slice(i, j);
+  return { x: x.slice(i, j), series: series.map((s) => ({ ...s, y: cut(s.y), ...(s.twr ? { twr: cut(s.twr) } : {}) })) };
+}
+
+// NORM is offered when every line has a time-weighted curve (`twr`: growth of 1 €, money moves taken out).
+export function canNorm(series) {
+  const lines = (series ?? []).filter((s) => s.kind !== "markers");
+  return lines.length > 0 && lines.every((s) => Array.isArray(s.twr));
+}
+
+// Each line as its time-weighted return in % since its first point in the window (0 there): who did best
+// in the window, buys and sells not counted as gains or losses. A line without `twr` has no honest
+// normalized value and comes back empty.
+export function normalize(series) {
+  const has = (v) => v !== null && v !== undefined;
+  return series.map((s) => {
+    const base = (s.twr ?? []).find(has);
+    return { ...s, y: s.y.map((_, k) => (base && has(s.twr[k]) ? (s.twr[k] / base - 1) * 100 : null)) };
+  });
 }
 
 // Value of a series at the cursor index, falling back to the last value before it (a gap);

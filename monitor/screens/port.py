@@ -52,6 +52,11 @@ HELP = [
      "less the same {fee} EUR order fee you paid (savings-plan buys are free). Your line counts "
      "dividends as cash received after tax; benchmarks are total return before tax (dividends "
      "reinvested). Hover the chart to read every line on that date."},
+    {"h": "NORM (Alt+N)", "vis": PRIV, "body": "Redraws the ROI chart as each line's time-weighted "
+     "return from the close before the period shown (or dragged): 0 at the start, then who did best in "
+     "it. Each day's buys, sells and dividends are taken out of that day, so adding money never reads "
+     "as a gain or a loss. Benchmarks are then their own total return in EUR less the order fees; your "
+     "line is your holdings, as YTD TWR (over a calendar year it is YTD TWR at the last close)."},
     {"h": "RISK", "vis": PUB, "body": "Vol, Sharpe, Sortino, drawdowns and VaR from the daily "
      "portfolio ROI series since the first trade; beta and alpha vs the cash-flow-matched S&P 500."},
     {"h": "ALLOCATION", "vis": PUB, "body": "Sector and country weights of the whole book. The MSCI "
@@ -242,13 +247,25 @@ def _roi(d: dict) -> dict:
     if roi.empty:
         return out
     idx = _thin_index(roi.index)
-    series = [{"name": "YOU", "role": "primary", "kind": "line", "vis": PUB,
-               "y": [_num(v) for v in roi.reindex(idx)]}]
+    # `twr`: each line's time-weighted growth of 1 € (money moves taken out of their days), which the
+    # chart's NORM view rebases to 0 at the window's start. Not a public key (redact drops it): next
+    # to the ROI line it would give away when, and how much, money was added. Absent in a part
+    # computed before it existed — NORM is then simply not offered.
+    twr = {"YOU": d.get("twr"), **{short: (d["asset_values"].get("__twr__") or {}).get(name) for name, short in BENCH}}
+
+    def line(name, role, s):
+        ln = {"name": name, "role": role, "kind": "line", "vis": PUB, "y": [_num(v) for v in s.reindex(idx)]}
+        if twr.get(name) is not None:
+            # 4 decimals: a NORM value within 0.01 pp (the legend shows 0.1), at 7 bytes a point —
+            # the payload stays < 300 KB
+            ln["twr"] = [_num(round(v, 4)) for v in twr[name].reindex(idx)]
+        return ln
+
+    series = [line("YOU", "primary", roi)]
     for name, short in BENCH:
         s = bms.get(name)
         if s is not None and not s.empty:
-            series.append({"name": short, "role": "bench", "kind": "line", "vis": PUB,
-                           "y": [_num(v) for v in s.reindex(idx)]})
+            series.append(line(short, "bench", s))
     out.update(x=_epoch(idx), series=series)
     return out
 

@@ -71,6 +71,10 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
     NaN gaps as the EUR series, so the two views are swappable on one chart — except days a
     position holds only bonus shares (nothing invested yet: no % to divide by).
 
+    And "__twr__" -> {benchmark name: growth of 1 €}, time-weighted (each buy's money taken out of
+    its day, so the line is the benchmark's EUR total return less the order fees), on that
+    benchmark's ROI index — your own line's is twr_index on the holdings (snapshot.daily_tier).
+
     Bonus rows (ledger.ADDS) add shares — so value — but no money: never in `total_invested`,
     a position's own buys, or the benchmarks' cash flows. Their value is gain.
 
@@ -277,12 +281,20 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
                           else min(config.ORDER_FEE_EUR, float(t["price"]))) for t in buys],
                         key=lambda x: x[0])
     benchmark_series: dict[str, pd.Series] = {}
+    benchmark_twr: dict[str, pd.Series] = {}
 
     for name, (bm_hist, currency) in bm_hists.items():
         bm_shares = 0.0
         bm_invested = 0.0
         buy_idx = 0
         bm_vals: dict[str, float] = {}
+        # Time-weighted growth on the same walk. A benchmark buys at the close it is valued at, so its
+        # money comes in at the END of the day: (value − money put in) / last value — the price move,
+        # less the order fee (the money put in includes it). The first buy has no last value: value /
+        # money put in. (Your own line counts money from the start of its day — twr_index — because
+        # real buys fill during the day.)
+        twr, prev_eur, put_in = 1.0, 0.0, 0.0
+        twr_vals: dict[str, float] = {}
 
         for date in biz_days:
             ds = str(date.date())
@@ -298,6 +310,7 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
                     else:
                         bm_shares += (eur_amt - fee) / bm_px
                     bm_invested += eur_amt
+                    put_in += eur_amt
                 buy_idx += 1
 
             if bm_invested == 0:
@@ -315,11 +328,22 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
                 eur_val = native_val
 
             bm_vals[ds] = round((eur_val / bm_invested - 1) * 100, 4)
+            if prev_eur > 0:
+                twr *= (eur_val - put_in) / prev_eur
+            elif put_in > 0:
+                twr *= eur_val / put_in
+            twr_vals[ds] = twr
+            prev_eur, put_in = eur_val, 0.0
 
         s = pd.Series(bm_vals)
         s.index = pd.to_datetime(s.index)
         benchmark_series[name] = s
+        t = pd.Series(twr_vals, dtype=float)
+        t.index = pd.to_datetime(t.index)
+        benchmark_twr[name] = t
 
+    # Each benchmark's time-weighted growth, under a reserved key like "__roi__" (see the docstring).
+    asset_values["__twr__"] = benchmark_twr
     return portfolio_series, benchmark_series, asset_values
 
 
@@ -355,6 +379,26 @@ def daily_flows(transactions: list[dict], dividends, index: pd.DatetimeIndex) ->
     return flows
 
 
+def _day_steps(vals: np.ndarray, flows: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Each index date's time-weighted step r_t = (V_t + W_t) / (V_{t−1} + B_t) on holdings values
+    `vals` and daily_flows `flows`, and whether money was at work (V_{t−1} + B_t > 0; else r_t = 1).
+    V_{t−1} = 0 before the index. The one TWR day year_returns and twr_index chain."""
+    base = np.concatenate([[0.0], vals[:-1]]) + flows["buy"].to_numpy()
+    at_work = base > 0
+    out = vals + (flows["sell"] + flows["dividend"]).to_numpy()
+    return np.where(at_work, out / np.where(at_work, base, 1.0), 1.0), at_work
+
+
+def twr_index(hold: pd.Series, transactions: list[dict], dividends) -> pd.Series:
+    """Growth of 1 € in the holdings, time-weighted: year_returns' daily steps chained over `hold`'s
+    index (1.0 until money is at work). Two points divided give the TWR between them — what a
+    normalized (NORM) chart draws; across a calendar year it is the year table's closes-only `twr`."""
+    hold = hold.fillna(0.0).astype(float)
+    index = hold.index if isinstance(hold.index, pd.DatetimeIndex) else pd.DatetimeIndex(hold.index)
+    step, _ = _day_steps(hold.to_numpy(), daily_flows(transactions, dividends, index))
+    return pd.Series(np.cumprod(step), index=index)
+
+
 def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
                  live_value: float | None = None, today: _date | None = None) -> list[dict]:
     """Every calendar year from the first trade to `today`, newest first, measured two ways on the
@@ -387,10 +431,10 @@ def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
     hold = hold.fillna(0.0).astype(float)
     index = hold.index if isinstance(hold.index, pd.DatetimeIndex) else pd.DatetimeIndex(hold.index)
     vals = hold.to_numpy()
-    v_before = np.concatenate([[0.0], vals[:-1]])          # V_{t−1}; nothing held before the index
     flows = daily_flows(transactions, dividends, index)
     money_in = flows["buy"].to_numpy()                     # B_t
     money_out = (flows["sell"] + flows["dividend"]).to_numpy()   # W_t
+    step, at_work = _day_steps(vals, flows)
     last = index[-1] if len(index) else None
     tail = {k: 0.0 for k in _KINDS}                        # after the last index date, up to today
     for day, kind, eur in _money_moves(transactions, dividends):
@@ -411,11 +455,9 @@ def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
             sums = sums + pd.Series(tail)
 
         factor, steps = 1.0, 0
-        for i in np.flatnonzero(closes):
-            base = v_before[i] + money_in[i]
-            if base > 0:
-                factor *= (vals[i] + money_out[i]) / base
-                steps += 1
+        for i in np.flatnonzero(closes & at_work):
+            factor *= step[i]
+            steps += 1
         if live:
             before = vals[np.asarray(index < tday)]
             v_prev = float(before[-1]) if len(before) else 0.0

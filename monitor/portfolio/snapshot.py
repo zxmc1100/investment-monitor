@@ -21,7 +21,7 @@ from monitor.data.buffer import (cached_dividends, cached_market_caps, cached_oh
                                  cached_quotes, never_quoted)
 from monitor.data.instruments import BENCHMARKS
 from monitor.portfolio import equity_log
-from monitor.portfolio.analytics import build_roi_timeseries, compute_quant_metrics, xirr
+from monitor.portfolio.analytics import build_roi_timeseries, compute_quant_metrics, twr_index, xirr
 from monitor.portfolio.ledger import compute_portfolio_summary, dividend_cash, load_interest, parse_portfolio
 
 log = logging.getLogger(__name__)
@@ -149,7 +149,8 @@ def holdings_value(asset_values: dict) -> pd.Series:
 def daily_tier(book: dict, *, force: bool = False, buffer_dir: Path | None = None) -> dict:
     """ROI vs benchmarks, per-asset curves, risk metrics and held-ticker history, plus `hold` (the
     holdings value per business day) — analytics.year_returns' input; PORT pairs it with the quote
-    tier's fresh transactions and dividends (PORT's YTD comes from analytics.year_returns). Only a
+    tier's fresh transactions and dividends (PORT's YTD comes from analytics.year_returns) — and
+    `twr`, the holdings' time-weighted growth (analytics.twr_index; PORT's normalized ROI chart). Only a
     held line the quote buffer has never priced may lack history (it is carried at cost, as the quote
     tier does); any other gap raises analytics.PriceHistoryError."""
     txns = book["transactions"]
@@ -162,7 +163,7 @@ def daily_tier(book: dict, *, force: bool = False, buffer_dir: Path | None = Non
                if held else pd.DataFrame())
     hold = holdings_value(asset_values)
     return dict(roi_series=roi_series, bm_series=bm_series, asset_values=asset_values,
-                metrics=metrics, history=history, hold=hold)
+                metrics=metrics, history=history, hold=hold, twr=twr_index(hold, txns, divs))
 
 
 SPX_PROXY = BENCHMARKS["S&P 500"][0]          # CSPX.AS — EUR-listed, matches the ROI benchmark
