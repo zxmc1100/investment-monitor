@@ -45,6 +45,12 @@ def _read_csv(path: Path, columns: tuple[str, ...]) -> tuple[list[tuple[int, dic
             text = f.read()
     except UnicodeDecodeError:
         raise CSVError(f'{name}: not UTF-8 text — in Excel use Save As → "CSV UTF-8"') from None
+    return _split_csv(text, name, columns)
+
+
+def _split_csv(text: str, name: str, columns: tuple[str, ...]) -> tuple[list[tuple[int, dict, str | None]], bool]:
+    """_read_csv of a file's text (`name`: the file it is, for the messages)."""
+    text = text.removeprefix("\ufeff")
     first = next((line for line in text.splitlines() if line.strip()), "")
     sep = ";" if first.count(";") > first.count(",") else ","
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=sep)
@@ -136,26 +142,34 @@ def parse_portfolio(csv_path: str | Path) -> dict:
       realized: {ticker: {pnl_eur, shares_sold, proceeds}}  pnl_eur = proceeds - FIFO cost sold
       transactions: list of all rows
     """
+    path = Path(csv_path)
+    return _book(path.name, *_read_csv(path, COLUMNS))
+
+
+def parse_portfolio_text(text: str, name: str = "portfolio.csv") -> dict:
+    """parse_portfolio of a file holding `text` (named `name` in its messages) — TRADES checks a file
+    this way before it writes it."""
+    return _book(name, *_split_csv(text, name, COLUMNS))
+
+
+def _book(name: str, rows: list, comma: bool) -> dict:
     holdings: dict[str, dict] = {}
     realized: dict[str, dict] = {}
     lots: dict[str, deque] = {}            # ticker -> deque of [shares, EUR cost per share]
     transactions = []
-
-    path = Path(csv_path)
-    rows, comma = _read_csv(path, COLUMNS)
 
     def num(text):
         return _number(text, comma)
 
     for n, row, problem in rows:
         if problem:
-            raise CSVError(f"{path.name} row {n}: {problem}")
-        date     = _cell(path.name, n, row, "Date", _date)
-        ticker   = _cell(path.name, n, row, "Ticker", _text)
-        action   = _cell(path.name, n, row, "Action", _text).lower()
-        shares   = _cell(path.name, n, row, "Shares", num)
-        price    = _cell(path.name, n, row, "Price", num)           # total EUR (exact)
-        pps      = _cell(path.name, n, row, "PricePerShare", num)   # EUR per share (rounded; display only)
+            raise CSVError(f"{name} row {n}: {problem}")
+        date     = _cell(name, n, row, "Date", _date)
+        ticker   = _cell(name, n, row, "Ticker", _text)
+        action   = _cell(name, n, row, "Action", _text).lower()
+        shares   = _cell(name, n, row, "Shares", num)
+        price    = _cell(name, n, row, "Price", num)           # total EUR (exact)
+        pps      = _cell(name, n, row, "PricePerShare", num)   # EUR per share (rounded; display only)
 
         transactions.append({
             "date": date, "ticker": ticker, "action": action,

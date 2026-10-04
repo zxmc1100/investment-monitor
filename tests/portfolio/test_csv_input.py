@@ -145,3 +145,15 @@ def test_interest_that_cannot_be_read_at_all_is_one_warning_and_no_interest(tmp_
         assert load_interest(p) == []
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
     assert "Date" in caplog.text and "missing" in caplog.text
+
+
+def test_text_parses_as_its_file_does(tmp_path):
+    """TRADES validates a file before writing it: parse_portfolio_text(text) is parse_portfolio of a file holding
+    that text, errors included (named after the file it will become)."""
+    from monitor.portfolio.ledger import parse_portfolio_text
+    for form in (dict(sep=";", dates="dmy."), dict(sep=",", dates="iso")):
+        data = _excel(CSV.read_text(encoding="utf-8"), **form)
+        assert parse_portfolio_text(data.decode("utf-8-sig")) == parse_portfolio(_write(tmp_path, data))
+    with pytest.raises(CSVError, match=r"^portfolio\.csv row 2, column Shares: 'x' is not a number$"):
+        parse_portfolio_text(f"{HEAD}\n2025-01-15,SAP.DE,buy,x,961.00,240.00\n")
+    assert parse_portfolio_text(HEAD + "\n")["transactions"] == [] and parse_portfolio_text("")["holdings"] == {}
