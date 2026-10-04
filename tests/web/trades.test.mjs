@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ACTIONS, compute, decodeBytes, describe, duplicateOf, editValues, eur, fmtMoney, fmtQty, formStatus, isEur, leftToFix,
+  ACTIONS, compute, decodeBytes, describe, duplicateOf, editValues, eur, fmtMoney, fmtQty, formStatus, isEur,
   parseDate, parseNum, pasteSummary, rankSuggestions, round, tradeCommand, tradeFrom, typed,
 } from "../../web/app/trades.js";
 
@@ -21,6 +21,7 @@ test("price per share <-> total: fees only when entered", () => {
   assert.deepEqual(compute("bonus", 0.05, { pps: 190, fee: 1 }), { total: 9.5, pps: 190 });
   assert.deepEqual(compute("buy", 4, { total: 961, fee: 1 }), { total: 961, pps: 240.25 });
   assert.deepEqual(compute("buy", 3, { total: 100 }), { total: 100, pps: 33.3333 });
+  assert.deepEqual(compute("bonus", 0.1234, { total: 12.3456 }), { total: 12.3456, pps: 100.0454 });   // as given
   for (const [args, msg] of [[["buy", 0, { pps: 1 }], "SHARES MUST BE > 0"], [["buy", 1, {}], "PRICE PER SHARE OR TOTAL REQUIRED"],
     [["buy", 1, { pps: 0 }], "PRICE PER SHARE MUST BE > 0"], [["buy", 1, { total: -1 }], "TOTAL MUST BE > 0"],
     [["buy", 1, { pps: 1, fee: -1 }], "FEE MUST BE 0 OR MORE"], [["sell", 1, { pps: 1, fee: 1 }], "THE FEE LEAVES NOTHING: TOTAL €0.00"],
@@ -37,6 +38,9 @@ test("one number as typed: a decimal point or comma, never a thousands separator
   assert.throws(() => parseNum("1.234,56", "TOTAL"), /THOUSANDS SEPARATOR/);
   assert.throws(() => parseNum("1 234", "TOTAL"), /THOUSANDS SEPARATOR/);
   assert.throws(() => parseNum("x", "SHARES"), { message: "SHARES: 'x' IS NOT A NUMBER" });
+  assert.throws(() => parseNum("1500000000", "SHARES"), { message: "SHARES IS TOO LARGE (OVER 1,000,000,000)" });
+  assert.throws(() => parseNum(Number.NaN, "SHARES"), { message: "SHARES IS NOT A NUMBER" });
+  assert.throws(() => parseNum(Infinity, "TOTAL"), { message: "TOTAL IS NOT A NUMBER" });
 });
 
 test("dates: today by default, three ways to write one, never in the future", () => {
@@ -66,7 +70,10 @@ test("the form's values -> the trade that will be stored, and its one line", () 
   const t = tradeFrom({ ticker: "SAP.DE", action: "buy", shares: "4", total: "961" }, TODAY);
   assert.deepEqual([t.trade.price, t.trade.pps, t.fee], [961, 240.25, null]);
   assert.deepEqual(tradeFrom({ ticker: "", action: "buy", shares: "4", pps: "1" }, TODAY), { error: "TICKER MISSING" });
-  assert.deepEqual(tradeFrom({ ticker: "A B", action: "buy", shares: "4", pps: "1" }, TODAY), { error: "TICKER 'A B' HAS A SPACE" });
+  assert.deepEqual(tradeFrom({ ticker: "A B", action: "buy", shares: "4", pps: "1" }, TODAY),
+    { error: "TICKER 'A B': ONLY LETTERS, DIGITS AND . - = ^" });
+  assert.equal(tradeFrom({ ticker: "\u200bsap.de\u200d", action: "buy", shares: "4", pps: "1" }, TODAY).trade.ticker, "SAP.DE");
+  assert.equal(tradeFrom({ ticker: "BRK,B", action: "buy", shares: "4", pps: "1" }, TODAY).error, "TICKER 'BRK,B': ONLY LETTERS, DIGITS AND . - = ^");
   assert.deepEqual(tradeFrom({ ticker: "X.F", action: "buy", shares: "", pps: "1" }, TODAY), { error: "SHARES MUST BE > 0" });
   // the body the server gets: the numbers as entered, keep_pps only for an untouched edit
   assert.deepEqual(tradeFrom({ ticker: "X.F", action: "buy", shares: "4", total: "961", keep: 240 }, TODAY).body,
@@ -157,8 +164,7 @@ test("the paste preview's summary and what stays in the box after ADD", () => {
   assert.equal(pasteSummary({ ...res, delimiter: "\t", header: false, rows: [], ok: 0, bad: 0 }),
     "0 ROWS · 0 TO ADD · TAB BETWEEN FIELDS · DECIMAL COMMA · NO HEADER");
   assert.equal(pasteSummary({ error: "NOTHING TO READ — PASTE ROWS OR PICK A CSV FILE", rows: [] }), "NOTHING TO READ — PASTE ROWS OR PICK A CSV FILE");
-  const text = "Datum;Ticker\r\n\r\n02.01.2026;A\r\n03.01.2026;B\r\n04.01.2026;C\r\n";
-  assert.equal(leftToFix(text, [4], true), "Datum;Ticker\n03.01.2026;B\n");
-  assert.equal(leftToFix(text, [], true), "");
-  assert.equal(leftToFix("a\nb\n", [2], false), "b\n");
+  assert.equal(pasteSummary({ ...res, notes: ["PRICE READ AS THE TOTAL PAID (THIS TERMINAL'S OWN COLUMNS) — NAME IT PRICE PER SHARE IF IT IS ONE"] }),
+    "3 ROWS · 2 TO ADD · 1 WITH AN ERROR · 1 WARNING · SEMICOLON BETWEEN FIELDS · DECIMAL COMMA · HEADER READ · "
+    + "PRICE READ AS THE TOTAL PAID (THIS TERMINAL'S OWN COLUMNS) — NAME IT PRICE PER SHARE IF IT IS ONE");
 });

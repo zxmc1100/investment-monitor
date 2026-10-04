@@ -1,7 +1,10 @@
 // Global keymap. Letters always feed the command bar; navigation keys act on
 // the focused table only while the bar is empty, so typing never fights the cursor. A form field (TRADES)
-// keeps its own keys: Esc leaves it, F1 is help, everything else is the field's.
+// keeps its own keys: Esc leaves it, F1 is help, everything else is the field's. An open question (DELETE …?)
+// is answered only by Enter on the question itself with an empty bar; any other key closes it unanswered.
 const NAV = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10, Home: -1e9, End: 1e9 };
+const QUIET = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Enter", "Escape"]);
+const ONCE = new Set(["Enter", "Delete", "Backspace"]);     // a held key repeats: these act once per press
 
 // What a key does while a form field — not the command bar — has focus: "leave" (Esc), "help" (F1), "field" (the
 // field's own: letters, digits, arrows, Enter, Tab to the next field, Backspace …) or null: not a field, or a
@@ -15,33 +18,64 @@ export function fieldKey(e, el, cmd) {
   return typing || e.key === "Enter" || e.key === " " || e.key === "Tab" ? "field" : null;
 }
 
+// The keymap as a decision: {cancel: close the open question first, act, prevent, arg}. `s`: {field: fieldKey's
+// answer, empty: the command bar, overlay, asking: a question is open, onOverlay: focus is on it, ac: the palette
+// is open}. Pure — bindKeys runs it.
+export function keyAction(e, s) {
+  const cancel = !!s.asking && !QUIET.has(e.key) && s.field !== "field";
+  const r = (act, prevent = true, arg = null) => ({ cancel, act, prevent, arg });
+  if (s.field === "leave") return r("leave");
+  if (s.field === "help") return r("help");
+  if (s.field === "field") return r("field", false);
+  const repeat = e.repeat && ONCE.has(e.key);
+  if (e.key === "Enter" && s.asking) return r(!repeat && s.empty && s.onOverlay ? "confirm" : "none");
+  if (repeat) return r("none");
+  if (e.key === "Escape") return r("escape");
+  if (e.key === "F1" || (e.key === "?" && s.empty)) return r("help");
+  if (e.altKey && /^Digit[1-9]$/.test(e.code ?? "")) return r("maximize", true, Number(e.code.slice(5)));
+  if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) return r("history", true, e.key === "ArrowUp" ? 1 : -1);
+  if (e.metaKey || e.ctrlKey || e.altKey || (s.overlay && !cancel)) return r("none", false);
+  if (s.ac && (e.key === "ArrowDown" || e.key === "ArrowUp")) return r("acMove", true, e.key === "ArrowDown" ? 1 : -1);
+  if (s.ac && e.key === "Tab") return r("acAccept");
+  if (e.key === "Enter") return r(s.empty ? "drill" : "exec");
+  if (!s.empty) return r("bar", e.key === "Tab");
+  if (e.key === "Delete" || e.key === "Backspace") return r("remove", false);
+  if (e.key in NAV) {
+    if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) return r("sortDir", true, e.key === "ArrowUp" ? "asc" : "desc");
+    return r("cursor", true, NAV[e.key]);
+  }
+  if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return r("sort", true, e.key === "ArrowRight" ? 1 : -1);
+  if (e.key === "Tab") return r("focusPanel", true, e.shiftKey ? -1 : 1);
+  if (/^[1-9]$/.test(e.key)) return r("fkey", true, Number(e.key));
+  if (e.key.length === 1 && e.key !== " ") return r("type", false);
+  return r("none", false);
+}
+
 export function bindKeys(k) {
   document.addEventListener("keydown", (e) => {
-    const field = fieldKey(e, document.activeElement, k.cmd);
-    if (field === "leave") { e.preventDefault(); k.leaveField(); return; }
-    if (field === "help") { e.preventDefault(); k.help(); return; }
-    if (field === "field") return;
-    const empty = !k.cmd.value.trim();
-    if (e.key === "Enter" && k.overlayOpen() && k.confirm()) { e.preventDefault(); return; }   // a question: yes
-    if (e.key === "Escape") { e.preventDefault(); k.escape(); return; }
-    if (e.key === "F1" || (e.key === "?" && empty)) { e.preventDefault(); k.help(); return; }
-    if (e.altKey && /^Digit[1-9]$/.test(e.code)) { e.preventDefault(); k.maximize(Number(e.code.slice(5))); return; }
-    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); k.history(e.key === "ArrowUp" ? 1 : -1); return; }
-    if (e.metaKey || e.ctrlKey || e.altKey || k.overlayOpen()) return;
-    if (k.acOpen() && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); k.acMove(e.key === "ArrowDown" ? 1 : -1); return; }
-    if (k.acOpen() && e.key === "Tab") { e.preventDefault(); k.acAccept(); return; }
-    if (e.key === "Enter") { e.preventDefault(); if (empty) k.drill(); else k.exec(); return; }
-    if (!empty) { if (e.key === "Tab") e.preventDefault(); if (document.activeElement !== k.cmd) k.cmd.focus(); return; }
-    if (e.key === "Delete" || e.key === "Backspace") { if (k.remove()) e.preventDefault(); return; }
-    if (e.key in NAV) {
-      e.preventDefault();
-      if (e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) k.sortDir(e.key === "ArrowUp" ? "asc" : "desc");
-      else k.cursor(NAV[e.key]);
-      return;
+    const a = keyAction(e, { field: fieldKey(e, document.activeElement, k.cmd), empty: !k.cmd.value.trim(),
+      overlay: k.overlayOpen(), asking: k.asking(), onOverlay: k.onOverlay(), ac: k.acOpen() });
+    if (a.cancel) k.cancelAsk();
+    if (a.prevent) e.preventDefault();
+    switch (a.act) {
+      case "leave": k.leaveField(); break;
+      case "help": k.help(); break;
+      case "confirm": k.confirm(); break;
+      case "escape": k.escape(); break;
+      case "maximize": k.maximize(a.arg); break;
+      case "history": k.history(a.arg); break;
+      case "acMove": k.acMove(a.arg); break;
+      case "acAccept": k.acAccept(); break;
+      case "drill": k.drill(); break;
+      case "exec": k.exec(); break;
+      case "remove": if (k.remove()) e.preventDefault(); break;
+      case "sortDir": k.sortDir(a.arg); break;
+      case "cursor": k.cursor(a.arg); break;
+      case "sort": k.sort(a.arg); break;
+      case "focusPanel": k.focusPanel(a.arg); break;
+      case "fkey": k.fkey(a.arg); break;
+      case "bar": case "type": if (document.activeElement !== k.cmd) k.cmd.focus(); break;
+      default: break;
     }
-    if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); k.sort(e.key === "ArrowRight" ? 1 : -1); return; }
-    if (e.key === "Tab") { e.preventDefault(); k.focusPanel(e.shiftKey ? -1 : 1); return; }
-    if (/^[1-9]$/.test(e.key)) { e.preventDefault(); k.fkey(Number(e.key)); return; }
-    if (e.key.length === 1 && e.key !== " " && document.activeElement !== k.cmd) k.cmd.focus();
   });
 }

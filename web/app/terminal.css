@@ -192,4 +192,7 @@ tr.dn td { color: var(--dn); }
 .banner .msg { overflow: hidden; text-overflow: ellipsis; min-width: 0; } .banner b { color: var(--cmd); }
 .banner .ctx { margin-left: auto; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .banner.dn { background: var(--dn-bg); color: var(--dn); } .banner.dn b { color: var(--dn); }
-#overlay.ask { inset: 28% 22% auto; } #overlay.ask p { white-space: normal; margin: 4px 0 8px; }
+/* a question sits just under the command bar, where the eye is, and leaves the panels below clickable */
+#overlay.ask { inset: calc(var(--max-top, 23px) + 22px) 22% auto; outline: 0; } #overlay.ask p { white-space: normal; margin: 4px 0 8px; }
+#overlay:focus { outline: 0; } #overlay.ask:focus { box-shadow: 0 0 0 1px var(--cmd); }
+#strip .btn { padding: 0 6px; }

@@ -54,9 +54,10 @@ The first start shows an invented example portfolio. Press **6** (TRADES) and **
   may be English, German or Italian, and every row is previewed (or says what is wrong) before anything is saved;
 - **edit** a trade (Enter on its row) or **delete** it (Del).
 
-Your trades stay on your computer, in `input/portfolio.csv`; every change first copies the previous file to
-`input/backups/` (the newest 20 are kept). You may also edit the file by hand — the terminal picks the change
-up. One row per trade, oldest first; TRADES always writes it like this:
+Your trades stay on your computer, in `input/portfolio.csv`. **UNDO** (a button on TRADES, or the command) puts
+back the file as it was before the last change. Every change first copies the previous file to `input/backups/`
+— the one before your first change and before each START FRESH or replace are kept for good. You may also edit
+the file by hand — the terminal picks the change up. One row per trade, oldest first; TRADES writes it like this:
 
 ```
 Date,Ticker,Action,Shares,Price,PricePerShare
@@ -91,7 +92,7 @@ the row · Shift+←→ sort column, Shift+↑↓ direction · Tab next panel ·
 Alt+↑↓ command history · drag a chart to zoom, double-click to reset · F1 or `?` help.
 
 Commands (`HELP` lists them all): `BUY SAP.DE 4 @ 240` · `SELL ALV.DE 2 = 820 2026-03-02` ·
-`BONUS IWDA.AS 0.15 = 15` · `START FRESH` · `WATCH <name|ticker>` · `UNWATCH <ticker>` ·
+`BONUS IWDA.AS 0.15 = 15` · `UNDO` · `START FRESH` · `WATCH <name|ticker>` · `UNWATCH <ticker>` ·
 `ALERT SAP.DE < 200` / `ALERT * MOVE 5` / `ALERT PORT DAY -2` · `UNALERT <id>` · `ACK <id|ALL>` ·
 `TARGET HRP` · `REFRESH` · `CLOSED` · `FULL`. Alerts are checked every minute while a terminal tab
 is open. `data/README.md` explains the market universe the lookup and MKT's movers use.

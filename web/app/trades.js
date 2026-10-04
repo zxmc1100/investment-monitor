@@ -15,8 +15,10 @@ export function round(x, places) {
 }
 
 // One number as typed (ledger._number with a decimal point, or a comma that cannot be a thousands one).
+export const LIMIT = 1e9;                           // shares, prices, totals above this are typing slips
+
 export function parseNum(text, label) {
-  if (typeof text === "number") return text;
+  if (typeof text === "number") return checked(text, label);
   const t = String(text ?? "").trim();
   if (!t) fail(loud(`${label}: empty`));
   if (/[ '’_\u00a0\u202f]/.test(t) || (t.includes(",") && t.includes(".")) || (t.split(",").length > 2)
@@ -24,7 +26,13 @@ export function parseNum(text, label) {
     fail(loud(`${label}: '${t}' has a thousands separator — write it without one, e.g. 1234.56`));
   }
   if (!/^[+-]?(\d+([.,]\d*)?|[.,]\d+)$/.test(t)) fail(loud(`${label}: '${t}' is not a number`));
-  return Number(t.replace(",", "."));
+  return checked(Number(t.replace(",", ".")), label);
+}
+
+function checked(v, label) {
+  if (!Number.isFinite(v)) fail(`${label} IS NOT A NUMBER`);
+  if (Math.abs(v) > LIMIT) fail(`${label} IS TOO LARGE (OVER 1,000,000,000)`);
+  return v;
 }
 
 const given = (v) => v !== null && v !== undefined && String(v).trim() !== "";
@@ -54,7 +62,7 @@ export function compute(action, shares, { pps = null, total = null, fee = null }
   if (fee !== null && fee < 0) fail("FEE MUST BE 0 OR MORE");
   if (total !== null) {
     if (!(total > 0)) fail("TOTAL MUST BE > 0");
-    return { total: round(total, 2), pps: round(total / shares, 4) };
+    return { total, pps: round(total / shares, 4) };            // a total given is kept exactly
   }
   if (pps === null) fail("PRICE PER SHARE OR TOTAL REQUIRED");
   if (!(pps > 0)) fail("PRICE PER SHARE MUST BE > 0");
@@ -84,11 +92,11 @@ export function describe(t, fee = null) {
   return `${t.action.toUpperCase()} ${fmtQty(t.shares)} ${t.ticker} · ${eur(t.pps)}/sh${extra} = ${eur(t.price)}`;
 }
 
+// A ticker as the server takes it: invisible characters dropped, capitals, only letters, digits and . - = ^
 function ticker(text) {
-  const t = String(text ?? "").trim().toUpperCase();
+  const t = String(text ?? "").normalize("NFKC").replace(/\p{Cf}/gu, "").trim().toUpperCase();
   if (!t) fail("TICKER MISSING");
-  const bad = [...t].find((c) => /\s/.test(c) || ',;"'.includes(c));
-  if (bad !== undefined) fail(`TICKER '${t}' HAS A ${/\s/.test(bad) ? "SPACE" : bad}`);
+  if (!/^[A-Z0-9.\-=^]+$/.test(t)) fail(`TICKER '${t}': ONLY LETTERS, DIGITS AND . - = ^`);
   return t;
 }
 
@@ -158,17 +166,8 @@ export function pasteSummary(res) {
   const rows = res.rows ?? [], warn = rows.filter((r) => !r.error && r.warnings?.length).length;
   return [many(rows.length, "ROW"), `${res.ok ?? 0} TO ADD`, res.bad ? `${res.bad} WITH AN ERROR` : "",
     warn ? many(warn, "WARNING") : "", `${SEP[res.delimiter] ?? res.delimiter} BETWEEN FIELDS`,
-    res.decimal === "comma" ? "DECIMAL COMMA" : "DECIMAL POINT", res.header ? "HEADER READ" : "NO HEADER"]
-    .filter(Boolean).join(" · ");
-}
-
-// What stays in the paste box once the good rows went in: the header (when one was read) and the skipped lines,
-// to fix and preview again — nothing when every row went in.
-export function leftToFix(text, lines, header) {
-  if (!lines?.length) return "";
-  const raw = String(text).split(/\r\n|\r|\n/);
-  const head = header ? raw.find((l) => l.trim()) : null;
-  return [...(head !== undefined && head !== null ? [head] : []), ...lines.map((n) => raw[n - 1] ?? "")].map((l) => `${l}\n`).join("");
+    res.decimal === "comma" ? "DECIMAL COMMA" : "DECIMAL POINT", res.header ? "HEADER READ" : "NO HEADER",
+    ...(res.notes ?? [])].filter(Boolean).join(" · ");
 }
 
 // BUY|SELL|BONUS <TICKER> <SHARES> @ <PRICE> | = <TOTAL> [DATE] [FEE x] -> {type: "trade", values} | {type: "error"}.

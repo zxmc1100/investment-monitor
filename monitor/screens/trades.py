@@ -25,9 +25,15 @@ HELP = [
      "ever added for you — FEE is only for a fee not already in the price (added to a buy, taken off a sale). "
      "Date as YYYY-MM-DD, DD.MM.YYYY or DD/MM/YYYY; empty is today. The line under the form is exactly what "
      "will be stored; Enter saves. Tab, then Enter, takes you into the form; Esc leaves it."},
-    {"h": "EDIT / DELETE", "vis": PRIV, "body": "↑↓ picks a trade in TRANSACTIONS. Enter loads it into the "
-     "form: SAVE replaces it (in place, or moved to its new date). Del or Backspace deletes it after you "
-     "confirm. A change that would leave a sale of more shares than you held then is refused."},
+    {"h": "EDIT / DELETE", "vis": PRIV, "body": "↑↓ (or a click on a row) picks a trade in TRANSACTIONS and "
+     "focuses it. Enter loads it into the form: SAVE replaces it (in place, or moved to its new date). Del or "
+     "Backspace — only while TRANSACTIONS is focused — asks first, naming the trade: Enter on the question "
+     "deletes it; any other key, a click elsewhere or another screen closes the question and nothing changes. A "
+     "change that would leave a sale of more shares than you held then is refused."},
+    {"h": "UNDO", "vis": PRIV, "body": "UNDO (the button in the strip, or the command) puts input/portfolio.csv "
+     "back exactly as it was before the last change made here — your own format and columns included — after a "
+     "question; UNDO again brings the change back. It is offered while the file is still as that change left it "
+     "(after an edit in Excel the older file waits in input/backups/)."},
     {"h": "PASTE / IMPORT", "vis": PRIV, "body": "Paste rows (from a spreadsheet, a note) or pick your "
      "broker's CSV. A header is optional; its names may be English, German or Italian (date / datum / data, "
      "ticker / symbol or ISIN, action / type / typ, shares / quantity / anzahl, price per share / price / kurs / "
@@ -39,12 +45,14 @@ HELP = [
      "to fix."},
     {"h": "COMMANDS", "vis": PRIV, "body": "From any screen: BUY SAP.DE 4 @ 240 (price per share) · "
      "BUY SAP.DE 4 = 961 (total paid, fees in it) · SELL ALV.DE 2 @ 410 2026-03-02 (a date last) · "
-     "BONUS IWDA.AS 0.15 = 15 · FEE 1 at the end adds a fee not in the price · START FRESH empties the file "
-     "(asks first)."},
+     "BONUS IWDA.AS 0.15 = 15 · FEE 1 at the end adds a fee not in the price · UNDO · START FRESH empties the "
+     "file (asks first)."},
     {"h": "THE FILE", "vis": PRIV, "body": "Your trades are input/portfolio.csv. Every change rewrites it in "
-     "one form — commas, a decimal point, YYYY-MM-DD — and first copies the previous file to input/backups/ "
-     "(the newest 20 are kept). You may still edit it in Excel; the terminal picks the change up. A save made "
-     "on a file that changed meanwhile is refused: the view reloads, save again."},
+     "one form — commas, a decimal point, YYYY-MM-DD, tickers in capitals, your own extra columns kept after the "
+     "six — and first copies the previous file to input/backups/: portfolio-original.csv (the file before the "
+     "first change here, kept for good), before-start-fresh-… and before-replace-… (the newest 5 of each, never "
+     "rotated) and the 20 most recent others. You may still edit it in Excel; the terminal picks the change up. "
+     "A save made on a file that changed meanwhile is refused: the view reloads, save again."},
 ]
 
 FIELDS = [

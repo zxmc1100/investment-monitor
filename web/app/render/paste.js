@@ -62,9 +62,9 @@ export function paste(body, p, ui) {
     try {
       const res = await ui.previewText(text, "append");
       if (n !== asked) return;                       // a newer preview is on its way
-      st.preview = res;
+      st.preview = { ...res, text };                 // ADD sends exactly this text
     } catch (e) {
-      st.preview = { error: ui.why(e), rows: [] };
+      st.preview = { error: ui.why(e), rows: [], text };
     }
     draw();
   };

@@ -235,3 +235,9 @@ test("START FRESH empties your trades (the app asks first); START alone says the
   assert.deepEqual([item.run, item.fill], ["START FRESH", false]);           // picked in the palette: it runs
   assert.equal(staticNotice({ type: "fresh" }), "TRADES IS PRIVATE — LOCAL TERMINAL ONLY");
 });
+
+test("UNDO puts back your trades file as it was before the last TRADES change (the app asks first)", () => {
+  assert.deepEqual(parse("undo", CTX), { type: "undo" });
+  assert.equal(staticNotice({ type: "undo" }), "TRADES IS PRIVATE — LOCAL TERMINAL ONLY");
+  assert.ok(helpRows(CTX).some((r) => r.cmd === "UNDO" && r.local));
+});

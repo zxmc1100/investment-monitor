@@ -41,7 +41,7 @@ export function staticNotice(a) {
     case "watch": case "unwatch": return localOnlyMsg("WATCHLIST");
     case "alert": case "unalert": case "ack": return localOnlyMsg("ALRT");
     case "toggle-closed": return localOnlyMsg("CLOSED");
-    case "trade": case "fresh": return localOnlyMsg("TRADES");
+    case "trade": case "fresh": case "undo": return localOnlyMsg("TRADES");
     default: return null;
   }
 }
@@ -92,6 +92,9 @@ export const VERBS = [
       ["BONUS", "add bonus shares (Saveback): @ price per share or = their booked value"]].map(([verb, desc]) => (
     { verb, usage: fixed(tradeUsage(verb.toLowerCase())), local: true, arg: true, desc,
       parse: (rest) => tradeCommand(verb.toLowerCase(), rest) })),
+  { verb: "UNDO", usage: fixed("UNDO"), local: true,
+    desc: "put your trades file back as it was before the last TRADES change (asks first; UNDO again redoes it)",
+    parse: () => ({ type: "undo" }) },
   { verb: "START", usage: fixed("START FRESH"), local: true, run: "START FRESH",
     desc: "empty your trades file to enter your own (asks first; a backup is kept)",
     parse: (rest) => (rest.length === 1 && rest[0] === "FRESH" ? { type: "fresh" } : err("START FRESH")) },

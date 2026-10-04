@@ -62,6 +62,7 @@ export const delTrade = (id, etag) => send(tradePath(id), "DELETE", { etag });
 export const previewTrades = (text, mode) => send("api/trades/preview", "POST", { text, mode });
 export const importTrades = (etag, text, mode) => send("api/trades/import", "POST", { etag, text, mode });
 export const resetTrades = (etag) => send("api/trades/reset", "POST", { etag });
+export const undoTrades = (etag) => send("api/trades/undo", "POST", { etag });
 
 export function subscribe(onEvent) {
   if (isStatic) return () => {};

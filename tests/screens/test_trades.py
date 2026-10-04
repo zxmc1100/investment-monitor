@@ -111,7 +111,7 @@ def test_undo_is_offered_in_the_strip_while_the_file_is_as_trades_left_it(ctx):
 def test_help_explains_the_two_ways_the_fee_and_the_file():
     text = " ".join(h["h"] + " " + h["body"] for h in TR.HELP)
     for word in ("EITHER", "No fee is ever added", "input/backups/", "BUY SAP.DE 4 @ 240", "BUY SAP.DE 4 = 961",
-                 "START FRESH", "@PricePerShare"):
+                 "START FRESH", "@PricePerShare", "UNDO", "portfolio-original.csv", "only while TRANSACTIONS is focused"):
         assert word in text, word
 
 
