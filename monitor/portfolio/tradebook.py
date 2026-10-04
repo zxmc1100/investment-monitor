@@ -37,6 +37,10 @@ class Invalid(ValueError):
         self.errors = errors or [msg]
 
 
+class Blocked(Exception):
+    """The file cannot be written now — on Windows, Excel holds a CSV it has open."""
+
+
 class Missing(KeyError):
     """No row with that id (any more)."""
 
@@ -112,9 +116,12 @@ class TradeBook:
             raise Invalid(problems[0], problems)
         text = T.to_csv(new)
         parse_portfolio_text(text, self.csv.name)            # the file the ledger will read: never written unread
-        if data is not None:
-            self._backup(data)
-        write_text_atomic(self.csv, text, newline="\n")
+        try:
+            if data is not None:
+                self._backup(data)
+            write_text_atomic(self.csv, text, newline="\n")
+        except OSError:                                      # the old file stays (write_text_atomic: whole or not at all)
+            raise Blocked(f"CANNOT WRITE {self.csv.name} — OPEN IN EXCEL OR ANOTHER PROGRAM? CLOSE IT AND SAVE AGAIN") from None
         return T.etag(text.encode("utf-8"))
 
     def _make(self, d: dict) -> dict:

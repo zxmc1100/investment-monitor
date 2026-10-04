@@ -154,3 +154,11 @@ def test_the_default_quote_check_reads_the_quote_buffer_first(tmp_path, monkeypa
     (tmp_path / "quotes.json").write_text(json.dumps({"SAP.DE": {"price": 250.0, "prev_close": 249.0, "date": "2026-10-02",
                                                                  "ts": "2026-10-02T17:00:00"}}), encoding="utf-8")
     assert A.quote_check("SAP.DE", tmp_path)["price"] == 250.0
+
+
+def test_a_locked_file_is_423_with_one_line(env, monkeypatch):
+    from monitor.portfolio import tradebook as TB
+    c, _, csv, _, _ = env
+    monkeypatch.setattr(TB, "write_text_atomic", lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "in use")))
+    r = c.post("/api/trades/reset", json={"etag": etag(c)})
+    assert r.status_code == 423 and r.json()["detail"]["error"].startswith("CANNOT WRITE portfolio.csv")

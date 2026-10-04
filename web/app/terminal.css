@@ -2,6 +2,7 @@
 :root {
   --bg: #000; --fg: #fff; --amber: #ffa028; --cmd: #ffbf00; --up: #00e676; --dn: #ff3d3d;
   --dim: #8a8a8a; --line: #2b2b2b; --cursor: #3a2a00; --flash: #ffa02855;
+  --field: #111; --ghost: #222; --note-bg: #1a1200; --dn-bg: #1a0000;   /* form fields, quiet buttons, banners */
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
 }
 * { box-sizing: border-box; }
@@ -161,24 +162,24 @@ tr.dn td { color: var(--dn); }
 /* forms (TRADES: ADD, PASTE / IMPORT, the START FRESH banner) — style A: black fields, amber labels */
 .tform { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 8px; padding: 4px 6px; align-items: center; }
 .tform > label, .pair > label { color: var(--amber); font-size: 9.5px; white-space: nowrap; }
-.tform input, .tform select, .paste textarea { background: #111; color: var(--fg); caret-color: var(--cmd); border: 1px solid var(--line);
+.tform input, .tform select, .paste textarea { background: var(--field); color: var(--fg); caret-color: var(--cmd); border: 1px solid var(--line);
   font: inherit; padding: 1px 5px; width: 100%; min-width: 0; outline: 0; border-radius: 0; }
 .tform select { color: var(--cmd); }
 .tform input:focus, .tform select:focus, .paste textarea:focus { border-color: var(--amber); }
 .tform input::placeholder, .paste textarea::placeholder { color: var(--dim); }
 .pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 6px; align-items: center; }
 .tk { position: relative; min-width: 0; }
-.sug { position: absolute; top: calc(100% + 1px); left: 0; right: 0; z-index: 25; background: #111; border: 1px solid var(--amber); }
+.sug { position: absolute; top: calc(100% + 1px); left: 0; right: 0; z-index: 25; background: var(--field); border: 1px solid var(--amber); }
 .sug div { display: flex; gap: 8px; padding: 0 5px; white-space: nowrap; overflow: hidden; cursor: pointer; }
 .sug div b { font-weight: 400; color: var(--cmd); min-width: 9ch; } .sug div span { overflow: hidden; text-overflow: ellipsis; }
-.sug div.on { background: var(--amber); color: #000; } .sug div.on b, .sug div.on .dim { color: #000; }
+.sug div.on { background: var(--amber); color: var(--bg); } .sug div.on b, .sug div.on .dim { color: var(--bg); }
 .tform .line { grid-column: 1 / -1; min-height: 1.38em; white-space: normal; }
 .tform .line.err { color: var(--dn); } .tform .line.warn { color: var(--cmd); }
 .tform .editing { grid-column: 1 / -1; color: var(--cmd); }
 .btns { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 2px 0; }
-.btn { background: var(--amber); color: #000; border: 0; font: inherit; font-weight: 700; padding: 0 7px; cursor: pointer; border-radius: 0; }
-.btn.ghost { background: #222; color: var(--fg); font-weight: 400; }
-.btn:hover { background: var(--cmd); color: #000; } .btn:focus-visible { outline: 1px solid var(--cmd); outline-offset: 1px; }
+.btn { background: var(--amber); color: var(--bg); border: 0; font: inherit; font-weight: 700; padding: 0 7px; cursor: pointer; border-radius: 0; }
+.btn.ghost { background: var(--ghost); color: var(--fg); font-weight: 400; }
+.btn:hover { background: var(--cmd); color: var(--bg); } .btn:focus-visible { outline: 1px solid var(--cmd); outline-offset: 1px; }
 .paste { display: flex; flex-direction: column; gap: 3px; padding: 4px 6px; min-width: 0; }
 .paste textarea { resize: vertical; min-height: 7.5em; white-space: pre; overflow: auto; }
 .paste .btns .src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -187,8 +188,8 @@ tr.dn td { color: var(--dn); }
 .pvt { margin-top: 2px; } .pvt th { position: static; cursor: default; }
 .paste .pv { max-height: 42vh; overflow: auto; }
 .panel[data-type="banner"] > .body { overflow: hidden; }
-.banner { display: flex; gap: 12px; align-items: center; padding: 2px 6px; background: #1a1200; color: var(--amber); white-space: nowrap; min-width: 0; }
+.banner { display: flex; gap: 12px; align-items: center; padding: 2px 6px; background: var(--note-bg); color: var(--amber); white-space: nowrap; min-width: 0; }
 .banner .msg { overflow: hidden; text-overflow: ellipsis; min-width: 0; } .banner b { color: var(--cmd); }
 .banner .ctx { margin-left: auto; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.banner.dn { background: #1a0000; color: var(--dn); } .banner.dn b { color: var(--dn); }
+.banner.dn { background: var(--dn-bg); color: var(--dn); } .banner.dn b { color: var(--dn); }
 #overlay.ask { inset: 28% 22% auto; } #overlay.ask p { white-space: normal; margin: 4px 0 8px; }

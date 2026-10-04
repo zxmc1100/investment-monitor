@@ -189,3 +189,29 @@ def test_only_the_newest_20_backups_are_kept(book):
     assert not any(p.read_bytes() == EXAMPLE.read_bytes() for p in kept)        # the oldest went first
     assert max(len(parse_portfolio(p)["transactions"]) for p in kept) == 15 + 22  # the newest is there
     assert sorted(os.listdir(book.csv.parent)) == ["backups", "portfolio.csv"]  # no temp or lock file left
+
+
+def test_a_file_another_program_holds_is_one_line_and_left_as_it_was(book, monkeypatch):
+    """Excel on Windows locks a CSV it has open: the write fails as one line saying so, nothing changes."""
+    from monitor.portfolio import tradebook as TB
+    from monitor.portfolio.tradebook import Blocked
+    before = book.csv.read_bytes()
+
+    def locked(*a, **k):
+        raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+    monkeypatch.setattr(TB, "write_text_atomic", locked)
+    with pytest.raises(Blocked, match="^CANNOT WRITE portfolio.csv — OPEN IN EXCEL OR ANOTHER PROGRAM\\? CLOSE IT AND SAVE AGAIN$"):
+        book.add(book.read()["etag"], {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 1})
+    assert book.csv.read_bytes() == before
+
+
+def test_a_big_import_is_quick(book):
+    """A broker's CSV of a few thousand rows previews and imports in well under a second or two."""
+    import time
+    rows = "".join(f"2025-{1 + i % 12:02d}-{1 + i % 28:02d},T{i % 300}.DE,buy,1,{10 + i % 7}.00\n" for i in range(4000))
+    t = time.perf_counter()
+    pre = book.preview(rows, "append")
+    assert pre["ok"] == 4000 and time.perf_counter() - t < 3
+    t = time.perf_counter()
+    res = book.import_text(book.read()["etag"], rows, "append")
+    assert res["added"] == 4000 and time.perf_counter() - t < 3

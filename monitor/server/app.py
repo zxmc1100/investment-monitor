@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from monitor import config
 from monitor.alerts import watchlist
 from monitor.data.buffer import cached_quotes
-from monitor.portfolio.tradebook import Conflict, Invalid, Missing, TradeBook
+from monitor.portfolio.tradebook import Blocked, Conflict, Invalid, Missing, TradeBook
 from monitor.server.alerting import AlertLoop, AlertService
 from monitor.server.engine import Engine
 from monitor.server.schedule import BuildSchedule
@@ -273,9 +273,12 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
     # ── TRADES: your trades, read and written through TradeBook ─────────────────────────────────────
     def written(call):
         """Run a TradeBook write; refusals become one line (409 changed meanwhile, 404 no such row, 400 a wrong
-        file). A write brings TRADES up to date at once and the portfolio screens after it."""
+        file, 423 the file is held by another program). A write brings TRADES up to date at once and the
+        portfolio screens after it."""
         try:
             out = call()
+        except Blocked as e:
+            raise HTTPException(423, {"error": str(e)})
         except Conflict:
             raise HTTPException(409, {"error": "YOUR TRADES CHANGED MEANWHILE — RELOADED: CHECK AND SAVE AGAIN"})
         except Missing as e:

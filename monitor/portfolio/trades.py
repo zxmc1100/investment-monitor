@@ -238,13 +238,15 @@ def place(rows: list[dict], trade: dict) -> tuple[list[dict], int]:
     return [*rows[:at], trade, *rows[at:]], at
 
 
-def _same(a: dict, b: dict) -> bool:
-    return all(a[k] == b[k] for k in ("date", "ticker", "action", "shares", "price"))
+def _key(t: dict) -> tuple:
+    """What makes two rows the same trade: date, ticker, action, shares, total — not the display price."""
+    return t["date"], t["ticker"], t["action"], t["shares"], t["price"]
 
 
 def duplicate(rows: list[dict], trade: dict) -> dict | None:
     """The row of `rows` that is the same trade (date, ticker, action, shares, total — not the display price)."""
-    return next((r for r in rows if _same(r, trade)), None)
+    k = _key(trade)
+    return next((r for r in rows if _key(r) == k), None)
 
 
 def same_trades(a: Path, b: Path) -> bool:
@@ -480,11 +482,21 @@ def _chronological(new: list[dict]) -> list[dict]:
 
 def merge(existing: list[dict], new: list[dict], mode: str) -> list[dict]:
     """The file after an import: `append` slots each new trade in after the last row dated on or before it
-    (your order otherwise kept); `replace` is the new trades alone. Oldest first either way."""
-    rows = list(existing) if mode == "append" else []
-    for t in _chronological(new):
-        rows, _ = place(rows, t)
-    return rows
+    (your order otherwise kept) — as place() would one by one, in one pass; `replace` is the new trades alone.
+    Oldest first either way."""
+    base = list(existing) if mode == "append" else []
+    order = sorted(range(len(base)), key=lambda i: base[i]["date"])
+    after: dict[int, list[dict]] = {}                    # existing index -> new rows that follow it (-1: first)
+    j, last = 0, -1
+    for t in _chronological(new):                        # dates ascending: `last` only ever moves on
+        while j < len(order) and base[order[j]]["date"] <= t["date"]:
+            last = max(last, order[j])
+            j += 1
+        after.setdefault(last, []).append(t)
+    out = list(after.get(-1, []))
+    for i, r in enumerate(base):
+        out += [r, *after.get(i, [])]
+    return out
 
 
 def review(existing: list[dict], bulk: dict, mode: str) -> dict:
@@ -493,16 +505,18 @@ def review(existing: list[dict], bulk: dict, mode: str) -> dict:
     leaves a later sale of your file short. Repeated until the rest merges cleanly."""
     base = list(existing) if mode == "append" else []
     rows = bulk["rows"]
-    seen: list[tuple[dict, int]] = []
+    mine = {_key(t) for t in base}
+    seen: dict[tuple, int] = {}
     for r in rows:
         t = r["trade"]
         if t is None:
             continue
-        if mode == "append" and duplicate(base, t):
+        k = _key(t)
+        if k in mine:
             r["warnings"].append("SAME AS A TRADE ALREADY IN YOUR FILE")
-        elif (twin := next((line for s, line in seen if _same(s, t)), None)) is not None:
-            r["warnings"].append(f"SAME AS LINE {twin}")
-        seen.append((t, r["line"]))
+        elif k in seen:
+            r["warnings"].append(f"SAME AS LINE {seen[k]}")
+        seen.setdefault(k, r["line"])
     before = {k for i, k in enumerate(ids(base)) if i in oversold(base)}
     for _ in range(len(rows) + 1):
         good = [r for r in rows if r["trade"] and not r["error"]]
