@@ -139,8 +139,8 @@ def test_activity_latest_first_max_10(frozen, tmp_path):
 
 
 def test_registry_order_and_port_entry():
-    assert list(SCREENS) == ["PORT", "OPT", "RISK", "SEC", "MKT", "ALRT"]
-    assert [s.fkey for s in SCREENS.values()] == [1, 2, 3, None, 4, 5]
+    assert list(SCREENS) == ["PORT", "OPT", "RISK", "SEC", "MKT", "ALRT", "TRADES"]
+    assert [s.fkey for s in SCREENS.values()] == [1, 2, 3, None, 4, 5, 6]
     e = SCREENS["PORT"].entry()
     assert e["status"] == "live" and e["public"] is True and e["tiers"] == ["quote", "daily"]
     assert all(s.status == "live" for s in SCREENS.values())

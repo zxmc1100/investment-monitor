@@ -178,6 +178,15 @@ def test_export_without_a_portfolio_has_nothing_to_publish_and_touches_nothing(t
     assert capsys.readouterr().err.strip() == "NOTHING TO PUBLISH — x"   # one line, no traceback
 
 
+def test_export_of_a_book_without_trades_has_nothing_to_publish(tmp_path, web, monkeypatch):
+    """START FRESH leaves a header alone: nothing of yours to publish yet."""
+    out = _published(tmp_path)
+    eng = _book_engine(tmp_path, "Date,Ticker,Action,Shares,Price,PricePerShare\n;;;;;\n", monkeypatch)
+    with pytest.raises(RuntimeError, match="^NOTHING TO PUBLISH — input/portfolio.csv has no trades$"):
+        export(out, engine=eng, web_dir=web)
+    assert (out / "data" / "PORT.json").read_text(encoding="utf-8") == "{}"
+
+
 def test_export_refuses_the_untouched_example_portfolio(tmp_path, web, monkeypatch):
     from monitor.init import EXAMPLES_DIR
     out = _published(tmp_path)

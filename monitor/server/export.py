@@ -23,7 +23,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from monitor import config, plugins
-from monitor.portfolio.ledger import parse_portfolio
+from monitor.portfolio.trades import has_trades, same_trades
 from monitor.server.engine import Engine
 from monitor.server.redact import public_view
 from monitor.server.store import Store
@@ -34,13 +34,14 @@ STATIC_META = '<meta name="im-mode" content="static">'
 
 
 NOTHING = "NOTHING TO PUBLISH — no input/portfolio.csv"
+EMPTY = "NOTHING TO PUBLISH — input/portfolio.csv has no trades"
 EXAMPLE = ("input/portfolio.csv is still the example portfolio (examples/portfolio.example.csv) — "
            "put your own trades there before publishing")
 
 
 def refuse_unpublishable(engine: Engine) -> None:
     """RuntimeError(one line) when this export must not run: a settings error (the numbers would use
-    defaults you did not choose), no portfolio, or the untouched example portfolio."""
+    defaults you did not choose), no portfolio or one without trades, or the untouched example portfolio."""
     config.refresh_settings()
     if config.SETTINGS_ERROR:
         raise RuntimeError(f"{config.SETTINGS_ERROR} — fix it before publishing")
@@ -49,18 +50,11 @@ def refuse_unpublishable(engine: Engine) -> None:
     csv = Path(engine.ctx.portfolio_csv)
     if not csv.exists():
         raise RuntimeError(NOTHING)
+    if not has_trades(csv):
+        raise RuntimeError(EMPTY)
     example = config.EXAMPLES_DIR / "portfolio.example.csv"
-    if example.exists() and _same_trades(csv, example):
+    if example.exists() and same_trades(csv, example):     # however it was saved; unreadable: the export says why
         raise RuntimeError(EXAMPLE)
-
-
-def _same_trades(a: Path, b: Path) -> bool:
-    """The same trades, however the file was saved (line endings, a BOM, Excel's `;` and decimal comma)."""
-    try:
-        return a.read_bytes() == b.read_bytes() or \
-            parse_portfolio(a)["transactions"] == parse_portfolio(b)["transactions"]
-    except (OSError, ValueError):            # unreadable: not the example (the export itself will say why)
-        return False
 
 
 def export(out_dir: Path = config.DOCS_DIR, *, engine: Engine | None = None, cached: bool = False,

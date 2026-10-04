@@ -120,3 +120,13 @@ def test_cached_info_asks_at_most_max_asks(tmp_path):
     calls = []
     BUF.cached_info(["A.F", "B.F", "C.F"], buffer_dir=tmp_path, _fetch=lambda t: calls.append(t), max_asks=2)
     assert calls == ["A.F", "B.F"]
+
+
+def test_max_asks_0_reads_what_was_asked_before_and_never_asks(yahoo, tmp_path):
+    """A screen that must not touch the network (TRADES) still gets the names an earlier run asked for."""
+    asked, profiles = yahoo
+    profiles["ZZZ.F"] = {"name": "Zed Corp", "sector": "Industrials", "country": "Germany"}
+    assert identify(["ZZZ.F", "YYY.F"], buffer_dir=tmp_path, max_asks=0)["ZZZ.F"]["name"] == "ZZZ.F"
+    assert asked == []
+    identify(["ZZZ.F"], buffer_dir=tmp_path)
+    assert identify(["ZZZ.F"], buffer_dir=tmp_path, max_asks=0)["ZZZ.F"]["name"] == "Zed Corp" and asked == ["ZZZ.F"]

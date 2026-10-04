@@ -106,15 +106,15 @@ def test_the_retired_legacy_pages_are_gone(env):
 
 
 def test_no_portfolio_yet_is_a_cold_view_that_says_how_to_start(tmp_path, web, monkeypatch, caplog):
-    """No input/portfolio.csv: the server starts; PORT / OPT / RISK show one line saying how to begin
-    (nothing is computed, nothing fails, no stack trace); MKT and ALRT work; the moment the file
-    exists the screens compute — no restart."""
+    """No input/portfolio.csv: the server starts; PORT / OPT / RISK show one line saying how to begin — press
+    6 (TRADES) — (nothing is computed, nothing fails, no stack trace); MKT, ALRT and TRADES work; the moment the
+    file holds trades the screens compute — no restart."""
     import logging
 
     import time_machine
 
-    from monitor.screens.base import NO_PORTFOLIO
     from tests import fakes_yf
+    NO_PORTFOLIO = "NO TRADES YET — press 6 (TRADES): add your trades, paste many or import your broker's CSV"
     fakes_yf.install(monkeypatch)
     caplog.set_level(logging.WARNING)
     csv = tmp_path / "input" / "portfolio.csv"
@@ -123,8 +123,6 @@ def test_no_portfolio_yet_is_a_cold_view_that_says_how_to_start(tmp_path, web, m
                      ctx=Ctx(portfolio_csv=csv, buffer_dir=tmp_path / "buf", equity_log=None,
                              watchlist=tmp_path / "wl.json", alerts=tmp_path / "alerts.json"))
         with TestClient(create_app(eng, web_dir=web), base_url="http://127.0.0.1") as c:
-            assert NO_PORTFOLIO == ("NO PORTFOLIO YET — put your trades in input/portfolio.csv, or restart the "
-                                    "terminal for the example (python -m monitor init)")
             for sid in ("PORT", "OPT", "RISK"):
                 r = c.get(f"/api/screen/{sid}")
                 assert r.status_code == 202 and r.json()["cold"] is True and r.json()["reason"] == NO_PORTFOLIO
@@ -133,6 +131,8 @@ def test_no_portfolio_yet_is_a_cold_view_that_says_how_to_start(tmp_path, web, m
             assert [j for j in eng.runner.jobs() if j["screen"] in ("PORT", "OPT", "RISK")] == []
             for sid in ("MKT", "ALRT"):
                 assert c.get(f"/api/screen/{sid}").status_code == 202
+            r = c.get("/api/screen/TRADES")                                     # inline: at once
+            assert r.status_code == 200 and r.json()["etag"] == "absent"
             assert eng.runner.wait_idle(30)
             for sid in ("MKT", "ALRT"):
                 r = c.get(f"/api/screen/{sid}")

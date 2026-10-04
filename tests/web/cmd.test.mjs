@@ -181,7 +181,7 @@ test("the static app reads private screens from screens.json, or falls back to L
   const o = splitRegistry(STATIC_OLD, true);
   assert.deepEqual(o.private.map((p) => [p.id, p.fkey]), Object.entries(LOCAL_ONLY));
   assert.deepEqual(splitRegistry(STATIC_NEW, false), { ...STATIC_NEW, private: [] });   // the live terminal serves them all
-  assert.deepEqual([5, 6, 1, 8].map((k) => privateAt(k, o.private)), ["ALRT", null, null, null]);
+  assert.deepEqual([5, 6, 1, 8].map((k) => privateAt(k, o.private)), ["ALRT", "TRADES", null, null]);
   assert.deepEqual([5, 6, 7].map((k) => privateAt(k, n.private)), ["ALRT", "NOTE", null]);
 });
 test("the static snapshot names a private screen LOCAL TERMINAL ONLY — never unknown, never a load", () => {

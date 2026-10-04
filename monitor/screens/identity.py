@@ -29,11 +29,12 @@ def _fill(rec: dict, name, sector, country) -> None:
 
 
 def identify(tickers, *, buffer_dir: Path | None = None, names: dict[str, str] | None = None,
-             need: tuple[str, ...] = FIELDS) -> dict[str, dict]:
+             need: tuple[str, ...] = FIELDS, max_asks: int = MAX_ASKS) -> dict[str, dict]:
     """{ticker: {"name", "sector", "country"}} — never empty fields. `names`: extra display names
     (your watchlist's) tried right after the built-in map. Yahoo is asked only for a ticker still
-    missing one of the `need` fields (a look-through ETF never), and at most MAX_ASKS times per call —
-    the others show the ticker / "Unknown" until a later run (every quote tier) asks them."""
+    missing one of the `need` fields (a look-through ETF never), and at most `max_asks` times per call —
+    the others show the ticker / "Unknown" until a later run (every quote tier) asks them. max_asks=0:
+    no network at all, only what earlier asks cached."""
     out = {}
     for t in sorted(set(tickers)):
         rec = {"name": COMPANY_NAMES.get(t) or (names or {}).get(t),
@@ -45,7 +46,7 @@ def identify(tickers, *, buffer_dir: Path | None = None, names: dict[str, str] |
                     _fill(rec, hit.get("name"), hit.get("sector"), hit.get("country"))
         out[t] = rec
     ask = [t for t, r in out.items() if not all(r[k] for k in need) and t not in ETF_SECTOR_WEIGHTS]
-    for t, info in (cached_info(ask, buffer_dir=buffer_dir, max_asks=MAX_ASKS) if ask else {}).items():
+    for t, info in (cached_info(ask, buffer_dir=buffer_dir, max_asks=max_asks) if ask else {}).items():
         if info:
             _fill(out[t], info.get("name"), info.get("sector"), info.get("country"))
     for t, r in out.items():

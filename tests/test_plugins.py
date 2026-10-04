@@ -67,11 +67,11 @@ def addon(tmp_path, monkeypatch):
 
 
 def test_the_suite_runs_without_an_addon():
-    """MONITOR_PRIVATE=0 (tests/conftest.py): the registry is the core's — keys 1–5, no gap, no add-on."""
+    """MONITOR_PRIVATE=0 (tests/conftest.py): the registry is the core's — keys 1–6, no gap, no add-on."""
     from monitor.screens import SCREENS
     assert not plugins.load().screens and plugins.commands() == {} and plugins.ctx_paths() == {}
     assert {s.id: s.fkey for s in SCREENS.values()} == {"PORT": 1, "OPT": 2, "RISK": 3, "SEC": None, "MKT": 4,
-                                                         "ALRT": 5}
+                                                         "ALRT": 5, "TRADES": 6}
 
 
 def test_no_addon_directory_changes_nothing(tmp_path, monkeypatch):
@@ -182,3 +182,39 @@ def test_a_registry_built_while_the_addon_loads_is_patched_once_it_has(addon):
             hooks.add_screen(Screen(id="XTRA", title="Extra", fkey=2))
     """)
     assert list(sys.modules["monitor_private.plugin"].BUILT) == ["PORT", "XTRA"]
+
+
+OWNER_LAYOUT = """
+    from monitor.screens.base import Screen
+
+    def register(hooks):
+        hooks.add_screen(Screen(id="MOM", title="Momentum", fkey=5, tiers=("daily",)), before="ALRT")
+        hooks.add_screen(Screen(id="LABS", title="Labs", fkey=6, tiers=("daily",)), before="ALRT")
+        hooks.set_fkey("ALRT", 7)
+        {move}
+"""
+
+
+def test_an_addon_moves_a_core_screens_key_trades_to_8(addon, tmp_path):
+    """A local add-on whose own screens take 5 and 6 moves the core's ALRT to 7 and TRADES to 8: the whole
+    registry follows, and so does every place that names the key (PORT's cold view says press 8)."""
+    from monitor.screens import SCREENS as CORE
+    from monitor.server.engine import Engine
+    from monitor.server.store import Store
+    from tests.server.helpers import Recorder
+    addon(OWNER_LAYOUT.format(move='hooks.set_fkey("TRADES", 8)'))
+    reg = plugins.apply_screens(dict(CORE))
+    assert {s.id: s.fkey for s in reg.values()} == {"PORT": 1, "OPT": 2, "RISK": 3, "SEC": None, "MKT": 4,
+                                                    "MOM": 5, "LABS": 6, "ALRT": 7, "TRADES": 8}
+    assert reg["TRADES"].inline and reg["TRADES"].public is False          # moved, otherwise the core's own
+    eng = Engine(reg, Store(tmp_path / "store"), Recorder(), ctx=Ctx(portfolio_csv=tmp_path / "none.csv"))
+    assert eng.cold_reason("PORT").startswith("NO TRADES YET — press 8 (TRADES): ")
+
+
+def test_an_addon_that_leaves_trades_on_6_collides_and_is_not_applied(addon, caplog):
+    from monitor.screens import SCREENS as CORE
+    addon(OWNER_LAYOUT.format(move="pass"))
+    with caplog.at_level(logging.WARNING, logger="monitor.plugins"):
+        reg = plugins.apply_screens(dict(CORE))
+    assert {s.id: s.fkey for s in reg.values()}["TRADES"] == 6 and "MOM" not in reg
+    assert "two screens share a number key" in caplog.text

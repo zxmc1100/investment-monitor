@@ -13,7 +13,7 @@ export const tickerShaped = (w) => TICKER.test(w) && /[.\d]/.test(w);
 // "<ID> IS PRIVATE — LOCAL TERMINAL ONLY", never an unknown command or a failed load. LOCAL_ONLY is the
 // fallback for a screens.json that listed only the published screens (exports before the flag);
 // tests/web/test_local_only.py pins it to monitor.screens.
-export const LOCAL_ONLY = { ALRT: 5, SEC: null };
+export const LOCAL_ONLY = { ALRT: 5, SEC: null, TRADES: 6 };
 
 // The registry as the app uses it: `screens` it can open, `private` it can only name (static only).
 export function splitRegistry(reg, isStatic) {

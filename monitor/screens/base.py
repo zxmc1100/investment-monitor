@@ -33,9 +33,21 @@ from monitor import config
 from monitor.config import EQUITY_LOG, PORTFOLIO_CSV
 
 TIERS = ("quote", "daily", "heavy")
-# What a screen built from your trades shows while input/portfolio.csv does not exist yet.
+# What a screen built from your trades shows while there are none yet — where a registry without TRADES
+# (no_trades) says to put them.
 NO_PORTFOLIO = ("NO PORTFOLIO YET — put your trades in input/portfolio.csv, or restart the terminal for the example "
                 "(python -m monitor init)")
+
+
+def no_trades(screens: Mapping[str, "Screen"]) -> str:
+    """The cold view of a screen built from your trades while there are none (no input/portfolio.csv, or a
+    header alone — as START FRESH leaves it): TRADES by the number key this registry gives it (a local add-on
+    may move it), else NO_PORTFOLIO."""
+    t = screens.get("TRADES")
+    if t is None or t.status != "live":
+        return NO_PORTFOLIO
+    how = f"press {t.fkey} (TRADES)" if t.fkey else "type TRADES"
+    return f"NO TRADES YET — {how}: add your trades, paste many or import your broker's CSV"
 
 
 @dataclass(frozen=True)
@@ -112,9 +124,12 @@ class Screen:
     # A monthly screen's build is current once built on or after the rebuild day AND current(ctx) (e.g. its
     # data holds a session of the new period — a holiday can push the first session past the rebuild day)
     current: Callable[[Ctx], bool] | None = None
-    needs_portfolio: bool = False       # without ctx.portfolio_csv: a cold view saying NO_PORTFOLIO, no compute
+    needs_portfolio: bool = False       # without trades in ctx.portfolio_csv: a cold view (no_trades), no compute
     uses_inputs: bool = False           # reads the book or the settings: parts are stale when those change
     cold: Callable[[Ctx], str | None] | None = None    # a further one-line reason it cannot compute now
+    # Cheap and local (no network): its due tiers compute in the request itself — never queued behind the
+    # network tiers — and only its code or your inputs make them due, never age (TRADES).
+    inline: bool = False
 
     def run(self, tier: str, ctx: Ctx, param: str | None = None) -> Any:
         return self.compute(tier, ctx) if self.params is None else self.compute(tier, ctx, param)

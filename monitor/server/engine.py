@@ -5,6 +5,7 @@ for FAILED_RETRY_MIN (a manual refresh runs at once). Payloads assemble only whe
 exists and was computed by the current code, so a half-updated screen is never shown.
 """
 import collections
+import contextlib
 import os
 import re
 import subprocess
@@ -16,7 +17,8 @@ from datetime import datetime
 from typing import Any, Callable
 
 from monitor import config
-from monitor.screens.base import NO_PORTFOLIO, Ctx, Screen, screen_key, split_key
+from monitor.portfolio.trades import has_trades
+from monitor.screens.base import Ctx, Screen, no_trades, screen_key, split_key
 from monitor.server import prefs as prefs_mod
 from monitor.server.jobs import Job, JobRunner
 from monitor.server.store import Store
@@ -100,13 +102,27 @@ class Engine:
         return dropped
 
     def cold_reason(self, sid: str) -> str | None:
-        """Why `sid` cannot compute at all right now (no input/portfolio.csv yet, or the screen's own
-        `cold` reason, e.g. fewer than two priced positions), else None. Such a screen runs no jobs —
-        nothing fails, nothing is logged — and computes once the reason is gone."""
+        """Why `sid` cannot compute at all right now (no trades yet — no input/portfolio.csv, or a header
+        alone — or the screen's own `cold` reason, e.g. fewer than two priced positions), else None. Such a
+        screen runs no jobs — nothing fails, nothing is logged — and computes once the reason is gone."""
         scr = self.screens[sid]
-        if scr.needs_portfolio and not Path(self.ctx.portfolio_csv).exists():
-            return NO_PORTFOLIO
+        if scr.needs_portfolio and not has_trades(Path(self.ctx.portfolio_csv)):
+            return no_trades(self.screens)
         return scr.cold(self.ctx) if scr.cold is not None else None
+
+    @staticmethod
+    def _net(scr: Screen):
+        """The network lock a tier compute holds — none for an inline (local) screen."""
+        return contextlib.nullcontext() if scr.inline else _NET_LOCK
+
+    def _compute_inline(self, sid: str, param: str | None, tiers: list[str], *, force: bool = False) -> None:
+        """An inline screen's tiers, here and now, then assemble (and publish) it."""
+        scr, key = self.screens[sid], screen_key(sid, param)
+        for tier in tiers:
+            version = scr.version(self.ctx)
+            self._put(key, tier, scr.run(tier, replace(self.ctx, force=force), param), version)
+        if tiers:
+            self.assemble(sid, param)
 
     def _run_tier(self, key: str, tier: str, force: bool) -> None:
         task = self.tasks.get((key, tier))
@@ -124,7 +140,7 @@ class Engine:
                 self._spawn_build(key, scr, ("--scheduled",) if scheduled else ())
             part = scr.run(tier, replace(self.ctx, force=force), param)   # load: no network, no lock
         else:
-            with _NET_LOCK:
+            with self._net(scr):
                 part = scr.run(tier, replace(self.ctx, force=force), param)
         self._put(key, tier, part, version)
         self.assemble(sid, param)
@@ -254,7 +270,7 @@ class Engine:
             if stamp is not None and stamp > datetime.fromisoformat(info["at"]).timestamp():
                 due.append(tier)                           # its input (an artifact) is newer
                 continue
-            limit = MAX_AGE_S.get(tier)
+            limit = None if scr.inline else MAX_AGE_S.get(tier)
             if limit is not None and (now - datetime.fromisoformat(info["at"])).total_seconds() >= limit * DUE_SLACK:
                 due.append(tier)
         return due
@@ -273,9 +289,24 @@ class Engine:
         manual refresh() still runs at once."""
         if self.cold_reason(sid):
             return []
+        if self.screens[sid].inline:                            # cheap and local: now, in this request
+            self._compute_inline(sid, param, self.due_tiers(sid, param))
+            return []
         key, now = screen_key(sid, param), datetime.now()
         return [self.runner.submit(key, t, force=(t == "quote")) for t in self.due_tiers(sid, param, now)
                 if not self.backing_off(key, t, now)]
+
+    def inputs_changed(self) -> list[Job]:
+        """Your trades were just written (TRADES): every screen that reads them brings itself up to date — an
+        inline one at once, any other that was computed before queues its due tiers (its current payload stays
+        until the new one assembles); a screen never opened computes when it is."""
+        jobs: list[Job] = []
+        for sid, scr in self.screens.items():
+            if scr.status != "live" or not scr.uses_inputs or scr.params is not None:
+                continue
+            if scr.inline or any(self.store.part_info(sid, t) for t in scr.tiers):
+                jobs += self.ensure_fresh(sid)
+        return jobs
 
     def build(self, sid: str, *, scheduled: bool = False) -> Job:
         """Run a build screen's build child now, then reload (BUILD <screen>, or the month-start schedule).
@@ -337,7 +368,7 @@ class Engine:
         scr, key = self.screens[sid], screen_key(sid, param)
         for tier in scr.tiers:
             version = scr.version(self.ctx)
-            with _NET_LOCK:
+            with self._net(scr):
                 part = scr.run(tier, replace(self.ctx, force=force), param)
             self._put(key, tier, part, version)
         payload = self.assemble(sid, param)

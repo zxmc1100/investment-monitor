@@ -1,6 +1,6 @@
 """The static app's fallback table of private screens (web/app/cmd.js LOCAL_ONLY, read only when an old
 data/screens.json lacks the `public: false` entries) is the terminal's own: every screen that is never
-exported, with its number key — so 5 on GitHub Pages names ALRT as local only."""
+exported, with its number key — so 5 on GitHub Pages names ALRT (6 TRADES) as local only."""
 import json
 import re
 from pathlib import Path
@@ -15,4 +15,4 @@ def test_local_only_matches_the_private_screens():
     assert m, "LOCAL_ONLY table missing from web/app/cmd.js"
     table = json.loads(re.sub(r"(\w+):", r'"\1":', m.group(1)))
     assert table == {s.id: s.fkey for s in SCREENS.values() if not s.public}
-    assert table == {"ALRT": 5, "SEC": None}
+    assert table == {"ALRT": 5, "SEC": None, "TRADES": 6}

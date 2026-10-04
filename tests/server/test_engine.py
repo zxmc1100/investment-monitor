@@ -235,7 +235,9 @@ def test_a_screen_that_needs_the_portfolio_stays_cold_without_one(tmp_path, monk
     assert eng.ensure_fresh("FAKE") == [] and eng.refresh("FAKE") == [] and calls == []
     with pytest.raises(RuntimeError, match="NO PORTFOLIO YET"):
         eng.compute_now("FAKE")
-    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n", encoding="utf-8")
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n;;;;;\n", encoding="utf-8")   # a header alone
+    assert eng.cold_reason("FAKE") == NO_PORTFOLIO and eng.ensure_fresh("FAKE") == [] and calls == []
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-02,X.F,buy,1,10.00,10.00\n", encoding="utf-8")
     assert eng.cold_reason("FAKE") is None and {j.tier for j in eng.ensure_fresh("FAKE")} == {"quote", "daily"}
     assert eng.runner.wait_idle(5) and eng.payload("FAKE") is not None
     plain, _ = _engine(tmp_path / "p", scr)
@@ -263,3 +265,75 @@ def test_opt_and_risk_need_two_priced_positions(tmp_path):
     assert eng.cold_reason("RISK") == NEEDS_TWO                           # Yahoo never priced BBB.F
     csv.write_text("not,a,ledger\n1,2,3\n", encoding="utf-8")
     assert eng.cold_reason("OPT") is None                                 # unreadable book: the compute reports it
+
+
+def test_without_trades_the_cold_view_names_the_trades_screen_and_its_key(tmp_path, monkeypatch):
+    """No trades yet (no file, or a header alone, as START FRESH leaves it): the screens built from them say
+    where to add some — TRADES by the number key this registry gives it (a local add-on may move it)."""
+    from monitor.screens.base import NO_PORTFOLIO, Screen
+    scr, calls, _ = make_screen(tmp_path, monkeypatch)
+    needy = dataclasses.replace(scr, needs_portfolio=True)
+    trades = Screen("TRADES", "Trades", 6, tiers=("quote",))
+    eng = Engine({"FAKE": needy, "TRADES": trades}, Store(tmp_path / "store"), Recorder(),
+                 ctx=Ctx(buffer_dir=tmp_path, portfolio_csv=tmp_path / "portfolio.csv"))
+    msg = "NO TRADES YET — press 6 (TRADES): add your trades, paste many or import your broker's CSV"
+    assert eng.cold_reason("FAKE") == msg and NO_PORTFOLIO != msg
+    eng.screens["TRADES"] = dataclasses.replace(trades, fkey=8)
+    assert eng.cold_reason("FAKE").startswith("NO TRADES YET — press 8 (TRADES): ")
+    eng.screens["TRADES"] = dataclasses.replace(trades, fkey=None)
+    assert eng.cold_reason("FAKE").startswith("NO TRADES YET — type TRADES: ")
+    assert eng.cold_reason("TRADES") is None and calls == []
+
+
+def _inline(tmp_path, monkeypatch):
+    scr, calls, dep = make_screen(tmp_path, monkeypatch)
+    csv = tmp_path / "portfolio.csv"
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n", encoding="utf-8")
+    scr = dataclasses.replace(scr, inline=True, uses_inputs=True, tiers=("quote",))
+    rec = Recorder()
+    eng = Engine({"FAKE": scr}, Store(tmp_path / "store"), rec, ctx=Ctx(buffer_dir=tmp_path, portfolio_csv=csv))
+    return eng, calls, csv, rec
+
+
+def test_an_inline_screen_computes_in_the_request_never_behind_a_network_compute(tmp_path, monkeypatch):
+    """A cheap, local screen (TRADES) computes in the request itself: never queued behind PORT's minutes-long
+    network tiers (they hold _NET_LOCK and both job workers), and only your inputs or its code make it due."""
+    from monitor.server import engine as E
+    eng, calls, csv, rec = _inline(tmp_path, monkeypatch)
+    done = threading.Event()
+    with E._NET_LOCK:                                           # a network compute is running
+        threading.Thread(target=lambda: (eng.ensure_fresh("FAKE"), done.set()), daemon=True).start()
+        assert done.wait(5)
+    assert eng.payload("FAKE") is not None and calls == [("quote", False)] and eng.runner.jobs() == []
+    assert any(e["type"] == "screen" for e in rec.events)
+    assert eng.due_tiers("FAKE", now=datetime.now() + timedelta(days=3)) == []        # age never makes it due
+    assert eng.ensure_fresh("FAKE") == [] and len(calls) == 1
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-02,X.F,buy,1,10.00,10.00\n", encoding="utf-8")
+    assert eng.due_tiers("FAKE") == ["quote"]
+    eng.ensure_fresh("FAKE")
+    assert len(calls) == 2
+    with E._NET_LOCK:                                           # REFRESH queues a job that needs no lock either
+        assert [j.tier for j in eng.refresh("FAKE")] == ["quote"] and eng.runner.wait_idle(5)
+    assert calls[-1] == ("quote", True)
+
+
+def test_inputs_changed_brings_every_screen_that_reads_them_up_to_date(tmp_path, monkeypatch):
+    """After TRADES writes the file: the inline screens recompute at once; a screen that reads your trades and
+    was computed before queues its due tiers; one never opened stays untouched until it is."""
+    eng, calls, csv, rec = _inline(tmp_path, monkeypatch)
+    port, pcalls, _ = make_screen(tmp_path, monkeypatch, sid="PORT")
+    port = dataclasses.replace(port, uses_inputs=True, needs_portfolio=True)
+    never, ncalls, _ = make_screen(tmp_path, monkeypatch, sid="RISK")
+    never = dataclasses.replace(never, uses_inputs=True, needs_portfolio=True)
+    mkt, mcalls, _ = make_screen(tmp_path, monkeypatch, sid="MKT")
+    eng.screens.update({"PORT": port, "RISK": never, "MKT": mkt})
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-02,X.F,buy,1,10.00,10.00\n", encoding="utf-8")
+    eng.compute_now("PORT")
+    eng.compute_now("MKT")
+    eng.ensure_fresh("FAKE")
+    pcalls.clear(), mcalls.clear(), calls.clear()
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-02,X.F,buy,2,20.00,10.00\n", encoding="utf-8")
+    jobs = eng.inputs_changed()
+    assert calls == [("quote", False)]                          # at once, before any job
+    assert sorted((j.screen, j.tier) for j in jobs) == [("PORT", "daily"), ("PORT", "quote")]
+    assert eng.runner.wait_idle(5) and ncalls == [] and mcalls == []
