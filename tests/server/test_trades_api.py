@@ -189,13 +189,18 @@ def test_undo_puts_the_file_back(env):
     assert r.status_code == 409
 
 
-def test_recomputes_after_a_burst_of_writes_coalesce_into_one(env):
+def test_recomputes_after_a_burst_of_writes_coalesce_into_one(env, monkeypatch):
+    from monitor import config
+    monkeypatch.setattr(config, "TRADES_SETTLE_S", 1.5)       # wider than three saves on a slow runner (fsyncs)
     c, eng, csv, calls, rec = env
     eng.compute_now("PORT")
     calls.clear()
     for i in range(3):
         c.post("/api/trades", json={"etag": etag(c), "trade": {"ticker": "SAP.DE", "action": "buy", "shares": 1,
                                                                 "total": 10 + i}})
+    deadline = time.monotonic() + 10
+    while not calls and time.monotonic() < deadline:          # the settled recompute fires once, 1.5 s after the last
+        time.sleep(0.05)
     time.sleep(0.3)
     assert eng.runner.wait_idle(5) and sorted(calls) == [("daily", False), ("quote", True)]      # once, not three times
     assert len([e for e in rec.events if e["type"] == "screen" and e["id"] == "TRADES"]) >= 3   # TRADES at once, each

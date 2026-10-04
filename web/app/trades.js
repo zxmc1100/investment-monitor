@@ -208,11 +208,18 @@ export function rankSuggestions(q, book, found, n = 8) {
   return [...mine, ...rest].slice(0, n);
 }
 
+// Windows-1252's 0x80–0x9F (where it differs from Latin-1). Decoded by hand: some runtimes' TextDecoder
+// reads "windows-1252" as Latin-1 and turns € into \x80.
+const CP1252 = "\u20ac\ufffd\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\ufffd\u017d\ufffd"
+  + "\ufffd\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\ufffd\u017e\u0178";
+
 // An imported file's bytes as text: UTF-8 (a BOM dropped), else Windows-1252 — what an older Excel saves.
 export function decodeBytes(buf) {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^\ufeff/, "");
   } catch {
-    return new TextDecoder("windows-1252").decode(buf);
+    let out = "";
+    for (const b of new Uint8Array(buf)) out += b >= 0x80 && b <= 0x9f ? CP1252[b - 0x80] : String.fromCharCode(b);
+    return out;
   }
 }

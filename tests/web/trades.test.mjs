@@ -130,6 +130,8 @@ test("an imported file is read as UTF-8, else as Windows-1252 (an old Excel's CS
   assert.equal(decodeBytes(bom.buffer), "Gebühr;Betrag\n");
   const cp1252 = new Uint8Array([0x47, 0x65, 0x62, 0xfc, 0x68, 0x72, 0x3b, 0x80]);      // Gebühr;€
   assert.equal(decodeBytes(cp1252.buffer), "Gebühr;€");
+  const quotes = new Uint8Array([0x93, 0x41, 0x94, 0x20, 0x96, 0x20, 0x9a]);              // “A” – š
+  assert.equal(decodeBytes(quotes.buffer), "\u201cA\u201d \u2013 \u0161");
 });
 
 test("typing a price makes it the source: the other one empties and shows what follows from it", () => {
