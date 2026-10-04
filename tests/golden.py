@@ -10,8 +10,9 @@ import pandas as pd
 
 
 def canon(x):
-    """JSON-ready and exact: floats by repr (round-trip), NaN/inf named, Series as index + values,
-    datetimes as ISO strings, dicts sorted by key."""
+    """JSON-ready and stable: floats to 10 significant digits (any real change shows; the last-bit
+    noise of a different numpy / pandas / Python / CPU does not), NaN/inf named, Series as index +
+    values, datetimes as ISO strings, dicts sorted by key."""
     if isinstance(x, pd.Series):
         return {"i": [str(i) for i in x.index], "v": [canon(v) for v in x.tolist()]}
     if isinstance(x, pd.DataFrame):
@@ -26,7 +27,8 @@ def canon(x):
     if isinstance(x, (bool, np.bool_)):
         return bool(x)
     if isinstance(x, (float, np.floating)):
-        return repr(float(x))
+        v = float(x)
+        return repr(v) if v != v or v in (float("inf"), float("-inf")) else format(v + 0.0, ".10g")
     if isinstance(x, np.integer):
         return int(x)
     if isinstance(x, (pd.Timestamp, datetime)):
