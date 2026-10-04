@@ -23,7 +23,8 @@ account taxed in Germany; any broker works if you can write your trades as a CSV
 4. The first start installs what it needs (about 2 minutes). Then your browser opens
    **http://localhost:8000** with an example portfolio.
 
-Keep the Terminal window open while you use it; close it to stop. Next time, double-click again.
+Keep the Terminal window open while you use it; close it to stop. Next time, double-click again — or run
+`./tools/macos/install-link.sh` once and bookmark **`monitor://open`** (starts it in the background and opens it).
 
 ## Install & start on Windows
 
