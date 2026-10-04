@@ -54,6 +54,16 @@ test("normalize draws each line's time-weighted growth from 0 at its first point
   near(out[2].y, [0, null, -20]);
   assert.equal(out[0].name, "YOU");
 });
+test("a window with nothing before it (ALL) starts before the first money: the first day's fee and move count", () => {
+  const xs = [10, 20, 30], ys = [{ y: [-1, 5, 9], twr: [0.99, 1.05, 1.1] }];
+  const all = sliceFrom(xs, ys, -Infinity, Infinity, true);
+  assert.equal(all.start, 0);
+  const near = (a, b) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 1e-9, `${v} vs ${b[i]}`));
+  near(normalize(all.series, true)[0].y, [-1, 5, 10]);                 // growth of 1 € before the first trade
+  const later = sliceFrom(xs, ys, 25, Infinity, true);                 // anchored on x = 20: a close before it
+  assert.equal(later.start, 1);
+  near(normalize(later.series, later.start === 0)[0].y, [0, (1.1 / 1.05 - 1) * 100]);
+});
 test("a line without a time-weighted curve cannot be normalized honestly: it is left out, and NORM is only offered when every line has one", () => {
   assert.deepEqual(normalize([{ y: [1, 2] }])[0].y, [null, null]);
   assert.equal(canNorm([{ y: [1], twr: [1] }, { kind: "markers", y: [1] }]), true);

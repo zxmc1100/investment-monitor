@@ -50,7 +50,7 @@ export function chart(body, p, ui) {
   // NORM: each line's time-weighted return from the close before the period (see ranges.normalize).
   const normable = canNorm(src.series), norm = normable && ui.chartNorm(p.id);
   const sliced = sliceFrom(src.x, src.series, rangeStart(src.x, range), rangeEnd(range), norm);
-  const x = sliced.x, series = norm ? normalize(sliced.series) : p.rebase ? rebase(sliced.series) : sliced.series;
+  const x = sliced.x, series = norm ? normalize(sliced.series, sliced.start === 0) : p.rebase ? rebase(sliced.series) : sliced.series;
   const isoAt = (i) => new Date(x[i] * 1000).toISOString().slice(0, 10);
   const lines = series.filter((s) => s.kind !== "markers");
   const legend = p.legend === "rank"

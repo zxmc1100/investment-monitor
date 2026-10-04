@@ -53,7 +53,8 @@ HELP = [
      "dividends as cash received after tax; benchmarks are total return before tax (dividends "
      "reinvested). Hover the chart to read every line on that date."},
     {"h": "NORM (Alt+N)", "vis": PRIV, "body": "Redraws the ROI chart as each line's time-weighted "
-     "return from the close before the period shown (or dragged): 0 at the start, then who did best in "
+     "return from the close before the period shown (or dragged; ALL: from before your first trade, so "
+     "its fee counts): 0 at the start, then who did best in "
      "it. Each day's buys, sells and dividends are taken out of that day, so adding money never reads "
      "as a gain or a loss. Benchmarks are then their own total return in EUR less the order fees; your "
      "line is your holdings, as YTD TWR (over a calendar year it is YTD TWR at the last close)."},
