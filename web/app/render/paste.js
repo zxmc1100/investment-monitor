@@ -45,11 +45,10 @@ export function paste(body, p, ui) {
   const draw = () => {
     const res = st.preview;
     if (!res) { pv.innerHTML = ""; return; }
-    const n = ui.tradeCount();
     pv.innerHTML = `<div class="${res.error ? "dn" : "dim"} sum">${esc(pasteSummary(res))}</div>`
       + (res.error ? "" : previewTable(res))
       + (res.ok ? `<div class="btns"><button type="button" class="btn" data-act="add">ADD ${res.ok} TRADE${res.ok === 1 ? "" : "S"}</button>`
-        + (st.file ? `<button type="button" class="btn ghost" data-act="replace">REPLACE MY ${n} TRADE${n === 1 ? "" : "S"} WITH THESE ${res.ok}</button>` : "")
+        + (st.file ? `<button type="button" class="btn ghost" data-act="replace">REPLACE ${esc(ui.yourFile())} WITH THESE ${res.ok}</button>` : "")
         + "</div>" : "");
     pv.querySelector("[data-act=add]")?.addEventListener("click", () => ui.importForm(p, "append"));
     pv.querySelector("[data-act=replace]")?.addEventListener("click", () => ui.importForm(p, "replace"));

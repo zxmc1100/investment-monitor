@@ -26,10 +26,11 @@ HELP = [
      "Date as YYYY-MM-DD, DD.MM.YYYY or DD/MM/YYYY; empty is today. The line under the form is exactly what "
      "will be stored; Enter saves. Tab, then Enter, takes you into the form; Esc leaves it."},
     {"h": "EDIT / DELETE", "vis": PRIV, "body": "↑↓ (or a click on a row) picks a trade in TRANSACTIONS and "
-     "focuses it. Enter loads it into the form: SAVE replaces it (in place, or moved to its new date). Del or "
-     "Backspace — only while TRANSACTIONS is focused — asks first, naming the trade: Enter on the question "
-     "deletes it; any other key, a click elsewhere or another screen closes the question and nothing changes. A "
-     "change that would leave a sale of more shares than you held then is refused."},
+     "focuses it. Enter loads it into the form: SAVE replaces it (in place, or moved to its new date). Del — right "
+     "after you moved to the row, with nothing typed in the command bar since; Backspace never deletes — asks "
+     "first, naming the trade: Enter on the question deletes it; any other key, a click elsewhere or another "
+     "screen closes it and nothing changes. A change that would leave a sale of more shares than you held then "
+     "is refused."},
     {"h": "UNDO", "vis": PRIV, "body": "UNDO (the button in the strip, or the command) puts input/portfolio.csv "
      "back exactly as it was before the last change made here — your own format and columns included — after a "
      "question; UNDO again brings the change back. It is offered while the file is still as that change left it "
@@ -50,8 +51,9 @@ HELP = [
     {"h": "THE FILE", "vis": PRIV, "body": "Your trades are input/portfolio.csv. Every change rewrites it in "
      "one form — commas, a decimal point, YYYY-MM-DD, tickers in capitals, your own extra columns kept after the "
      "six — and first copies the previous file to input/backups/: portfolio-original.csv (the file before the "
-     "first change here, kept for good), before-start-fresh-… and before-replace-… (the newest 5 of each, never "
-     "rotated) and the 20 most recent others. You may still edit it in Excel; the terminal picks the change up. "
+     "first change here), before-start-fresh-… and before-replace-… — kept until you delete them — and the 20 most "
+     "recent others; never two copies of the same file, never a copy of an empty one. You may still edit it in "
+     "Excel; the terminal picks the change up. "
      "A save made on a file that changed meanwhile is refused: the view reloads, save again."},
 ]
 
@@ -97,12 +99,14 @@ def assemble(parts: dict, meta: dict) -> dict:
     book = [{"ticker": t, "name": names.get(t, t)} for t in dict.fromkeys(r["ticker"] for r in reversed(q["rows"]))]
     undo = q.get("undo")
     ready = bool(undo and undo["ready"])
+    redo = ready and undo["what"].startswith("UNDO: ")   # undoing an UNDO brings that change back: a REDO
     top = []
-    if q["error"]:                                   # never START FRESH here: that would throw the file away
+    if q["error"]:              # never START FRESH here, nor a REDO of one: either would throw the file away
+        back = ready and not redo
         top.append({"id": "problem", "n": 4, "title": "YOUR FILE HAS AN ERROR", "type": "banner", "span": 12,
                     "tone": "dn", "vis": PRIV, "text": q["error"],
-                    **({"run": "UNDO", "button": "UNDO"} if ready else {}),
-                    "context": {"text": "FIX IT IN THE FILE, OR UNDO" if ready else "FIX IT IN THE FILE"}})
+                    **({"run": "UNDO", "button": "UNDO"} if back else {}),
+                    "context": {"text": "FIX IT IN THE FILE, OR UNDO" if back else "FIX IT IN THE FILE"}})
     elif q["example"]:
         top.append({"id": "fresh", "n": 4, "title": "EXAMPLE PORTFOLIO", "type": "banner", "span": 12,
                     "vis": PRIV, "text": "EXAMPLE PORTFOLIO — START FRESH clears it", "run": "START FRESH",
@@ -112,7 +116,8 @@ def assemble(parts: dict, meta: dict) -> dict:
     return {"screen": "TRADES", "title": "Trades",
             "context": {"text": f"{n} TRADE{'' if n == 1 else 'S'} · input/portfolio.csv · BACKUPS IN input/backups/"},
             "meta": meta, "help": HELP, "etag": q["etag"], "error": q["error"], "lines": q["lines"], "undo": undo,
-            "actions": [{"label": "UNDO", "run": "UNDO", "title": f"UNDO: {undo['what']}"}] if ready else [],
+            "actions": [{"label": "REDO", "run": "UNDO", "title": f"REDO: {undo['what'].removeprefix('UNDO: ')}"} if redo
+                        else {"label": "UNDO", "run": "UNDO", "title": f"UNDO: {undo['what']}"}] if ready else [],
             "panels": [
                 *top,
                 {"id": "add", "n": 1, "title": "ADD", "type": "form", "span": 5, "form": "trade", "vis": PRIV,

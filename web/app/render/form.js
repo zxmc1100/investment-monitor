@@ -105,6 +105,9 @@ export function form(body, p, ui) {
     }
   });
   tk?.addEventListener("blur", () => setTimeout(close, 150));
+  formEl.addEventListener("keydown", (e) => {     // a held Enter repeats: it saves once, never again and again
+    if (e.key === "Enter" && e.repeat) e.preventDefault();
+  });
   formEl.addEventListener("submit", (e) => { e.preventDefault(); close(); ui.saveForm(p); });
   formEl.querySelector("[data-act=clear]").addEventListener("click", () => ui.clearForm(p));
 }

@@ -10,20 +10,22 @@ const PANELS = [{ id: "add", type: "form" }, { id: "paste", type: "paste" },
 // deleted. It runs keyAction exactly as bindKeys does and the handlers as app.js does (removable, stands).
 function terminal({ focus = null, route = "TRADES" } = {}) {
   const cmd = { tagName: "INPUT", id: "cmd" }, input = { tagName: "INPUT" }, overlay = { tagName: "DIV" };
-  const t = { bar: "", focus, route, active: cmd, ask: null, deleted: [], ran: [] };
+  const t = { bar: "", focus, route, active: cmd, ask: null, deleted: [], ran: [], typed: false, edited: 0 };
   const cancel = () => { t.ask = null; t.active = cmd; };
   t.key = (key, mods = {}) => {
     const e = { key, code: /^\d$/.test(key) ? `Digit${key}` : key, repeat: false, shiftKey: false, altKey: false,
       ctrlKey: false, metaKey: false, ...mods };
     const a = keyAction(e, { field: fieldKey(e, t.active, cmd), empty: !t.bar.trim(), overlay: !!t.ask,
-      asking: !!t.ask, onOverlay: t.active === overlay, ac: false });
+      asking: !!t.ask, onOverlay: t.active === overlay, askAge: t.ask?.age ?? 0, typed: t.typed, ac: false });
     if (a.cancel) cancel();
     switch (a.act) {
       case "remove": {
         const p = removable(PANELS, t.focus);
-        if (p) { t.ask = { rows: ["r1"], route: t.route }; t.active = overlay; }
+        if (p) { t.ask = { rows: ["r1"], route: t.route, age: 1000 }; t.active = overlay; }
         return;
       }
+      case "cursor": t.focus = "txns"; t.typed = false; return;
+      case "drill": if (removable(PANELS, t.focus)) t.edited += 1; return;
       case "confirm": t.deleted.push(...t.ask.rows); cancel(); return;
       case "escape": if (t.ask) cancel(); return;
       case "leave": t.focus = "add"; t.active = cmd; return;
@@ -36,7 +38,7 @@ function terminal({ focus = null, route = "TRADES" } = {}) {
     if (["type", "bar", "none"].includes(a.act) && t.active !== overlay) {     // the browser types into the bar
       t.active = cmd;
       if (key === "Backspace") t.bar = t.bar.slice(0, -1);
-      else if (key.length === 1) t.bar += key;
+      else if (key.length === 1) { t.bar += key; t.typed = true; }
     }
   };
   t.type = (s) => [...s].forEach((c) => t.key(c));
@@ -81,7 +83,7 @@ test("(c) a question left open dies with a screen change: Enter on PORT deletes 
 });
 
 test("a question is confirmed only by Enter on the question itself, with an empty bar, never by a held key", () => {
-  const ask = { field: null, empty: true, overlay: true, asking: true, onOverlay: true, ac: false };
+  const ask = { field: null, empty: true, overlay: true, asking: true, onOverlay: true, askAge: 1000, typed: false, ac: false };
   const k = (key, more = {}) => ({ key, code: key, repeat: false, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...more });
   assert.equal(keyAction(k("Enter"), ask).act, "confirm");
   assert.equal(keyAction(k("Enter", { repeat: true }), ask).act, "none");
@@ -111,14 +113,44 @@ test("every question names exactly what it touches", () => {
   assert.equal(rowLine(rows[0]), "16 DEC 24 · BUY 4 SAP.DE · €961.00");
   assert.equal(freshText({ rows, error: null, lines: 2 }),
     "Empties input/portfolio.csv — all 2 trades, 16 DEC 24 to 01 SEP 26. The file as it is now is kept in "
-    + "input/backups/ (never rotated) and UNDO brings it back.");
+    + "input/backups/ until you delete it, and UNDO brings it back.");
   assert.equal(freshText({ rows: [], error: "portfolio.csv row 3, column Price: '96x' is not a number", lines: 3 }),
     "Empties input/portfolio.csv — 3 lines it cannot read (portfolio.csv row 3, column Price: '96x' is not a number). "
-    + "The file as it is now is kept in input/backups/ (never rotated) and UNDO brings it back.");
+    + "The file as it is now is kept in input/backups/ until you delete it, and UNDO brings it back.");
   assert.equal(replaceText({ rows, error: null, lines: 2 }, { ok: 5, bad: 1 }, "broker.csv"),
     "Your 2 trades (16 DEC 24 to 01 SEP 26) give way to the 5 good rows of broker.csv (1 with an error left out). "
-    + "The file as it is now is kept in input/backups/ (never rotated) and UNDO brings it back.");
+    + "The file as it is now is kept in input/backups/ until you delete it, and UNDO brings it back.");
+  assert.equal(replaceText({ rows: [], error: null, lines: 0 }, { ok: 2, bad: 0 }, "broker.csv"),
+    "The 2 good rows of broker.csv become your trades (you have none yet).");
   assert.equal(undoText({ what: "ADD BUY 1 SAP.DE · €2.00/sh = €2.00", at: "2026-10-04T14:22:05" }),
     "Puts input/portfolio.csv back as it was before: ADD BUY 1 SAP.DE · €2.00/sh = €2.00 (14:22:05). "
     + "UNDO again brings that change back.");
+  assert.equal(undoText({ what: "UNDO: START FRESH (2 LINES)", at: "2026-10-04T15:54:33" }),
+    "Brings back what UNDO took back: START FRESH (2 LINES) (15:54:33). UNDO again takes it back.");
+});
+
+test("I2: x, Backspace, Backspace, Enter after ↑↓ never deletes — Backspace never deletes, Del only right after a move", () => {
+  const t = terminal();
+  t.key("ArrowDown"); t.key("ArrowDown");
+  t.type("x"); t.key("Backspace"); t.key("Backspace"); t.key("Enter");
+  assert.deepEqual(t.deleted, []);
+  assert.equal(t.edited, 1);                                        // Enter on the row: it opens the edit, nothing more
+  t.key("Delete");
+  assert.equal(t.ask, null);                                        // typed since the cursor moved: Del waits
+  t.key("ArrowDown"); t.key("Delete");
+  assert.ok(t.ask);                                                 // a move, then Del: asks
+  const idle = { field: null, empty: true, overlay: false, asking: false, onOverlay: false, askAge: 0, typed: false, ac: false };
+  const k = (key) => ({ key, code: key, repeat: false, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false });
+  assert.equal(keyAction(k("Backspace"), idle).act, "none");
+  assert.equal(keyAction(k("Delete"), idle).act, "remove");
+  assert.equal(keyAction(k("Delete"), { ...idle, typed: true }).act, "none");
+});
+
+test("M1: an Enter within 400 ms of a question opening (a double-tap) is no answer; a key in a field closes it", () => {
+  const ask = { field: null, empty: true, overlay: true, asking: true, onOverlay: true, typed: false, ac: false };
+  const k = (key) => ({ key, code: key, repeat: false, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false });
+  assert.equal(keyAction(k("Enter"), { ...ask, askAge: 120 }).act, "none");
+  assert.equal(keyAction(k("Enter"), { ...ask, askAge: 15 }).cancel, false);         // nor does it close the question
+  assert.equal(keyAction(k("Enter"), { ...ask, askAge: 400 }).act, "confirm");
+  assert.equal(keyAction(k("Tab"), { ...ask, field: "field", onOverlay: false, askAge: 900 }).cancel, true);
 });

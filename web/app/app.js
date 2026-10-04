@@ -7,7 +7,7 @@ import { changed } from "./diff.js";
 import { $, esc } from "./dom.js";
 import { fmtClock, fmtDate, fmtStamp } from "./fmt.js";
 import { rank } from "./fuzzy.js";
-import { bindKeys } from "./keys.js";
+import { ASK_MS, bindKeys } from "./keys.js";
 import { followsLater } from "./render/table.js";
 import { renderPanel } from "./render/index.js";
 import { changesHash, hashOf, keyOf, popBack, pushBack, routeOf } from "./route.js";
@@ -23,7 +23,7 @@ function keyRows() {
   return [
     ["Enter", "run the command · on an empty bar: open the cursor row (e.g. a security), "
       + "set TARGET on PORTFOLIOS, acknowledge on ALRT, edit a trade on TRADES — or step into a focused form"],
-    ["Del / Backspace", "delete the cursor row on TRADES (asks first)"],
+    ["Del", "delete the cursor row on TRADES — right after ↑↓ or a click on it, with an empty bar (asks first)"],
     ["Tab", "autocomplete (list open) · cycle panel focus (bar empty)"],
     [`1–${top}`, "jump to screen (bar empty)"],
     ["↑ ↓ PgUp PgDn Home End", "move the row cursor"],
@@ -45,7 +45,8 @@ const S = {
   lookup: { q: "", items: [] }, lookupT: null, alerts: { active: 0, down: false }, alertErr: null,
   builds: {},                                       // screen builds in progress or failed (build.js)
   forms: {},                                        // form / paste panels' values, kept across refreshes
-  ask: null,                                        // the open question: {fn, rows it names, route} (ask)
+  ask: null,                                        // the open question: {fn, rows it names, route, at} (ask)
+  typed: false,                                     // typed in the bar since the table cursor last moved (Del waits)
   buildTouched: new Set(),                          // per in-flight /api/jobs sync: screens SSE updated meanwhile
 };
 
@@ -58,7 +59,7 @@ async function boot() {
   syncAlerts();
   syncBuilds();
   bindKeys(keyHandlers);
-  cmd.addEventListener("input", () => { S.ac.moved = false; updateAc(); });
+  cmd.addEventListener("input", () => { S.ac.moved = false; S.typed = true; updateAc(); });
   document.addEventListener("pointerdown", (e) => {                  // a press elsewhere: no answer — a press,
     if (S.ask && !e.target.closest("#overlay")) cancelAsk();          // so the click that opened it never closes it
   }, true);
@@ -215,7 +216,10 @@ function ui(pid) {
       t.sort = t.sort[0] === col ? [col, t.sort[1] === "desc" ? "asc" : "desc"] : [col, "desc"];
       rerender(id);
     },
-    setCursor(id, key) { S.tables[id].cursor = key; S.tables[id].reveal = true; S.focus = id; rerender(id); followers(id); },
+    setCursor(id, key) {
+      Object.assign(S, { focus: id, typed: false });              // Del may delete again: the cursor just moved
+      S.tables[id].cursor = key; S.tables[id].reveal = true; rerender(id); followers(id);
+    },
     toggleClosed(id) { const t = S.tables[id]; t.showClosed = !t.showClosed; rerender(id); },
     followKey: (p) => (p.follows ? S.tables[p.follows]?.cursor ?? null : null),
     chartRange: (id) => S.ranges[id],
@@ -225,7 +229,8 @@ function ui(pid) {
     formState: (p) => (S.forms[formKey(p.id)] ??= blankForm(p)),
     today: () => todayIso(),
     rows: (p) => S.payload?.panels.find((q) => q.edit === p.id)?.rows ?? [],
-    tradeCount: () => S.payload?.panels.find((q) => q.type === "table" && q.remove)?.rows?.length ?? 0,
+    yourFile: () => (S.payload?.error ? `MY FILE'S ${S.payload.lines ?? 0} LINE${S.payload.lines === 1 ? "" : "S"}`
+      : (n => `MY ${n} TRADE${n === 1 ? "" : "S"}`)(S.payload?.panels.find((q) => q.type === "table" && q.remove)?.rows?.length ?? 0)),
     lookup: (q) => api.lookup(q),
     why: api.why,
     run: (text) => run(text),
@@ -311,6 +316,7 @@ async function importForm(p, mode) {
     notice("THE BOX CHANGED SINCE ITS PREVIEW — PREVIEWED AGAIN: CHECK IT, THEN ADD");
     return;
   }
+  const key = S.key;
   const go = (etag = null) => tradeWrite((tag) => api.importTrades(tag, text, mode), (res) => {
     Object.assign(st, { text: res.left ?? "", preview: null });
     if (!st.text) st.file = null;
@@ -322,6 +328,7 @@ async function importForm(p, mode) {
   if (mode !== "replace") { go(); return; }
   try {
     const [pre, now] = await Promise.all([api.previewTrades(text, "replace"), api.trades()]);
+    if (S.key !== key) return;                      // the screen changed while it asked the server: no question
     if (!pre.ok) { notice(pre.error ?? "NOTHING TO ADD — EVERY ROW HAS AN ERROR", true); return; }
     ask("REPLACE YOUR TRADES?", replaceText({ rows: tradeRows(now), error: now.error, lines: now.lines }, pre, st.file),
       "REPLACE", () => go(now.etag), now.rows.map((r) => r.id));
@@ -340,8 +347,11 @@ async function doTrade(values) {
 }
 
 async function startFresh() {
+  const key = S.key;
   let now;
   try { now = await api.trades(); } catch (e) { notice(api.why(e), true); return; }
+  if (S.key !== key) return;                        // the screen changed while it asked the server: no question
+  if (!now.error && !now.rows.length) { notice("NOTHING TO CLEAR — input/portfolio.csv HOLDS NO TRADES"); return; }
   ask("START FRESH?", freshText({ rows: tradeRows(now), error: now.error, lines: now.lines }), "START FRESH",
     () => tradeWrite((tag) => api.resetTrades(tag), (res) => {
       notice(`STARTED FRESH · THE ${res.removed} ${now.error ? "LINES" : "TRADES"} ARE IN input/backups/ · UNDO BRINGS THEM BACK`);
@@ -350,14 +360,17 @@ async function startFresh() {
 }
 
 async function doUndo() {
+  const key = S.key;
   let now;
   try { now = await api.trades(); } catch (e) { notice(api.why(e), true); return; }
+  if (S.key !== key) return;                        // the screen changed while it asked the server: no question
   if (!now.undo) { notice("NOTHING TO UNDO"); return; }
   if (!now.undo.ready) {
     notice("THE FILE CHANGED SINCE THE LAST CHANGE HERE — UNDO WOULD LOSE THAT; THE FILE BEFORE IT IS IN input/backups/", true);
     return;
   }
-  ask("UNDO THE LAST CHANGE?", undoText(now.undo), "UNDO",
+  const redo = now.undo.what.startsWith("UNDO: ");
+  ask(redo ? "REDO THE CHANGE UNDO TOOK BACK?" : "UNDO THE LAST CHANGE?", undoText(now.undo), redo ? "REDO" : "UNDO",
     () => tradeWrite((tag) => api.undoTrades(tag), (res) => notice(res.text), now.etag), []);
 }
 
@@ -368,8 +381,10 @@ function ask(title, text, yes, fn, rows = []) {
     + `<button type="button" class="btn ghost" data-act="no">KEEP · Esc</button></div>`);
   const ov = $("#overlay");
   ov.classList.add("ask");
-  S.ask = { fn, rows, route: S.key };
-  $("#overlay [data-act=yes]").addEventListener("click", () => keyHandlers.confirm());
+  S.ask = { fn, rows, route: S.key, at: performance.now() };
+  $("#overlay [data-act=yes]").addEventListener("click", () => {
+    if (S.ask && performance.now() - S.ask.at >= ASK_MS) keyHandlers.confirm();   // a double-click is no answer
+  });
   $("#overlay [data-act=no]").addEventListener("click", () => cancelAsk());
   ov.focus();
 }
@@ -754,12 +769,14 @@ const keyHandlers = {
     if (api.isStatic) { notice(localOnlyMsg("SEC")); return; }
     run(k);
   },
-  remove() {                                     // Del / Backspace: the FOCUSED TRANSACTIONS table only (asks)
+  remove() {                                     // Del: the FOCUSED TRANSACTIONS table only (asks)
     const p = removable(S.payload?.panels, S.focus);
     const k = p && S.tables[p.id]?.cursor;
     return !!(p && k && !api.isStatic && removeRow(p, k));
   },
   asking: () => !!S.ask,
+  askAge: () => (S.ask ? performance.now() - S.ask.at : 0),
+  typed: () => S.typed,
   onOverlay: () => !!document.activeElement?.closest?.("#overlay"),
   cancelAsk: () => cancelAsk(),
   confirm() {                                    // yes: keyAction allowed it (Enter on the question) or its button

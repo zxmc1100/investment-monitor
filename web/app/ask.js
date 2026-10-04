@@ -16,7 +16,7 @@ export function stands(q, { route, rows }) {
   return (q.rows ?? []).every((id) => have.has(String(id)));
 }
 
-const KEPT = "The file as it is now is kept in input/backups/ (never rotated) and UNDO brings it back.";
+const KEPT = "The file as it is now is kept in input/backups/ until you delete it, and UNDO brings it back.";
 const many = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const span = (rows) => {
   const d = (rows ?? []).map((r) => r.date).filter(Boolean).sort();
@@ -35,12 +35,19 @@ export function freshText({ rows, error, lines }) {
 
 // What REPLACE would swap: your trades for a file's good rows.
 export function replaceText({ rows, error, lines }, pre, file) {
+  if (!error && !rows.length) {
+    return `The ${pre.ok} good row${pre.ok === 1 ? "" : "s"} of ${file ?? "the box"} become your trades (you have none yet).`;
+  }
   const yours = error ? `The ${many(lines ?? 0, "line")} of your file (it cannot be read)`
     : `Your ${many(rows.length, "trade")}${rows.length ? ` (${span(rows)})` : ""}`;
   return `${yours} give way to the ${pre.ok} good row${pre.ok === 1 ? "" : "s"} of ${file ?? "the box"}`
     + `${pre.bad ? ` (${pre.bad} with an error left out)` : ""}. ${KEPT}`;
 }
 
-// What UNDO puts back.
-export const undoText = (u) => `Puts input/portfolio.csv back as it was before: ${u.what}`
-  + `${u.at ? ` (${String(u.at).slice(11, 19)})` : ""}. UNDO again brings that change back.`;
+// What UNDO puts back — or, after an UNDO, brings back (a REDO).
+export function undoText(u) {
+  const at = u.at ? ` (${String(u.at).slice(11, 19)})` : "";
+  return u.what.startsWith("UNDO: ")
+    ? `Brings back what UNDO took back: ${u.what.slice(6)}${at}. UNDO again takes it back.`
+    : `Puts input/portfolio.csv back as it was before: ${u.what}${at}. UNDO again brings that change back.`;
+}

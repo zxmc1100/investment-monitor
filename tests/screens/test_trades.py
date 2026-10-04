@@ -111,7 +111,8 @@ def test_undo_is_offered_in_the_strip_while_the_file_is_as_trades_left_it(ctx):
 def test_help_explains_the_two_ways_the_fee_and_the_file():
     text = " ".join(h["h"] + " " + h["body"] for h in TR.HELP)
     for word in ("EITHER", "No fee is ever added", "input/backups/", "BUY SAP.DE 4 @ 240", "BUY SAP.DE 4 = 961",
-                 "START FRESH", "@PricePerShare", "UNDO", "portfolio-original.csv", "only while TRANSACTIONS is focused"):
+                 "START FRESH", "@PricePerShare", "UNDO", "portfolio-original.csv", "Backspace never deletes",
+                 "kept until you delete them"):
         assert word in text, word
 
 
@@ -119,3 +120,17 @@ def test_the_msci_world_etf_has_its_name_built_in():
     """IWDA.AS is looked through as MSCI World (never asked of Yahoo): its name is built in, like EUNL.F's."""
     from monitor.data.instruments import COMPANY_NAMES
     assert COMPANY_NAMES["IWDA.AS"] == "iShares Core MSCI World ETF"
+
+
+def test_after_an_undo_the_button_says_redo_and_the_error_banner_never_offers_it(ctx):
+    """M5: START FRESH on a broken file, then UNDO — the broken file is back and the last change here is that UNDO.
+    The banner must not offer to empty the file again; the strip calls the button what it does: REDO."""
+    from monitor.portfolio.tradebook import TradeBook
+    Path(ctx.portfolio_csv).write_text(HEAD + "\n2025-01-15,SAP.DE,buy,x,961.00,240.00\n", encoding="utf-8")
+    book = TradeBook(ctx.portfolio_csv)
+    e = book.reset(book.read()["etag"])["etag"]
+    book.undo(e)
+    p = build(ctx)
+    err = panel(p, "problem")
+    assert "run" not in err and err["context"]["text"] == "FIX IT IN THE FILE"
+    assert p["actions"] == [{"label": "REDO", "run": "UNDO", "title": "REDO: START FRESH (1 LINE)"}]

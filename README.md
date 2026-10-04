@@ -52,12 +52,13 @@ The first start shows an invented example portfolio. Press **6** (TRADES) and **
   `BUY SAP.DE 4 @ 240` (price per share) or `BUY SAP.DE 4 = 961` (total) in the command bar, from any screen;
 - **paste many** rows from a spreadsheet, or **import your broker's CSV** — a header is optional, column names
   may be English, German or Italian, and every row is previewed (or says what is wrong) before anything is saved;
-- **edit** a trade (Enter on its row) or **delete** it (Del).
+- **edit** a trade (Enter on its row) or **delete** it (↑↓ to the row, then Del).
 
 Your trades stay on your computer, in `input/portfolio.csv`. **UNDO** (a button on TRADES, or the command) puts
-back the file as it was before the last change. Every change first copies the previous file to `input/backups/`
-— the one before your first change and before each START FRESH or replace are kept for good. You may also edit
-the file by hand — the terminal picks the change up. One row per trade, oldest first; TRADES writes it like this:
+back the file as it was before the last change. Every change first copies the previous file to `input/backups/`;
+the copies from before your first change and before each START FRESH or replace are kept until you delete them.
+You may also edit the file by hand — the terminal picks the change up. One row per trade, oldest first; TRADES
+writes it like this:
 
 ```
 Date,Ticker,Action,Shares,Price,PricePerShare
