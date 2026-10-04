@@ -167,6 +167,11 @@ class JobRunner:
         with self._lock:
             return [j.as_dict() for j in [*self._active.values(), *self._recent]]
 
+    def busy(self) -> bool:
+        """A job queued or running (a BUILD's child process included): the service never stops under it."""
+        with self._lock:
+            return bool(self._active)
+
     def wait_idle(self, timeout: float = 10.0) -> bool:
         with self._idle:
             return self._idle.wait_for(lambda: not self._active, timeout)

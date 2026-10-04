@@ -183,6 +183,8 @@ HISTORY_FILL_DAYS = 3    # a history line Yahoo leaves out is filled from the ca
 # Server
 HOST = "127.0.0.1"
 PORT = 8000
+SERVICE_PORT = 47800     # the macOS service's (monitor.server.service): 8000 stays free for other projects
+SERVICE_IDLE_MIN = 15    # the service's terminal stops this long after the last tab closes
 
 # Optimizer targets
 PORTFOLIOS = ("MINVAR", "RP", "HRP", "BLSHARPE", "BLSAME")

@@ -5,7 +5,8 @@ import sys
 HEAD = "python -m monitor <command> [args]      (e.g. python -m monitor init)"
 CORE = {"init": "create input/ from examples/ (portfolio, interest, settings; never overwrites)",
         "serve": "terminal server on http://localhost:8000 (auto-reload)",
-        "export": "public static snapshot → docs/"}
+        "export": "public static snapshot → docs/",
+        "service": "macOS: install | uninstall — open the terminal from a bookmark (http://localhost:47800)"}
 
 
 def usage(commands: dict) -> str:
@@ -33,6 +34,9 @@ def main(argv=None) -> int:
     if cmd == "export":
         from monitor.server.export import main as export_main
         return export_main(rest)
+    if cmd == "service":
+        from monitor.server.service import main as service_main
+        return service_main(rest)
     if cmd in commands:
         return commands[cmd][0](rest)
     print(f"unknown command: {cmd}\n{usage(commands)}", file=sys.stderr)

@@ -1,4 +1,5 @@
 """HTTP API over a fake screen (and the real PORT for the missing-ledger case)."""
+import asyncio
 import warnings
 from pathlib import Path
 
@@ -396,3 +397,24 @@ def test_a_cross_origin_write_is_refused(env):
         assert r.status_code == 200, origin
     assert c.post("/api/refresh/FAKE?tier=quote", headers={"Host": "localhost:8769",
                                                            "Origin": "http://localhost:8000"}).status_code == 403
+
+
+def test_the_service_idle_watch_reads_the_real_stream_and_jobs_and_requests_touch_it(tmp_path, monkeypatch, web):
+    """create_app wires IdleWatch to the live broker's tab count (a property) and the runner — its checks
+    must run, see an open tab, and every request must restart its minutes."""
+    from monitor.server.stream import Broker
+    scr, _, _ = make_screen(tmp_path, monkeypatch)
+    eng = Engine({scr.id: scr}, Store(tmp_path / "store"), Broker(), ctx=Ctx(buffer_dir=tmp_path))
+    app = create_app(eng, web_dir=web, idle_minutes=15)
+    w = app.state.idle
+    assert w is not None and w.tabs() == 0 and w.busy() is False and w.check() is False
+    async def one_tab():
+        q = eng.broker.subscribe()
+        seen = w.tabs()
+        eng.broker.unsubscribe(q)
+        return seen
+    assert asyncio.run(one_tab()) == 1 and w.tabs() == 0
+    w.last = -1e9
+    TestClient(app, base_url="http://127.0.0.1").get("/")
+    assert w.last > 0
+    assert create_app(eng, web_dir=web).state.idle is None          # a start file's terminal never stops

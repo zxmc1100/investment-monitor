@@ -3,6 +3,7 @@ Bound to 127.0.0.1 by monitor.server.run; never exposed beyond localhost.
 Every refusal is {"detail": {"error": <one short uppercase line, as the terminal shows it>, ...data}}."""
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from monitor.portfolio.ledger import CSVError
 from monitor.portfolio.tradebook import Blocked, Conflict, Invalid, Missing, TradeBook
 from monitor.server.alerting import AlertLoop, AlertService
 from monitor.server.engine import Engine
+from monitor.server.idle import IdleWatch, stop_server
 from monitor.server.schedule import BuildSchedule
 from monitor.server.stream import sse_stream
 from monitor.universe import lookup
@@ -83,11 +85,36 @@ def terminal_book(engine: Engine) -> TradeBook:
                      quote=lambda t: quote_check(t, engine.ctx.buffer_dir), isin=lookup.by_isin)
 
 
+class _Touch:
+    """Every request restarts the idle watch's minutes."""
+
+    def __init__(self, app, watch: IdleWatch):
+        self.app, self.watch = app, watch
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            self.watch.touch()
+        await self.app(scope, receive, send)
+
+
+def _idle_minutes() -> float | None:
+    """The macOS service's idle stop (monitor.server.service sets MONITOR_IDLE_EXIT_MIN); None: never."""
+    try:
+        return float(os.environ["MONITOR_IDLE_EXIT_MIN"]) or None
+    except (KeyError, ValueError):
+        return None
+
+
 def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
-               schedule_file: Path | None = config.SCHEDULE_FILE, trade_book: TradeBook | None = None) -> FastAPI:
+               schedule_file: Path | None = config.SCHEDULE_FILE, trade_book: TradeBook | None = None,
+               idle_minutes: float | None = None) -> FastAPI:
     engine = engine or Engine.default()
     alerts = AlertService(engine, engine.ctx.alerts) if engine.ctx.alerts is not None else None
     book = trade_book or terminal_book(engine)
+    idle_minutes = idle_minutes if idle_minutes is not None else _idle_minutes()
+    idle = (IdleWatch(idle_minutes, tabs=lambda: engine.broker.subscribers, busy=engine.runner.busy,
+                      stop=stop_server)
+            if idle_minutes else None)
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -101,10 +128,11 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
         monthly = any(s.monthly for s in engine.screens.values())      # rebuilt at each month's start
         sched = asyncio.create_task(BuildSchedule(engine, schedule_file).run()) if monthly else None
         _app.state.build_task = sched
+        watch = asyncio.create_task(idle.run()) if idle is not None else None
         try:
             yield
         finally:
-            for t in (task, sched):
+            for t in (task, sched, watch):
                 if t is not None:
                     t.cancel()
                     with suppress(asyncio.CancelledError):
@@ -115,6 +143,9 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
                   lifespan=lifespan)
     app.state.engine = engine
     app.state.alerts = alerts
+    app.state.idle = idle
+    if idle is not None:
+        app.add_middleware(_Touch, watch=idle)
     # DNS-rebinding guard: a hostile page rebinding to 127.0.0.1 must not read private payloads.
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
     app.add_middleware(_SameOriginWrites)                  # CSRF: writes only from this terminal's own page

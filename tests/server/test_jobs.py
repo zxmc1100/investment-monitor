@@ -126,3 +126,13 @@ def test_force_merged_while_a_job_starts_is_not_lost():
         r._lock.release()
     t.join(5)
     assert seen == [True]
+
+
+def test_busy_while_a_job_runs_and_not_after():
+    gate = threading.Event()
+    r = JobRunner(lambda s, t, force: gate.wait(5), Recorder())
+    assert not r.busy()
+    r.submit("X", "quote")
+    assert r.busy()
+    gate.set()
+    assert r.wait_idle(5) and not r.busy()

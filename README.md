@@ -24,7 +24,7 @@ account taxed in Germany; any broker works if you can write your trades as a CSV
    **http://localhost:8000** with an example portfolio.
 
 Keep the Terminal window open while you use it; close it to stop. Next time, double-click again — or run
-`./tools/macos/install-link.sh` once and bookmark **`monitor://open`** (starts it in the background and opens it).
+`.venv/bin/python -m monitor service install` once and bookmark **http://localhost:47800** (starts and stops by itself).
 
 ## Install & start on Windows
 
