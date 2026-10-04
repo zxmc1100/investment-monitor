@@ -1,0 +1,4 @@
+# cmd.exe wants CRLF line endings in a batch file; the shell launchers need LF on every OS
+*.bat     text eol=crlf
+*.sh      text eol=lf
+*.command text eol=lf

@@ -3,4 +3,6 @@ pandas>=2.0.0
 numpy>=1.24.0
 scipy>=1.11
 fastapi>=0.115
-uvicorn[standard]>=0.30
+# Python 3.15+: plain uvicorn until httptools and pyyaml (from [standard]) publish ready-made 3.15 builds
+uvicorn[standard]>=0.30; python_version < "3.15"
+uvicorn>=0.30; python_version >= "3.15"

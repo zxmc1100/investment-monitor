@@ -44,14 +44,15 @@ def test_the_license_is_mit():
 DIST = {"starlette": "fastapi", "time_machine": "time-machine"}
 
 
-def _requirements(name: str) -> dict[str, str]:
-    """{distribution: line} of a requirements file (its own lines; `-r` includes are not followed)."""
-    out = {}
-    for line in (REPO / name).read_text(encoding="utf-8").splitlines():
-        line = line.split("#")[0].strip()
-        if line and not line.startswith("-"):
-            out[re.split(r"[\[<>=!~; ]", line, maxsplit=1)[0].lower()] = line
-    return out
+def _requirement_lines(name: str) -> list[str]:
+    """A requirements file's own requirement lines (comments dropped; `-r` includes are not followed)."""
+    lines = [line.split("#")[0].strip() for line in (REPO / name).read_text(encoding="utf-8").splitlines()]
+    return [line for line in lines if line and not line.startswith("-")]
+
+
+def _requirements(name: str) -> set[str]:
+    """The distributions a requirements file names."""
+    return {re.split(r"[\[<>=!~; ]", line, maxsplit=1)[0].lower() for line in _requirement_lines(name)}
 
 
 def _third_party_imports(root: Path) -> set[str]:
@@ -68,16 +69,18 @@ def _third_party_imports(root: Path) -> set[str]:
 
 def test_requirements_are_what_the_terminal_imports_and_nothing_else():
     """requirements.txt is what a user installs: exactly the runtime imports of monitor/ (uvicorn with its
-    [standard] extras for the file watcher), each with a minimum version the bootstrap can check."""
-    req = _requirements("requirements.txt")
-    assert set(req) == _third_party_imports(REPO / "monitor")
-    assert req["uvicorn"].startswith("uvicorn[standard]")
-    assert all(re.fullmatch(r"[a-z-]+(\[[a-z]+\])?>=[\d.]+", line) for line in req.values()), req
+    [standard] extras — the file watcher, faster HTTP — except on a Python they do not build for yet),
+    each with a minimum version (and python_version marker) the bootstrap can check."""
+    assert _requirements("requirements.txt") == _third_party_imports(REPO / "monitor")
+    lines = _requirement_lines("requirements.txt")
+    assert 'uvicorn[standard]>=0.30; python_version < "3.15"' in lines         # [standard] wherever it installs
+    assert all(re.fullmatch(r'[a-z-]+(\[[a-z]+\])?>=[\d.]+(; python_version (<|>=) "3\.\d+")?', line)
+               for line in lines), lines
 
 
 def test_dev_requirements_add_what_the_tests_need():
     lines = (REPO / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
     assert lines[0] == "-r requirements.txt"
     dev = _requirements("requirements-dev.txt")
-    assert {"pytest", "time-machine", "httpx"} <= set(dev)
-    assert _third_party_imports(REPO / "tests") <= set(dev) | set(_requirements("requirements.txt"))
+    assert {"pytest", "time-machine", "httpx"} <= dev
+    assert _third_party_imports(REPO / "tests") <= dev | _requirements("requirements.txt")
