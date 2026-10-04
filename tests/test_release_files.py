@@ -1,6 +1,9 @@
 """Release layout: .gitignore keeps your data, the developer notes and a local add-on out while examples/
 and the tracked universe stay in."""
+import ast
+import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -35,3 +38,46 @@ def test_gitignore_keeps_generated_data_and_a_linked_venv_out():
 def test_the_license_is_mit():
     text = (REPO / "LICENSE").read_text(encoding="utf-8")
     assert text.startswith("MIT License") and "Copyright (c) 2026 the Investment Monitor contributors" in text
+
+
+# import name -> the distribution that provides it (where they differ)
+DIST = {"starlette": "fastapi", "time_machine": "time-machine"}
+
+
+def _requirements(name: str) -> dict[str, str]:
+    """{distribution: line} of a requirements file (its own lines; `-r` includes are not followed)."""
+    out = {}
+    for line in (REPO / name).read_text(encoding="utf-8").splitlines():
+        line = line.split("#")[0].strip()
+        if line and not line.startswith("-"):
+            out[re.split(r"[\[<>=!~; ]", line, maxsplit=1)[0].lower()] = line
+    return out
+
+
+def _third_party_imports(root: Path) -> set[str]:
+    names = set()
+    for f in root.rglob("*.py"):
+        for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+            if isinstance(n, ast.Import):
+                names.update(a.name.split(".")[0] for a in n.names)
+            elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+                names.add(n.module.split(".")[0])
+    names -= set(sys.stdlib_module_names) | {"monitor", "tests", "__future__"}
+    return {DIST.get(x, x).lower() for x in names}
+
+
+def test_requirements_are_what_the_terminal_imports_and_nothing_else():
+    """requirements.txt is what a user installs: exactly the runtime imports of monitor/ (uvicorn with its
+    [standard] extras for the file watcher), each with a minimum version the bootstrap can check."""
+    req = _requirements("requirements.txt")
+    assert set(req) == _third_party_imports(REPO / "monitor")
+    assert req["uvicorn"].startswith("uvicorn[standard]")
+    assert all(re.fullmatch(r"[a-z-]+(\[[a-z]+\])?>=[\d.]+", line) for line in req.values()), req
+
+
+def test_dev_requirements_add_what_the_tests_need():
+    lines = (REPO / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "-r requirements.txt"
+    dev = _requirements("requirements-dev.txt")
+    assert {"pytest", "time-machine", "httpx"} <= set(dev)
+    assert _third_party_imports(REPO / "tests") <= set(dev) | set(_requirements("requirements.txt"))
