@@ -39,4 +39,8 @@ test("Alt+N normalizes the charts — by the physical key (a Mac's Option+N type
   assert.equal(keyAction(k("n", { code: "KeyN", altKey: true }), { ...s, empty: false }).act, "norm");
   assert.equal(keyAction(k("N", { code: "KeyN", shiftKey: true }), s).act, "type");
   assert.equal(keyAction(k("n", { code: "KeyN", altKey: true }), { ...s, field: "field" }).act, "field");   // a form keeps it
+  // Ctrl+N too: a Mac's Option+N is the ˜ dead key; Ctrl+letter never is (Windows keeps Ctrl+N: new window)
+  assert.equal(keyAction(k("n", { code: "KeyN", ctrlKey: true }), s).act, "norm");
+  assert.equal(keyAction(k("n", { code: "KeyN", metaKey: true }), s).act, "none");               // ⌘N: the browser's
+  assert.equal(keyAction(k("n", { code: "KeyN", ctrlKey: true, metaKey: true }), s).act, "none");
 });

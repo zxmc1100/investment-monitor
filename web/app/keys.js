@@ -39,7 +39,9 @@ export function keyAction(e, s) {
   if (e.key === "F1" || (e.key === "?" && s.empty)) return r("help");
   if (e.altKey && /^Digit[1-9]$/.test(e.code ?? "")) return r("maximize", true, Number(e.code.slice(5)));
   if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) return r("history", true, e.key === "ArrowUp" ? 1 : -1);
-  if (e.altKey && e.code === "KeyN") return r("norm");      // the physical key: a Mac's Option+N is a dead key
+  // NORM: Alt+N by the physical key (a Mac's Option+N is the ˜ dead key: bindKeys swallows its accent), or
+  // Ctrl+N — never a dead key on a Mac (Windows keeps Ctrl+N for a new window).
+  if ((e.altKey || (e.ctrlKey && !e.metaKey)) && e.code === "KeyN") return r("norm");
   if (e.metaKey || e.ctrlKey || e.altKey || (s.overlay && !cancel)) return r("none", false);
   if (s.ac && (e.key === "ArrowDown" || e.key === "ArrowUp")) return r("acMove", true, e.key === "ArrowDown" ? 1 : -1);
   if (s.ac && e.key === "Tab") return r("acAccept");
@@ -58,6 +60,16 @@ export function keyAction(e, s) {
   return r("none", false);
 }
 
+// A shortcut that is a dead key (a Mac's Option+N: ˜) still starts an accent in the focused field — the
+// input method gets it whatever the page does with the key. The field is left for that moment, so the
+// accent lands nowhere, then given back its text and focus.
+function swallowAccent(el) {
+  if (!el || typeof el.value !== "string") return;
+  const text = el.value;
+  el.blur();
+  setTimeout(() => { el.value = text; el.focus(); }, 0);
+}
+
 export function bindKeys(k) {
   document.addEventListener("keydown", (e) => {
     const a = keyAction(e, { field: fieldKey(e, document.activeElement, k.cmd), empty: !k.cmd.value.trim(),
@@ -65,6 +77,7 @@ export function bindKeys(k) {
       ac: k.acOpen() });
     if (a.cancel) k.cancelAsk();
     if (a.prevent) e.preventDefault();
+    if (e.key === "Dead" && a.prevent) swallowAccent(document.activeElement);
     switch (a.act) {
       case "leave": k.leaveField(); break;
       case "help": k.help(); break;

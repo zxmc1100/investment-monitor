@@ -33,7 +33,7 @@ function keyRows() {
     ["Alt+↑ ↓", "command history"],
     ["Alt+1…9", "maximize panel n (again or Esc restores)"],
     ["drag on a chart", "zoom into that period · double-click zooms back out"],
-    ["Alt+N", "NORM: every line from 0 at the start of the chart's period (or the period dragged) — "
+    ["Alt+N · Ctrl+N", "NORM: every line from 0 at the start of the chart's period (or the period dragged) — "
       + "time-weighted, so buys and sells move no line: who did best in it · again: back to ROI"],
     ["F1 or ?", "this help"],
     ["Esc", "leave a form field · clear bar · close overlay · restore panel · back from a security · leave full screen"],

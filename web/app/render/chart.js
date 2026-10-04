@@ -57,7 +57,7 @@ export function chart(body, p, ui) {
     ? [...lines].sort((a, b) => (lastValue(b.y) ?? -Infinity) - (lastValue(a.y) ?? -Infinity)) : [];
   const chips = (p.ranges ?? []).map((r) => `<span class="${r === range ? "on" : ""}" data-r="${esc(r)}">${esc(r)}</span>`);
   if (dragged) chips.push(`<span class="on">${esc(fmtDate(isoAt(0)))}–${esc(fmtDate(isoAt(x.length - 1)))}</span>`);
-  if (normable) chips.push(`<span class="norm${norm ? " on" : ""}" data-norm title="Alt+N">NORM</span>`);
+  if (normable) chips.push(`<span class="norm${norm ? " on" : ""}" data-norm title="Alt+N · Ctrl+N">NORM</span>`);
   const ranges = chips.length ? `<div class="ranges">${chips.join("")}</div>` : "";
   // Fixed-width legend (colgroup + CSS): a value gaining a digit must never resize the plot.
   const legendHtml = legend.length ? `<table class="legend"><colgroup><col><col class="v"></colgroup><tr class="asof"><td colspan="2"></td></tr>${legend.map((s) =>
