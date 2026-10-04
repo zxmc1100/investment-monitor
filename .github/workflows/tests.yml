@@ -1,0 +1,104 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  tests:
+    name: tests · ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - uses: actions/setup-node@v5           # the JS tests (tests/web/test_node.py runs node --test)
+        with:
+          node-version: 20
+      - name: Install
+        run: python -m pip install -r requirements-dev.txt
+      - name: Bootstrap on Windows (start-windows.bat's Python side; also part of the suite)
+        if: runner.os == 'Windows'
+        run: python -m pytest tests/test_bootstrap.py -v -p no:cacheprovider
+      # No PYTHONUTF8 here: on Windows the suite runs with the system's cp1252 default, so a file read or
+      # written without an explicit encoding fails here as it would for a user.
+      - name: Tests (fixtures only, no network)
+        run: python -m pytest tests -q -p no:cacheprovider
+
+  launcher:
+    # What a user does: the start file on a fresh checkout with the runner's own Python — creates .venv,
+    # installs requirements.txt (network), copies the example portfolio, serves. Passes on an HTTP 200.
+    name: start file · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start (start.sh / start-mac.command) and wait for the terminal
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          launcher=./start.sh
+          [ "$RUNNER_OS" = macOS ] && launcher=./start-mac.command
+          "$launcher" --no-open --port 8781 > start.log 2>&1 < /dev/null &
+          code=000
+          for _ in $(seq 1 240); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8781/ || true)
+            [ "$code" = 200 ] && break
+            sleep 2
+          done
+          cat start.log
+          test -f input/portfolio.csv && test -f .venv/.monitor-requirements
+          [ "$code" = 200 ] || { echo "no HTTP 200 (last: $code)"; exit 1; }
+          # a second start is quick and installs nothing
+          pkill -INT -f "monitor serve --no-open --port 8781" || true
+          sleep 3
+          "$launcher" --no-open --port 8782 > start2.log 2>&1 < /dev/null &
+          for _ in $(seq 1 30); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8782/ || true)" = 200 ] && break
+            sleep 1
+          done
+          cat start2.log
+          if grep -q "install" start2.log; then echo "the second start installed again"; exit 1; fi
+          curl -sf -o /dev/null http://127.0.0.1:8782/
+          pkill -INT -f "monitor serve --no-open --port 8782" || true
+      - name: Start (start-windows.bat) and wait for the terminal
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath cmd.exe -ArgumentList '/c start-windows.bat --no-open --port 8781 > start.log 2>&1' -PassThru -NoNewWindow
+          $code = 0
+          $deadline = (Get-Date).AddMinutes(8)
+          while ($code -ne 200 -and (Get-Date) -lt $deadline -and -not $p.HasExited) {
+            Start-Sleep -Seconds 3
+            try { $code = (Invoke-WebRequest -UseBasicParsing -Uri http://127.0.0.1:8781/).StatusCode } catch { $code = 0 }
+          }
+          Get-Content start.log
+          if ($code -ne 200) { Write-Error "no HTTP 200 from start-windows.bat"; exit 1 }
+          if (-not (Test-Path input/portfolio.csv) -or -not (Test-Path .venv/.monitor-requirements)) { exit 1 }
+          Stop-Process -Id $p.Id -Force
+          Get-Process python* -ErrorAction SilentlyContinue | Stop-Process -Force
