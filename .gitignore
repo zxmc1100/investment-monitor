@@ -1,0 +1,30 @@
+# your data and the developer notes — never committed
+input/
+local/
+CLAUDE.md
+docs/superpowers/
+.claude/
+.env
+# a local add-on (monitor.plugins): its own repository, never committed here
+/private/
+
+# Python / tooling
+.venv
+__pycache__/
+.pytest_cache/
+.DS_Store
+.vscode/
+
+# data/: only its README and the universe the security lookup and MKT read are tracked — anything else
+# there is generated on your machine (large, derived from your broker account, or naming persons)
+/data/*
+!/data/README.md
+!/data/universe/
+/data/universe/*
+!/data/universe/universe_meta.csv
+!/data/universe/sector_map.json
+
+# temp files of the atomic writers and the export's staging folder
+# (monitor.data.files: .<name>.<random>.tmp; others <name>.<random>.tmp; docs/.export-<random>.tmp)
+.*.tmp
+*.tmp

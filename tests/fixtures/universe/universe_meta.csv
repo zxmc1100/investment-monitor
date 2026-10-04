@@ -1,0 +1,9 @@
+ticker,name,sector,country,currency,slippage_bps,local_id,isin,home,delisting_date,med_turnover,exit_reason
+RHM.DE,Rheinmetall,Unknown,Germany,EUR,10,,DE0007030009,RHM.DE,,299719900.0,
+AAPL,Apple,Unknown,USA,EUR,5,,US0378331005,AAPL,,9922713000.0,
+NVDA,NVIDIA,Unknown,USA,EUR,5,,US67066G1040,NVDA,,27760880000.0,
+GLE.PA,Société Générale,Unknown,France,EUR,10,,FR0000130809,GLE.PA,,101000000.0,
+ISP.MI,Intesa Sanpaolo,Unknown,Italy,EUR,25,,IT0000072618,ISP.MI,,246520852.9,
+BAS.DE,BASF,Unknown,Germany,EUR,10,,DE000BASF111,BAS.DE,,180000000.0,
+DEAD,Deadco,Unknown,USA,EUR,5,,US0000000001,DEAD,2025-03-01,50000000000.0,delisted
+DEMO,Demotedco,Unknown,USA,EUR,5,,US0000000002,DEMO,,40000000000.0,demoted

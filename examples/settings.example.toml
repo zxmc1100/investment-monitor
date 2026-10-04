@@ -1,0 +1,37 @@
+# Investment Monitor — your personal settings (input/settings.toml, never committed).
+# `python -m monitor init` copies this file there. Every key is optional: leave one out, or the
+# whole file, and the default shown here applies. The defaults fit a Trade Republic account taxed
+# in Germany. Edits take effect without a restart. A mistake never stops the terminal: a key with a
+# wrong value falls back to its default alone, while a syntax error (the file is not valid TOML)
+# drops every key, so all defaults apply. Either way the status bar shows SETTINGS ERR (hover it).
+
+# Fee per buy order, in EUR. The cash-flow-matched benchmarks (ROI vs SAME CASH ELSEWHERE) pay it
+# too, so they compete on equal terms.
+order_fee_eur = 1.0
+
+# Tickers you buy through a free savings plan, as written in your CSV's Ticker column: the
+# benchmarks pay no fee for those buys either.
+# Example: savings_plan_tickers = ["IWDA.AS"]
+savings_plan_tickers = []
+
+# Tax withheld from dividends, as a fraction: a dividend counts as the cash that lands in your
+# account. 0.26375 = German flat tax 25 % plus solidarity surcharge (no church tax).
+dividend_tax = 0.26375
+
+# The ticker in your CSV -> Yahoo ticker, for a line Yahoo prices badly under its own symbol
+# (same ISIN on a better-quoted euro exchange; prices are taken as euros).
+[tickers]
+# "EUNL.F" = "IWDA.AS"
+
+# Display name, sector and issuer country per ticker. Usually not needed: a ticker nobody knows is
+# looked up in the Trade Republic universe, then on Yahoo. Use these to correct or complete that.
+# Sector names: Information Technology, Financials, Healthcare, Consumer Discretionary,
+# Consumer Staples, Communication Services, Industrials, Energy, Materials, Utilities, Real Estate.
+[names]
+# "SAP.DE" = "SAP SE"
+
+[sectors]
+# "SAP.DE" = "Information Technology"
+
+[countries]
+# "SAP.DE" = "Germany"
