@@ -96,3 +96,15 @@ def test_the_readme_says_how_to_install_and_start():
                    f"http://localhost:{config.PORT}", "requirements-dev.txt", "actions/workflows/tests.yml/badge.svg"):
         assert needed in text, needed
     assert (REPO / ".github" / "workflows" / "tests.yml").is_file()
+
+
+def test_the_readme_says_how_to_enter_trades():
+    """Your trades go in through TRADES (key 6) — the form, a paste, your broker's CSV — not by editing a file;
+    the file format stays documented, short, as the other way."""
+    from monitor.screens import SCREENS
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    assert f"Press **{SCREENS['TRADES'].fkey}** (TRADES)" in text and f"| `{SCREENS['TRADES'].fkey}` TRADES |" in text
+    for needed in ("START FRESH", "paste many", "import your broker's CSV", "BUY SAP.DE 4 @ 240", "BUY SAP.DE 4 = 961",
+                   "input/backups/", "Date,Ticker,Action,Shares,Price,PricePerShare"):
+        assert needed in text, needed
+    assert "replace `input/portfolio.csv` with your own trades" not in text

@@ -13,6 +13,10 @@ own files never leave your machine.
 
 ## Your data
 
+In the terminal, press **6** (TRADES): **START FRESH** clears the example, then add trades in the form, paste
+many, or import your broker's CSV — TRADES writes `input/portfolio.csv` for you, always in the form below, and
+first copies the previous file to `input/backups/` (the newest 20 are kept). You can still edit it by hand.
+
 `input/portfolio.csv` — one row per trade, oldest first:
 
 ```

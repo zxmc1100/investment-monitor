@@ -42,31 +42,31 @@ Keep the black window open while you use it; close it to stop. Next time, double
 `./start.sh` — the same setup, then the server (Ctrl-C stops it). On Debian/Ubuntu you may first need
 `sudo apt install python3-venv`. Arguments go to the server: `./start.sh --port 8001 --no-open`.
 
-## Your data
+## Your trades
 
-Everything you own lives in the `input/` folder and never leaves your computer. The first start copies the
-example there; replace `input/portfolio.csv` with your own trades — the terminal picks the change up by itself.
+The first start shows an invented example portfolio. Press **6** (TRADES) and **START FRESH** to clear it, then:
 
-`input/portfolio.csv` — one row per trade, oldest first:
+- **add** a trade in the form — ticker (type a name: your holdings and every Trade Republic stock are suggested;
+  pick a euro listing such as `SAP.DE`), buy / sell / bonus, shares, and **either** the price per share **or**
+  the total you paid, fees included: the other follows. No fee is added unless you fill in FEE. Or type
+  `BUY SAP.DE 4 @ 240` (price per share) or `BUY SAP.DE 4 = 961` (total) in the command bar, from any screen;
+- **paste many** rows from a spreadsheet, or **import your broker's CSV** — a header is optional, column names
+  may be English, German or Italian, and every row is previewed (or says what is wrong) before anything is saved;
+- **edit** a trade (Enter on its row) or **delete** it (Del).
+
+Your trades stay on your computer, in `input/portfolio.csv`; every change first copies the previous file to
+`input/backups/` (the newest 20 are kept). You may also edit the file by hand — the terminal picks the change
+up. One row per trade, oldest first; TRADES always writes it like this:
 
 ```
 Date,Ticker,Action,Shares,Price,PricePerShare
 2025-01-15,SAP.DE,buy,4,961.00,240.00
-2025-06-02,SAP.DE,sell,2,520.00,261.00
 ```
 
-| Column | Meaning |
-|---|---|
-| `Date` | trade date, `YYYY-MM-DD` (`DD.MM.YYYY` and `DD/MM/YYYY` work too — always day first) |
-| `Ticker` | the Yahoo ticker of a **EUR listing** (`SAP.DE`, `ASML.AS`, `AIR.PA`, `ENEL.MI` …); other currencies are flagged, not converted |
-| `Action` | `buy`, `sell` or `bonus` (shares received for free, e.g. Saveback) |
-| `Shares` | number of shares, fractions allowed |
-| `Price` | total in EUR including fees — what left or reached your account |
-| `PricePerShare` | EUR per share, display only |
-
-Excel is fine: keep the column names and save as CSV (UTF-8 if offered). European Excel's `;` between
-fields with a decimal comma (`15.01.2025;SAP.DE;buy;4;961,00;240,00`) works. Leave out thousands
-separators (`1.234,56`): such a row is refused with a message naming the row and column.
+`Price` is the total in EUR with fees (what left or reached your account), `PricePerShare` is for display,
+`Action` is `buy`, `sell` or `bonus` (shares received free, e.g. Saveback). Dates may be `DD.MM.YYYY`, and
+Excel's `;` with a decimal comma works; a thousands separator (`1.234,56`) is refused with a message naming
+the row. Tickers are Yahoo's, of a **EUR listing** (`SAP.DE`, `ASML.AS`, `AIR.PA`, `ENEL.MI` …).
 
 Optional: `input/interest.csv` (`Date,Amount`, interest on cash — shown, never part of ROI) and
 `input/settings.toml` (order fee, savings-plan tickers, dividend tax, name/sector overrides — every key is
@@ -84,12 +84,14 @@ Type to command, Enter to run, Esc to go back. Number keys switch screens (with 
 | `3` RISK | volatility, VaR, correlations, stress tests |
 | `4` MKT | indices, FX, commodities, movers, your names and sectors, upcoming events |
 | `5` ALRT | alerts |
+| `6` TRADES | add, paste or import your trades; edit or delete them |
 
 Type a ticker (or `SEC <ticker>`) for one security. Keys: ↑↓ PgUp PgDn move the cursor · Enter opens
 the row · Shift+←→ sort column, Shift+↑↓ direction · Tab next panel · Alt+1…9 maximize a panel ·
 Alt+↑↓ command history · drag a chart to zoom, double-click to reset · F1 or `?` help.
 
-Commands (`HELP` lists them all): `WATCH <name|ticker>` · `UNWATCH <ticker>` ·
+Commands (`HELP` lists them all): `BUY SAP.DE 4 @ 240` · `SELL ALV.DE 2 = 820 2026-03-02` ·
+`BONUS IWDA.AS 0.15 = 15` · `START FRESH` · `WATCH <name|ticker>` · `UNWATCH <ticker>` ·
 `ALERT SAP.DE < 200` / `ALERT * MOVE 5` / `ALERT PORT DAY -2` · `UNALERT <id>` · `ACK <id|ALL>` ·
 `TARGET HRP` · `REFRESH` · `CLOSED` · `FULL`. Alerts are checked every minute while a terminal tab
 is open. `data/README.md` explains the market universe the lookup and MKT's movers use.
@@ -108,8 +110,8 @@ Download the new ZIP and unzip it, then copy your `input/` folder (your trades a
 
 It writes `docs/` — PORT, OPT, RISK and MKT, percentages only. Commit `docs/` and enable GitHub Pages
 from `/docs`. The export never contains euro amounts, share counts, costs, transactions, closed positions,
-your watchlist or alerts, and never the single-security or alerts screens. It refuses while your portfolio
-is missing, still the example, or your settings have an error.
+your watchlist or alerts, and never the single-security, alerts or trades screens. It refuses while your
+portfolio is missing, empty, still the example, or your settings have an error.
 
 ## Privacy
 

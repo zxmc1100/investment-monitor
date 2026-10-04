@@ -43,8 +43,9 @@ def init(input_dir: Path | None = None, examples_dir: Path | None = None) -> lis
         except OSError as e:
             raise InitError(f"cannot copy {examples_dir.name}/{src} to {shown}: {e.strerror or e}") from None
         lines.append(f"created {shown} from {examples_dir.name}/{src}")
-    lines.append(f"next: start the terminal (start-mac.command / start-windows.bat / ./start.sh) and replace "
-                 f"{input_dir.name}/portfolio.csv with your own trades (format: {examples_dir.name}/README.md)")
+    lines.append("next: start the terminal (start-mac.command / start-windows.bat / ./start.sh) and press 6 "
+                 "(TRADES): START FRESH clears the example, then add your trades — one by one, pasted, or your "
+                 f"broker's CSV (the file format: {examples_dir.name}/README.md)")
     return lines
 
 
