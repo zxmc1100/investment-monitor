@@ -81,13 +81,31 @@ def test_your_own_trades_have_no_banner_and_an_empty_file_says_how_to_start(ctx)
     assert panel(p, "txns")["rows"] == [] and p["etag"] == "absent"
 
 
-def test_a_file_that_cannot_be_read_says_so_on_top(ctx):
+def test_a_file_that_cannot_be_read_says_so_on_top_and_offers_undo_never_start_fresh(ctx):
+    from monitor.portfolio.tradebook import TradeBook
     Path(ctx.portfolio_csv).write_text(HEAD + "\n2025-01-15,SAP.DE,buy,x,961.00,240.00\n", encoding="utf-8")
     p = build(ctx)
     err = panel(p, "problem")
     assert p["panels"][0] is err and err["type"] == "banner" and err["tone"] == "dn"
-    assert err["text"] == "portfolio.csv row 2, column Shares: 'x' is not a number"
-    assert err["run"] == "START FRESH" and p["error"] == err["text"]
+    assert err["text"] == "portfolio.csv row 2, column Shares: 'x' is not a number" and p["error"] == err["text"]
+    assert "run" not in err and err["context"]["text"] == "FIX IT IN THE FILE" and p["lines"] == 1
+    book = TradeBook(ctx.portfolio_csv)                            # a TRADES write broke it? then UNDO is the way back
+    Path(ctx.portfolio_csv).write_text(HEAD + "\n2025-01-15,SAP.DE,buy,4,961.00,240.00\n", encoding="utf-8")
+    book.add(book.read()["etag"], {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 1, "date": "2025-01-16"})
+    Path(ctx.portfolio_csv).write_text(Path(ctx.portfolio_csv).read_text(encoding="utf-8") + "oops\n", encoding="utf-8")
+    err = panel(build(ctx), "problem")
+    assert "run" not in err                                          # the file changed since: UNDO would lose that
+    book.read()
+
+
+def test_undo_is_offered_in_the_strip_while_the_file_is_as_trades_left_it(ctx):
+    from monitor.portfolio.tradebook import TradeBook
+    assert build(ctx)["actions"] == []
+    book = TradeBook(ctx.portfolio_csv)
+    book.add(book.read()["etag"], {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 2, "date": "2025-01-16"})
+    p = build(ctx)
+    assert p["actions"] == [{"label": "UNDO", "run": "UNDO", "title": "UNDO: ADD BUY 1 SAP.DE · €2.00/sh = €2.00"}]
+    assert p["undo"]["what"] == "ADD BUY 1 SAP.DE · €2.00/sh = €2.00" and p["undo"]["ready"] is True
 
 
 def test_help_explains_the_two_ways_the_fee_and_the_file():
@@ -95,3 +113,9 @@ def test_help_explains_the_two_ways_the_fee_and_the_file():
     for word in ("EITHER", "No fee is ever added", "input/backups/", "BUY SAP.DE 4 @ 240", "BUY SAP.DE 4 = 961",
                  "START FRESH", "@PricePerShare"):
         assert word in text, word
+
+
+def test_the_msci_world_etf_has_its_name_built_in():
+    """IWDA.AS is looked through as MSCI World (never asked of Yahoo): its name is built in, like EUNL.F's."""
+    from monitor.data.instruments import COMPANY_NAMES
+    assert COMPANY_NAMES["IWDA.AS"] == "iShares Core MSCI World ETF"

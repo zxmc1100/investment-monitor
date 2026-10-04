@@ -22,6 +22,7 @@ TICKER_CURRENCY: dict[str, str] = {}
 # is looked up in the TR universe, then on Yahoo (monitor.screens.identity).
 COMPANY_NAMES = {
     "EUNL.F": "iShares Core MSCI World ETF",
+    "IWDA.AS": "iShares Core MSCI World ETF",   # its look-through is built in (portfolio.meta), so Yahoo is never asked
 }
 _BUILTIN_TICKER_MAP, _BUILTIN_NAMES = dict(TICKER_MAP), dict(COMPANY_NAMES)
 

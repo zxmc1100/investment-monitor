@@ -264,7 +264,7 @@ def test_opt_and_risk_need_two_priced_positions(tmp_path):
                                                                "BBB.F": None}), encoding="utf-8")
     assert eng.cold_reason("RISK") == NEEDS_TWO                           # Yahoo never priced BBB.F
     csv.write_text("not,a,ledger\n1,2,3\n", encoding="utf-8")
-    assert eng.cold_reason("OPT") is None                                 # unreadable book: the compute reports it
+    assert eng.cold_reason("OPT").startswith("YOUR TRADES FILE HAS AN ERROR — portfolio.csv row 1: column Date missing")
 
 
 def test_without_trades_the_cold_view_names_the_trades_screen_and_its_key(tmp_path, monkeypatch):
@@ -337,3 +337,19 @@ def test_inputs_changed_brings_every_screen_that_reads_them_up_to_date(tmp_path,
     assert calls == [("quote", False)]                          # at once, before any job
     assert sorted((j.screen, j.tier) for j in jobs) == [("PORT", "daily"), ("PORT", "quote")]
     assert eng.runner.wait_idle(5) and ncalls == [] and mcalls == []
+
+
+def test_inputs_changed_with_a_settle_time_queues_the_others_once_after_the_burst(tmp_path, monkeypatch):
+    eng, calls, csv, rec = _inline(tmp_path, monkeypatch)
+    port, pcalls, _ = make_screen(tmp_path, monkeypatch, sid="PORT")
+    eng.screens["PORT"] = dataclasses.replace(port, uses_inputs=True, needs_portfolio=True)
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-02,X.F,buy,1,10.00,10.00\n", encoding="utf-8")
+    eng.compute_now("PORT")
+    pcalls.clear(), calls.clear()
+    for n in (2, 3):
+        csv.write_text(f"Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-02,X.F,buy,{n},20.00,10.00\n", encoding="utf-8")
+        assert eng.inputs_changed(settle=0.2) == []
+    assert len(calls) == 2 and pcalls == []                     # TRADES at once, each time; PORT not yet
+    time.sleep(0.5)
+    assert eng.runner.wait_idle(5) and sorted(pcalls) == [("daily", False), ("quote", True)]
+    eng.shutdown()

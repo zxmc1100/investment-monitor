@@ -28,7 +28,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Callable
 
-from monitor.portfolio.ledger import COLUMNS, DUST, _date, _number, parse_portfolio
+from monitor.portfolio.ledger import COLUMNS, DUST, CSVError, _date, _number, parse_portfolio
 
 ACTIONS = ("buy", "sell", "bonus")
 HEADER = ",".join(COLUMNS)
@@ -284,6 +284,29 @@ def same_trades(a: Path, b: Path) -> bool:
             parse_portfolio(a)["transactions"] == parse_portfolio(b)["transactions"]
     except (OSError, ValueError):            # unreadable: not the same (whoever reads it says why)
         return False
+
+
+_ERRORS: dict[tuple, str | None] = {}
+
+
+def book_error(path: Path) -> str | None:
+    """Why the file cannot be read — the ledger's one line — else None (no file: None). Cached per (path, mtime,
+    size): the screens ask on every request."""
+    p = Path(path)
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    key = (str(p), st.st_mtime_ns, st.st_size)
+    if key not in _ERRORS:
+        if len(_ERRORS) > 32:
+            _ERRORS.clear()
+        try:
+            parse_portfolio(p)
+            _ERRORS[key] = None
+        except (CSVError, OSError) as e:
+            _ERRORS[key] = str(e)
+    return _ERRORS[key]
 
 
 def has_trades(path: Path) -> bool:

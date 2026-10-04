@@ -3,6 +3,7 @@ Every write names the etag it was made on (409 when the file changed), is refuse
 leave a wrong file (400), is Origin-checked like every write, and recomputes TRADES at once and every portfolio
 screen after it. Temp input dirs only; no network."""
 import shutil
+import time
 import warnings
 from pathlib import Path
 
@@ -34,6 +35,8 @@ def env(tmp_path, monkeypatch):
     port, calls, _ = make_screen(tmp_path, monkeypatch, sid="PORT")      # stands in for PORT: no network
     import dataclasses
     port = dataclasses.replace(port, uses_inputs=True, needs_portfolio=True, fkey=1)
+    from monitor import config
+    monkeypatch.setattr(config, "TRADES_SETTLE_S", 0.05)                # recomputes coalesce; quick in a test
     rec = Recorder()
     eng = Engine({"PORT": port, "TRADES": SCREENS["TRADES"]}, Store(tmp_path / "store"), rec,
                  ctx=Ctx(portfolio_csv=csv, buffer_dir=tmp_path / "buf", equity_log=None))
@@ -66,6 +69,7 @@ def test_add_saves_recomputes_trades_at_once_and_queues_the_portfolio_screens(en
     p = c.get("/api/screen/TRADES").json()
     assert p["etag"] == r.json()["etag"] and r.json()["id"] in {row["id"] for row in p["panels"][-1]["rows"]}
     assert any(e["type"] == "screen" and e["id"] == "TRADES" for e in rec.events)
+    time.sleep(0.3)
     assert eng.runner.wait_idle(5) and {t for t, _ in calls} == {"quote", "daily"}     # PORT recomputed
     assert (csv.parent / "backups").is_dir()
 
@@ -166,7 +170,54 @@ def test_a_locked_file_is_423_with_one_line(env, monkeypatch):
 
 def test_a_recompute_hiccup_after_a_write_is_logged_not_the_writes_failure(env, monkeypatch, caplog):
     c, eng, csv, _, _ = env
-    monkeypatch.setattr(eng, "inputs_changed", lambda: (_ for _ in ()).throw(RuntimeError("store unreadable")))
+    monkeypatch.setattr(eng, "inputs_changed", lambda **k: (_ for _ in ()).throw(RuntimeError("store unreadable")))
     with caplog.at_level("WARNING"):
         r = c.post("/api/trades/reset", json={"etag": etag(c)})
     assert r.status_code == 200 and csv.read_text(encoding="utf-8") == HEAD + "\n" and "store unreadable" in caplog.text
+
+
+def test_undo_puts_the_file_back(env):
+    c, _, csv, _, _ = env
+    before = csv.read_bytes()
+    r = c.post("/api/trades", json={"etag": etag(c), "trade": {"ticker": "SAP.DE", "action": "buy", "shares": 1, "total": 9}})
+    assert c.get("/api/trades").json()["undo"]["what"].startswith("ADD BUY 1 SAP.DE")
+    u = c.post("/api/trades/undo", json={"etag": r.json()["etag"]})
+    assert u.status_code == 200 and u.json()["text"].startswith("UNDID: ADD BUY 1 SAP.DE") and csv.read_bytes() == before
+    r = c.post("/api/trades/undo", json={"etag": "stale"})
+    assert r.status_code == 409
+
+
+def test_recomputes_after_a_burst_of_writes_coalesce_into_one(env):
+    c, eng, csv, calls, rec = env
+    eng.compute_now("PORT")
+    calls.clear()
+    for i in range(3):
+        c.post("/api/trades", json={"etag": etag(c), "trade": {"ticker": "SAP.DE", "action": "buy", "shares": 1,
+                                                                "total": 10 + i}})
+    time.sleep(0.3)
+    assert eng.runner.wait_idle(5) and sorted(calls) == [("daily", False), ("quote", True)]      # once, not three times
+    assert len([e for e in rec.events if e["type"] == "screen" and e["id"] == "TRADES"]) >= 3   # TRADES at once, each
+
+
+def test_a_broken_trades_file_never_blocks_the_terminal(tmp_path, monkeypatch):
+    """One bad cell: the registry (SEC's ticker list reads the book) still answers, TRADES shows the error on top,
+    PORT says it in one line — no 500 anywhere."""
+    web = tmp_path / "web"
+    (web / "app").mkdir(parents=True)
+    (web / "index.html").write_text('<meta name="im-mode" content="live">', encoding="utf-8")
+    csv = tmp_path / "input" / "portfolio.csv"
+    csv.parent.mkdir()
+    csv.write_text(HEAD + "\n2025-01-15,SAP.DE,buy,4,96x,240.00\n", encoding="utf-8")
+    eng = Engine(dict(SCREENS), Store(tmp_path / "store"), Recorder(),
+                 ctx=Ctx(portfolio_csv=csv, buffer_dir=tmp_path / "buf", equity_log=None))
+    c = TestClient(create_app(eng, web_dir=web, trade_book=TradeBook(csv)), base_url="http://127.0.0.1")
+    r = c.get("/api/screens")
+    assert r.status_code == 200 and r.json()["params"]["SEC"] == []
+    t = c.get("/api/screen/TRADES")
+    assert t.status_code == 200 and t.json()["panels"][0]["id"] == "problem"
+    for sid in ("PORT", "OPT", "RISK"):
+        p = c.get(f"/api/screen/{sid}")
+        assert p.status_code == 202 and p.json()["reason"] == (
+            "YOUR TRADES FILE HAS AN ERROR — portfolio.csv row 2, column Price: '96x' is not a number · fix it in the "
+            "file, or press 6 (TRADES) and UNDO the last change"), sid
+    assert eng.runner.jobs() == []

@@ -45,8 +45,8 @@ def spx_line(ticker: str) -> str | None:
 def _traded(ctx: Ctx) -> set[str]:
     try:
         return {t["ticker"] for t in snapshot.load_book(ctx.portfolio_csv)["transactions"]}
-    except FileNotFoundError:
-        return set()
+    except (FileNotFoundError, ValueError):          # no ledger yet, or one that cannot be read (CSVError):
+        return set()                                 # the registry and the palette still answer
 
 
 def params(ctx: Ctx) -> list[str]:

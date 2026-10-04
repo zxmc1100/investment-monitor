@@ -23,7 +23,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from monitor import config, plugins
-from monitor.portfolio.trades import has_trades, same_trades
+from monitor.portfolio.trades import book_error, has_trades, same_trades
 from monitor.server.engine import Engine
 from monitor.server.redact import public_view
 from monitor.server.store import Store
@@ -41,7 +41,8 @@ EXAMPLE = ("input/portfolio.csv is still the example portfolio (examples/portfol
 
 def refuse_unpublishable(engine: Engine) -> None:
     """RuntimeError(one line) when this export must not run: a settings error (the numbers would use
-    defaults you did not choose), no portfolio or one without trades, or the untouched example portfolio."""
+    defaults you did not choose), no portfolio, one without trades or one that cannot be read, or the untouched
+    example portfolio."""
     config.refresh_settings()
     if config.SETTINGS_ERROR:
         raise RuntimeError(f"{config.SETTINGS_ERROR} — fix it before publishing")
@@ -52,6 +53,8 @@ def refuse_unpublishable(engine: Engine) -> None:
         raise RuntimeError(NOTHING)
     if not has_trades(csv):
         raise RuntimeError(EMPTY)
+    if error := book_error(csv):
+        raise RuntimeError(f"{error} — fix it before publishing")
     example = config.EXAMPLES_DIR / "portfolio.example.csv"
     if example.exists() and same_trades(csv, example):     # however it was saved; unreadable: the export says why
         raise RuntimeError(EXAMPLE)

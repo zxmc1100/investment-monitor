@@ -72,7 +72,7 @@ HELP = [
 def _book(ctx: Ctx) -> dict | None:
     try:
         return snapshot.load_book(ctx.portfolio_csv)
-    except FileNotFoundError:                       # no ledger yet: the market still shows
+    except (FileNotFoundError, ValueError):         # no ledger yet, or it cannot be read: the market still shows
         return None
 
 

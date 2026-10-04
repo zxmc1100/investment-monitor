@@ -6,6 +6,7 @@ exists and was computed by the current code, so a half-updated screen is never s
 """
 import collections
 import contextlib
+import logging
 import os
 import re
 import subprocess
@@ -17,13 +18,14 @@ from datetime import datetime
 from typing import Any, Callable
 
 from monitor import config
-from monitor.portfolio.trades import has_trades
-from monitor.screens.base import Ctx, Screen, no_trades, screen_key, split_key
+from monitor.portfolio.trades import book_error, has_trades
+from monitor.screens.base import Ctx, Screen, no_trades, screen_key, split_key, trades_error
 from monitor.server import prefs as prefs_mod
 from monitor.server.jobs import Job, JobRunner
 from monitor.server.store import Store
 from monitor.server.stream import Broker
 
+log = logging.getLogger("monitor.engine")
 MAX_AGE_S = {"quote": config.QUOTE_INTERVAL_S, "daily": config.DAILY_TTL_H * 3600}   # heavy: never auto
 # A tier is due slightly early: the client pokes every MAX_AGE_S, and the part's age is measured
 # after the compute, so a strict '>' would skip every other poke (~2x cadence).
@@ -58,6 +60,7 @@ class Engine:
         self._children: set[subprocess.Popen] = set()      # running build children (shutdown kills them)
         self._scheduled: set[str] = set()                    # keys whose next build the schedule asked for
         self._stopping = False                               # shutdown() began: a child's death is a kill
+        self._settle: threading.Timer | None = None          # inputs_changed's pending recompute (a burst)
 
     @classmethod
     def default(cls, *, prefs_path: Path | None = config.PREFS_FILE,
@@ -103,11 +106,16 @@ class Engine:
 
     def cold_reason(self, sid: str) -> str | None:
         """Why `sid` cannot compute at all right now (no trades yet — no input/portfolio.csv, or a header
-        alone — or the screen's own `cold` reason, e.g. fewer than two priced positions), else None. Such a
-        screen runs no jobs — nothing fails, nothing is logged — and computes once the reason is gone."""
+        alone —, a trades file that cannot be read, or the screen's own `cold` reason, e.g. fewer than two
+        priced positions), else None. Such a screen runs no jobs — nothing fails, nothing is logged — and
+        computes once the reason is gone."""
         scr = self.screens[sid]
-        if scr.needs_portfolio and not has_trades(Path(self.ctx.portfolio_csv)):
-            return no_trades(self.screens)
+        if scr.needs_portfolio:
+            csv = Path(self.ctx.portfolio_csv)
+            if not has_trades(csv):
+                return no_trades(self.screens)
+            if error := book_error(csv):
+                return trades_error(self.screens, error)
         return scr.cold(self.ctx) if scr.cold is not None else None
 
     @staticmethod
@@ -193,6 +201,10 @@ class Engine:
         """Stop the job workers and terminate any build child (server shutdown or reload); the build's
         job fails as BuildKilled, which the month-start schedule retries."""
         self._stopping = True
+        with self._locks_guard:
+            if self._settle is not None:
+                self._settle.cancel()
+                self._settle = None
         self.runner.shutdown()
         with self._locks_guard:
             kids = list(self._children)
@@ -296,17 +308,40 @@ class Engine:
         return [self.runner.submit(key, t, force=(t == "quote")) for t in self.due_tiers(sid, param, now)
                 if not self.backing_off(key, t, now)]
 
-    def inputs_changed(self) -> list[Job]:
+    def inputs_changed(self, settle: float = 0.0) -> list[Job]:
         """Your trades were just written (TRADES): every screen that reads them brings itself up to date — an
         inline one at once, any other that was computed before queues its due tiers (its current payload stays
-        until the new one assembles); a screen never opened computes when it is."""
+        until the new one assembles); a screen never opened computes when it is. With `settle` > 0 the others
+        wait until no further change came for `settle` s: a burst of writes recomputes them once, on the last."""
         jobs: list[Job] = []
-        for sid, scr in self.screens.items():
-            if scr.status != "live" or not scr.uses_inputs or scr.params is not None:
-                continue
-            if scr.inline or any(self.store.part_info(sid, t) for t in scr.tiers):
+        for sid, scr in self._readers():
+            if scr.inline:
                 jobs += self.ensure_fresh(sid)
+        if settle <= 0:
+            return jobs + self._queue_readers()
+        with self._locks_guard:
+            if self._settle is not None:
+                self._settle.cancel()
+            self._settle = threading.Timer(settle, self._settled)
+            self._settle.daemon = True
+            self._settle.start()
         return jobs
+
+    def _readers(self):
+        return [(sid, scr) for sid, scr in self.screens.items()
+                if scr.status == "live" and scr.uses_inputs and scr.params is None]
+
+    def _queue_readers(self) -> list[Job]:
+        return [j for sid, scr in self._readers() if not scr.inline
+                and any(self.store.part_info(sid, t) for t in scr.tiers) for j in self.ensure_fresh(sid)]
+
+    def _settled(self) -> None:
+        with self._locks_guard:
+            self._settle = None
+        try:
+            self._queue_readers()
+        except Exception:                                    # a timer thread: log, never die loudly
+            log.warning("recompute after a trades change failed", exc_info=True)
 
     def build(self, sid: str, *, scheduled: bool = False) -> Job:
         """Run a build screen's build child now, then reload (BUILD <screen>, or the month-start schedule).

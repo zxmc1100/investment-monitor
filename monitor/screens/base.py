@@ -39,15 +39,26 @@ NO_PORTFOLIO = ("NO PORTFOLIO YET — put your trades in input/portfolio.csv, or
                 "(python -m monitor init)")
 
 
-def no_trades(screens: Mapping[str, "Screen"]) -> str:
-    """The cold view of a screen built from your trades while there are none (no input/portfolio.csv, or a
-    header alone — as START FRESH leaves it): TRADES by the number key this registry gives it (a local add-on
-    may move it), else NO_PORTFOLIO."""
+def _to_trades(screens: Mapping[str, "Screen"]) -> str | None:
+    """How to get to TRADES in this registry — by the number key it gives it (a local add-on may move it)."""
     t = screens.get("TRADES")
     if t is None or t.status != "live":
-        return NO_PORTFOLIO
-    how = f"press {t.fkey} (TRADES)" if t.fkey else "type TRADES"
-    return f"NO TRADES YET — {how}: add your trades, paste many or import your broker's CSV"
+        return None
+    return f"press {t.fkey} (TRADES)" if t.fkey else "type TRADES"
+
+
+def no_trades(screens: Mapping[str, "Screen"]) -> str:
+    """The cold view of a screen built from your trades while there are none (no input/portfolio.csv, or a
+    header alone — as START FRESH leaves it): where to add them, TRADES, else NO_PORTFOLIO."""
+    how = _to_trades(screens)
+    return f"NO TRADES YET — {how}: add your trades, paste many or import your broker's CSV" if how else NO_PORTFOLIO
+
+
+def trades_error(screens: Mapping[str, "Screen"], error: str) -> str:
+    """The cold view while the trades file cannot be read: the ledger's line, and the way back."""
+    how = _to_trades(screens)
+    back = f"fix it in the file, or {how} and UNDO the last change" if how else "fix it in the file"
+    return f"YOUR TRADES FILE HAS AN ERROR — {error} · {back}"
 
 
 @dataclass(frozen=True)

@@ -177,6 +177,7 @@ BL_VIEWS: list[dict] = []
 QUOTE_INTERVAL_S = 60    # quote tier max age while a tab is open
 DAILY_TTL_H = 12         # daily tier max age
 FAILED_RETRY_MIN = 10    # a tier whose last run failed is not auto-run again sooner (REFRESH still runs at once)
+TRADES_SETTLE_S = 2.5    # after TRADES writes your trades, the portfolio screens recompute once the burst settles
 HISTORY_FILL_DAYS = 3    # a history line Yahoo leaves out is filled from the cache only if priced this recently
 
 # Server

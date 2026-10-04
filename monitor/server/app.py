@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from monitor import config
 from monitor.alerts import watchlist
 from monitor.data.buffer import cached_quotes
+from monitor.portfolio.ledger import CSVError
 from monitor.portfolio.tradebook import Blocked, Conflict, Invalid, Missing, TradeBook
 from monitor.server.alerting import AlertLoop, AlertService
 from monitor.server.engine import Engine
@@ -285,8 +286,10 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
             raise HTTPException(404, {"error": str(e)})
         except Invalid as e:
             raise HTTPException(400, {"error": str(e), "errors": e.errors})
+        except CSVError as e:                    # never a bare 500 for a file that cannot be read
+            raise HTTPException(400, {"error": str(e)})
         try:
-            engine.inputs_changed()
+            engine.inputs_changed(settle=config.TRADES_SETTLE_S)   # TRADES now; the portfolio screens once settled
         except Exception:                        # the file is written: a recompute hiccup is not the write's failure
             log.warning("recomputing after a trade write failed", exc_info=True)
         return out
@@ -339,6 +342,11 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
     def reset_trades(body: dict = Body(...)):
         tag = need_etag(body)
         return written(lambda: book.reset(tag))
+
+    @app.post("/api/trades/undo")
+    def undo_trades(body: dict = Body(...)):
+        tag = need_etag(body)
+        return written(lambda: book.undo(tag))
 
     @app.get("/api/jobs")
     def jobs():

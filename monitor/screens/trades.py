@@ -87,11 +87,14 @@ def assemble(parts: dict, meta: dict) -> dict:
     q = parts["quote"]
     names, rows = q["names"], [_row(i, r, q["names"]) for i, r in enumerate(q["rows"])]
     book = [{"ticker": t, "name": names.get(t, t)} for t in dict.fromkeys(r["ticker"] for r in reversed(q["rows"]))]
+    undo = q.get("undo")
+    ready = bool(undo and undo["ready"])
     top = []
-    if q["error"]:
+    if q["error"]:                                   # never START FRESH here: that would throw the file away
         top.append({"id": "problem", "n": 4, "title": "YOUR FILE HAS AN ERROR", "type": "banner", "span": 12,
-                    "tone": "dn", "vis": PRIV, "text": q["error"], "run": "START FRESH", "button": "START FRESH",
-                    "context": {"text": "FIX IT IN THE FILE · OR IMPORT A FILE WITH REPLACE · OR START FRESH"}})
+                    "tone": "dn", "vis": PRIV, "text": q["error"],
+                    **({"run": "UNDO", "button": "UNDO"} if ready else {}),
+                    "context": {"text": "FIX IT IN THE FILE, OR UNDO" if ready else "FIX IT IN THE FILE"}})
     elif q["example"]:
         top.append({"id": "fresh", "n": 4, "title": "EXAMPLE PORTFOLIO", "type": "banner", "span": 12,
                     "vis": PRIV, "text": "EXAMPLE PORTFOLIO — START FRESH clears it", "run": "START FRESH",
@@ -100,7 +103,8 @@ def assemble(parts: dict, meta: dict) -> dict:
     n = len(rows)
     return {"screen": "TRADES", "title": "Trades",
             "context": {"text": f"{n} TRADE{'' if n == 1 else 'S'} · input/portfolio.csv · BACKUPS IN input/backups/"},
-            "meta": meta, "help": HELP, "etag": q["etag"], "error": q["error"],
+            "meta": meta, "help": HELP, "etag": q["etag"], "error": q["error"], "lines": q["lines"], "undo": undo,
+            "actions": [{"label": "UNDO", "run": "UNDO", "title": f"UNDO: {undo['what']}"}] if ready else [],
             "panels": [
                 *top,
                 {"id": "add", "n": 1, "title": "ADD", "type": "form", "span": 5, "form": "trade", "vis": PRIV,

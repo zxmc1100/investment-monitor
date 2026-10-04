@@ -187,6 +187,13 @@ def test_export_of_a_book_without_trades_has_nothing_to_publish(tmp_path, web, m
     assert (out / "data" / "PORT.json").read_text(encoding="utf-8") == "{}"
 
 
+def test_export_of_a_file_that_cannot_be_read_says_why(tmp_path, web, monkeypatch):
+    out = _published(tmp_path)
+    eng = _book_engine(tmp_path, "Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-02,X.F,buy,1,1x,1\n", monkeypatch)
+    with pytest.raises(RuntimeError, match="^portfolio.csv row 2, column Price: '1x' is not a number — fix it before publishing$"):
+        export(out, engine=eng, web_dir=web)
+
+
 def test_export_refuses_the_untouched_example_portfolio(tmp_path, web, monkeypatch):
     from monitor.init import EXAMPLES_DIR
     out = _published(tmp_path)
