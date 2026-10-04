@@ -30,15 +30,16 @@ def write_csv_atomic(df: pd.DataFrame, path: Path, **kw) -> Path:
     return target
 
 
-def write_text_atomic(path: Path, text: str) -> Path:
+def write_text_atomic(path: Path, text: str, newline: str | None = None) -> Path:
     """`text` into a temp file beside the target, then os.replace — like write_csv_atomic: the old file or
-    the new one, never half of one; a failed write leaves the old file and no temp file."""
+    the new one, never half of one; a failed write leaves the old file and no temp file. `newline` as for
+    open(): "\n" writes the text's line ends as they are (text mode on Windows would make them \r\n)."""
     target = Path(path).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
     os.close(fd)
     try:
-        Path(tmp).write_text(text, encoding="utf-8")
+        Path(tmp).write_text(text, encoding="utf-8", newline=newline)
         os.replace(tmp, target)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)

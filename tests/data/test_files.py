@@ -107,3 +107,10 @@ def test_locked_on_windows_does_not_spin_on_other_errors(tmp_path, monkeypatch):
 def test_write_text_atomic_writes_utf8_whatever_the_locale(tmp_path):
     p = files.write_text_atomic(tmp_path / "n.txt", "Société Générale · 3,95 €\n")
     assert p.read_bytes().decode("utf-8").replace("\r\n", "\n") == "Société Générale · 3,95 €\n"
+
+
+def test_write_text_atomic_can_keep_line_ends_exactly(tmp_path, monkeypatch):
+    """newline="\\n": the bytes written are the text's, on Windows too (where text mode writes \\r\\n)."""
+    monkeypatch.setattr(files.os, "linesep", "\r\n")
+    p = files.write_text_atomic(tmp_path / "t.csv", "a,b\n1,2\n", newline="\n")
+    assert p.read_bytes() == b"a,b\n1,2\n"
