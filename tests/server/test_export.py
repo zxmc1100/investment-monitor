@@ -187,6 +187,24 @@ def test_export_refuses_the_untouched_example_portfolio(tmp_path, web, monkeypat
     assert (out / "data" / "PORT.json").read_text(encoding="utf-8") == "{}"
 
 
+@pytest.mark.parametrize("excel", [
+    lambda t: ("\ufeff" + t).replace("\n", "\r\n").encode("utf-8"),                 # re-saved on Windows
+    lambda t: "\n".join(";".join(c.replace(".", ",") if c.replace(".", "").isdigit() else c for c in line.split(","))
+                        for line in t.splitlines()).encode("utf-8"),               # European Excel
+])
+def test_export_refuses_the_example_however_it_was_saved(tmp_path, web, monkeypatch, excel):
+    """The same trades are the example whatever the bytes: a Windows checkout or an Excel re-save of the
+    untouched example must not get it published."""
+    from monitor.init import EXAMPLES_DIR
+    out = _published(tmp_path)
+    eng = _book_engine(tmp_path, None, monkeypatch)
+    csv = Path(eng.ctx.portfolio_csv)
+    csv.parent.mkdir(parents=True)
+    csv.write_bytes(excel((EXAMPLES_DIR / "portfolio.example.csv").read_text(encoding="utf-8")))
+    with pytest.raises(RuntimeError, match="example portfolio"):
+        export(out, engine=eng, web_dir=web)
+
+
 def test_export_refuses_while_settings_have_an_error(tmp_path, web, monkeypatch):
     from monitor import config
     monkeypatch.setattr(config, "SETTINGS_ERROR", "input/settings.toml: unknown key 'fee' ignored")

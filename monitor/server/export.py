@@ -23,6 +23,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from monitor import config, plugins
+from monitor.portfolio.ledger import parse_portfolio
 from monitor.server.engine import Engine
 from monitor.server.redact import public_view
 from monitor.server.store import Store
@@ -49,8 +50,17 @@ def refuse_unpublishable(engine: Engine) -> None:
     if not csv.exists():
         raise RuntimeError(NOTHING)
     example = config.EXAMPLES_DIR / "portfolio.example.csv"
-    if example.exists() and csv.read_bytes() == example.read_bytes():
+    if example.exists() and _same_trades(csv, example):
         raise RuntimeError(EXAMPLE)
+
+
+def _same_trades(a: Path, b: Path) -> bool:
+    """The same trades, however the file was saved (line endings, a BOM, Excel's `;` and decimal comma)."""
+    try:
+        return a.read_bytes() == b.read_bytes() or \
+            parse_portfolio(a)["transactions"] == parse_portfolio(b)["transactions"]
+    except (OSError, ValueError):            # unreadable: not the example (the export itself will say why)
+        return False
 
 
 def export(out_dir: Path = config.DOCS_DIR, *, engine: Engine | None = None, cached: bool = False,
