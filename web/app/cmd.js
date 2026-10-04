@@ -1,3 +1,5 @@
+import { tradeCommand, tradeUsage } from "./trades.js";
+
 // Command grammar. Pure: text -> action object.
 // Resolution order: verb → screen mnemonic → ticker in a parametrized screen's list →
 // ticker-shaped word (SEC; the server decides) → unknown.
@@ -39,6 +41,7 @@ export function staticNotice(a) {
     case "watch": case "unwatch": return localOnlyMsg("WATCHLIST");
     case "alert": case "unalert": case "ack": return localOnlyMsg("ALRT");
     case "toggle-closed": return localOnlyMsg("CLOSED");
+    case "trade": case "fresh": return localOnlyMsg("TRADES");
     default: return null;
   }
 }
@@ -84,6 +87,14 @@ export const VERBS = [
     parse: (rest) => ({ type: "build", screen: rest[0] ?? null }) },
   { verb: "CLOSED", usage: fixed("CLOSED"), local: true, desc: "show / hide closed positions",
     parse: () => ({ type: "toggle-closed" }) },
+  ...[["BUY", "add a buy: @ price per share, or = the total paid (fees in it); today unless a date ends it"],
+      ["SELL", "add a sale: @ price per share, or = the total received; FEE x only for a fee not in the price"],
+      ["BONUS", "add bonus shares (Saveback): @ price per share or = their booked value"]].map(([verb, desc]) => (
+    { verb, usage: fixed(tradeUsage(verb.toLowerCase())), local: true, arg: true, desc,
+      parse: (rest) => tradeCommand(verb.toLowerCase(), rest) })),
+  { verb: "START", usage: fixed("START FRESH"), local: true, run: "START FRESH",
+    desc: "empty your trades file to enter your own (asks first; a backup is kept)",
+    parse: (rest) => (rest.length === 1 && rest[0] === "FRESH" ? { type: "fresh" } : err("START FRESH")) },
   { verb: "FULL", alias: ["FS"], usage: fixed("FULL"), desc: "full screen on / off (Esc also leaves)",
     parse: () => ({ type: "fullscreen" }) },
   { verb: "HELP", alias: ["?"], usage: fixed("HELP [SCREEN]"), desc: "this help, or another screen's",
@@ -155,7 +166,7 @@ export function helpRows(ctx) {
 // palette lists TARGET <name> and BUILD <screen> one by one). An `arg` verb fills the bar.
 export function verbItems(ctx) {
   return VERBS.filter((v) => !(ctx.static && v.local) && v.verb !== "TARGET" && v.verb !== "BUILD")
-    .map((v) => ({ label: v.usage(ctx), desc: v.desc, run: v.arg ? `${v.verb} ` : v.verb, fill: !!v.arg }));
+    .map((v) => ({ label: v.usage(ctx), desc: v.desc, run: v.run ?? (v.arg ? `${v.verb} ` : v.verb), fill: !!v.arg }));
 }
 
 // What Enter runs, given the highlighted autocomplete row `item` and whether the user `moved` to it:

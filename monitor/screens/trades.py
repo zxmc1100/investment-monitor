@@ -50,7 +50,7 @@ HELP = [
 FIELDS = [
     {"k": "ticker", "label": "TICKER", "kind": "ticker", "placeholder": "name or ticker, e.g. SAP.DE"},
     {"k": "action", "label": "ACTION", "kind": "choice", "options": ["buy", "sell", "bonus"]},
-    {"k": "shares", "label": "SHARES", "kind": "number", "placeholder": "4"},
+    {"k": "shares", "label": "SHARES", "kind": "number", "placeholder": "how many — fractions are fine"},
     {"k": "pps", "label": "€ / SHARE", "kind": "number", "pair": "total", "placeholder": "price per share"},
     {"k": "total", "label": "TOTAL €", "kind": "number", "pair": "pps", "placeholder": "fees included"},
     {"k": "date", "label": "DATE", "kind": "date", "placeholder": "today"},

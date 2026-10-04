@@ -170,7 +170,7 @@ def test_a_file_that_cannot_be_read_is_shown_and_only_replace_or_start_fresh_wri
 
 
 def test_an_excel_saved_file_keeps_its_ids_and_is_rewritten_canonically(book):
-    excel = "﻿Date;Ticker;Action;Shares;Price;PricePerShare\r\n16.12.2024;SAP.DE;buy;4;961,00;240,00\r\n;;;;;\r\n"
+    excel = "\ufeffDate;Ticker;Action;Shares;Price;PricePerShare\r\n16.12.2024;SAP.DE;buy;4;961,00;240,00\r\n;;;;;\r\n"
     book.csv.write_bytes(excel.encode("utf-8"))
     s = book.read()
     res = book.update(s["etag"], s["rows"][0]["id"], {"ticker": "SAP.DE", "action": "buy", "shares": 4, "total": 961,

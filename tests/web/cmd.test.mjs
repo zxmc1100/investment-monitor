@@ -212,3 +212,26 @@ test("the static snapshot answers a live-only command in one phrasing", () => {
   assert.equal(staticNotice({ type: "screen", id: "PORT" }), null);
   assert.equal(staticNotice({ type: "help" }), null);
 });
+
+test("BUY / SELL / BONUS add a trade from any screen; bare, they answer with their usage", () => {
+  assert.deepEqual(parse("buy sap.de 4 @ 240", CTX), { type: "trade",
+    values: { action: "buy", ticker: "SAP.DE", shares: "4", pps: "240", total: "", date: "", fee: "" } });
+  assert.deepEqual(parse("BUY SAP.DE 4 = 961", CTX).values.total, "961");
+  assert.deepEqual(parse("sell alv.de 2 @ 410 2026-03-02", CTX).values, { action: "sell", ticker: "ALV.DE", shares: "2",
+    pps: "410", total: "", date: "2026-03-02", fee: "" });
+  assert.deepEqual(parse("bonus amz.f 0.05 @ 190", CTX).values.action, "bonus");
+  assert.deepEqual(parse("buy sap.de 4 @ 240 fee 1", CTX).values.fee, "1");
+  assert.deepEqual(parse("buy", CTX), { type: "error", msg: "BUY <TICKER> <SHARES> @ <PRICE> | = <TOTAL> [DATE] [FEE x]" });
+  assert.deepEqual(parse("sell sap.de 4", CTX), { type: "error", msg: "SELL <TICKER> <SHARES> @ <PRICE> | = <TOTAL> [DATE] [FEE x]" });
+  assert.ok(helpRows(CTX).some((r) => r.cmd === "BONUS <TICKER> <SHARES> @ <PRICE> | = <VALUE> [DATE]" && r.local));
+  assert.equal(staticNotice({ type: "trade" }), "TRADES IS PRIVATE — LOCAL TERMINAL ONLY");
+});
+
+test("START FRESH empties your trades (the app asks first); START alone says the whole command", () => {
+  assert.deepEqual(parse("start fresh", CTX), { type: "fresh" });
+  assert.deepEqual(parse("start", CTX), { type: "error", msg: "START FRESH" });
+  assert.deepEqual(parse("start over", CTX), { type: "error", msg: "START FRESH" });
+  const item = verbItems(CTX).find((i) => i.label === "START FRESH");
+  assert.deepEqual([item.run, item.fill], ["START FRESH", false]);           // picked in the palette: it runs
+  assert.equal(staticNotice({ type: "fresh" }), "TRADES IS PRIVATE — LOCAL TERMINAL ONLY");
+});

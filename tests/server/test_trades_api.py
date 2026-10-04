@@ -115,6 +115,7 @@ def test_preview_writes_nothing_import_writes_the_good_rows(env):
     assert csv.read_bytes() == before
     r = c.post("/api/trades/import", json={"etag": etag(c), "text": text, "mode": "append"})
     assert r.status_code == 200 and (r.json()["added"], r.json()["skipped"], r.json()["lines"]) == (1, 1, [3])
+    assert r.json()["header"] is True                       # the box keeps the header above the lines to fix
     r = c.post("/api/trades/import", json={"etag": etag(c), "text": "2025-01-15,SAP.DE,buy,4,961\n", "mode": "replace"})
     assert r.status_code == 200 and len(c.get("/api/trades").json()["rows"]) == 1
     r = c.post("/api/trades/import", json={"etag": etag(c), "text": "x", "mode": "sideways"})

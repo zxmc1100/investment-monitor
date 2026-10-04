@@ -63,3 +63,9 @@ test("chart time ticks: years, then MON YY, then DD MON — never US M/D or mixe
   assert.deepEqual(timeTicks([t(2026, 8, 1), t(2026, 9, 1)], 30 * 86400), ["SEP 26", "OCT 26"]);
   assert.deepEqual(timeTicks([t(2026, 9, 1), t(2026, 9, 8)], 7 * 86400), ["01 OCT", "08 OCT"]);
 });
+
+test("qty: shares as entered, every decimal kept; px: a price per share, 2 to 4 decimals", () => {
+  assert.deepEqual([4, 0.15, 13.513513, 1234.5].map((v) => fmt(v, "qty").text), ["4", "0.15", "13.513513", "1,234.5"]);
+  assert.deepEqual([240, 100.5, 33.3333, 1234.56789].map((v) => fmt(v, "px").text), ["240.00", "100.50", "33.3333", "1,234.5679"]);
+  assert.equal(fmt(null, "qty").text, "—");
+});

@@ -210,7 +210,7 @@ class TradeBook:
 
     def import_text(self, etag: str, text: str, mode: str = "append") -> dict:
         """The good rows of a paste or file: appended (each by its date) or replacing every trade. Bad rows are
-        never written — {"added", "skipped", "lines": the skipped rows' line numbers}."""
+        never written — {"added", "skipped", "lines": the skipped rows' line numbers, "header": one was read}."""
         mode = _mode(mode)
         with self._lock:
             data, rows = self._current(etag, readable=(mode == "append"))
@@ -225,7 +225,8 @@ class TradeBook:
             new = T.merge(base, [r["trade"] for r in good], mode)
             out = self._write(data, base, new)
         skipped = [r["line"] for r in bulk["rows"] if not (r["trade"] and not r["error"])]
-        return {"etag": out, "mode": mode, "added": len(good), "skipped": len(skipped), "lines": skipped}
+        return {"etag": out, "mode": mode, "added": len(good), "skipped": len(skipped), "lines": skipped,
+                "header": bulk["header"]}
 
     def reset(self, etag: str) -> dict:
         """Start fresh: the header alone (the old file in input/backups/)."""

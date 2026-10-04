@@ -53,6 +53,16 @@ export const addAlert = (text) => send("api/alerts", "POST", { text });
 export const delAlert = (id) => send(`api/alerts/${encodeURIComponent(id)}`, "DELETE");
 export const ack = (body) => send("api/alerts/ack", "POST", body);
 
+// TRADES: every write names the file version (etag) it was made on — 409 when the file changed meanwhile.
+const tradePath = (id) => `api/trades/${encodeURIComponent(id)}`;
+export const trades = () => json("api/trades");
+export const addTrade = (etag, trade) => send("api/trades", "POST", { etag, trade });
+export const editTrade = (id, etag, trade) => send(tradePath(id), "PUT", { etag, trade });
+export const delTrade = (id, etag) => send(tradePath(id), "DELETE", { etag });
+export const previewTrades = (text, mode) => send("api/trades/preview", "POST", { text, mode });
+export const importTrades = (etag, text, mode) => send("api/trades/import", "POST", { etag, text, mode });
+export const resetTrades = (etag) => send("api/trades/reset", "POST", { etag });
+
 export function subscribe(onEvent) {
   if (isStatic) return () => {};
   const es = new EventSource("api/stream");
