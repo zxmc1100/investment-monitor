@@ -81,13 +81,16 @@ def test_requirements_parse_into_names_minimums_and_markers():
     ({"python": [3, 9], "missing": []}, "h", "create"),                  # too old a Python inside
     ({"python": [3, 13], "missing": []}, "h", "ok"),
     ({"python": [3, 13], "missing": []}, None, "ok"),                    # a developer's own venv: left alone
+    ({"python": [3, 12], "missing": []}, None, "ok"),                    # … whatever Python runs this
     ({"python": [3, 13], "missing": []}, "old", "install"),              # requirements.txt changed
     ({"python": [3, 13], "missing": ["scipy"]}, "h", "install"),
-    ({"python": [3, 13], "missing": ["scipy"]}, None, "install"),        # a first install that broke off
+    ({"python": [3, 13], "missing": ["scipy"]}, None, "install"),        # a first install that broke off …
+    ({"python": [3, 15], "missing": ["scipy"]}, None, "create"),         # … under another Python: start over
+    ({"python": [3, 15], "missing": ["scipy"]}, "h", "install"),         # (never a venv installed here before)
     ({"python": [3, 13], "missing": None}, None, "install"),             # cannot check: install
 ])
 def test_the_plan(state, stamp, plan):
-    assert B.plan(state, stamp, "h") == plan
+    assert B.plan(state, stamp, "h", running=(3, 13)) == plan
 
 
 def test_the_probe_reports_python_and_what_is_missing():

@@ -9,7 +9,10 @@ Regenerate ONLY when a change to the numbers is intended:  UPDATE_GOLDEN=1 pytes
 (DUMP_GOLDEN=<path> writes the canonical JSON for a diff)."""
 import json
 import os
+import sys
 from pathlib import Path
+
+import pytest
 
 from monitor.portfolio import snapshot
 from tests import golden
@@ -36,6 +39,8 @@ def _check(d: dict) -> None:
     assert digest == GOLDEN.read_text(encoding="utf-8").strip()
 
 
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="the pin is exact to the last bit, and Python 3.12 made "
+                    "sum() of floats compensated: on 3.11 the __total__ value line differs in the last digit")
 def test_port_data_is_pinned(port_env):
     d = port_data(port_env)
     assert d["positions"] and not d["roi_series"].empty and d["asset_values"]
