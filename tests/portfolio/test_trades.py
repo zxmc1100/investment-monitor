@@ -29,7 +29,8 @@ def row(d, t, a, s, p, pps=None):
     ("buy", 4, dict(total=961, fee=1), (961.0, 240.25)),             # ...and a fee is already in it
     ("sell", 2, dict(total=819), (819.0, 409.5)),
     ("bonus", 0.15, dict(total=15), (15.0, 100.0)),
-    ("buy", 3, dict(total=100), (100.0, 33.3333)),                   # pps to 4 dp, total to the cent
+    ("buy", 3, dict(total=100), (100.0, 33.3333)),                   # pps to 4 dp
+    ("bonus", 0.1234, dict(total=12.3456), (12.3456, 100.0454)),      # a total given is kept as given
     ("buy", 3, dict(pps=0.335), (1.01, 0.335)),                      # half a cent rounds up
     ("buy", 0.123456, dict(pps=240.13), (29.65, 240.13)),
 ])
@@ -82,8 +83,8 @@ def test_a_trade_from_the_form_or_a_command():
     t = T.make_trade({"ticker": "SAP.DE", "action": "buy", "shares": 4, "total": "961,00", "pps": ""}, TODAY)
     assert (t["price"], t["pps"]) == (961.0, 240.25)
     for bad, msg in (({"action": "buy", "shares": 1, "pps": 1}, "TICKER MISSING"),
-                     ({"ticker": "A B", "action": "buy", "shares": 1, "pps": 1}, "TICKER 'A B' HAS A SPACE"),
-                     ({"ticker": "X,Y", "action": "buy", "shares": 1, "pps": 1}, "TICKER 'X,Y' HAS A ,"),
+                     ({"ticker": "A B", "action": "buy", "shares": 1, "pps": 1}, "TICKER 'A B': ONLY LETTERS, DIGITS AND . - = \\^"),
+                     ({"ticker": "X,Y", "action": "buy", "shares": 1, "pps": 1}, "TICKER 'X,Y': ONLY LETTERS"),
                      ({"ticker": "X.F", "action": "hold", "shares": 1, "pps": 1}, "ACTION MUST BE BUY, SELL OR BONUS"),
                      ({"ticker": "X.F", "action": "buy", "shares": "x", "pps": 1}, "SHARES: 'x' IS NOT A NUMBER")):
         with pytest.raises(T.TradeError, match=f"^{msg}"):
@@ -205,7 +206,7 @@ def test_excel_europe_semicolons_and_decimal_commas():
     assert (res["delimiter"], res["decimal"], res["header"]) == (";", "comma", True)
     assert [(t["date"], t["action"], t["shares"], t["price"], t["pps"]) for t in ok(res)] == [
         ("2025-01-15", "buy", 4.0, 961.0, 240.25), ("2025-06-02", "sell", 2.0, 520.0, 260.0)]
-    assert all(not r["warnings"] for r in res["rows"])               # 4 x 240 + 1 = 961: consistent
+    assert [r["warnings"] for r in res["rows"]] == [["FEE €1.00 TAKEN AS INCLUDED IN THE AMOUNT"]] * 2   # 4 x 240 + 1 = 961
 
 
 def test_a_spreadsheet_paste_is_tab_separated_either_decimal_style():
@@ -252,7 +253,8 @@ def test_a_fee_column_applies_only_without_a_total():
                        "2025-01-16,SAP.DE,sell,2,250,1\n2025-01-17,X.F,bonus,1,10,1\n", TODAY)
     assert [t["price"] for t in ok(res)] == [961.0, 499.0, 10.0]
     res = T.parse_bulk("date,ticker,action,shares,amount,commission\n2025-01-15,SAP.DE,buy,4,961,1\n", TODAY)
-    assert ok(res)[0]["price"] == 961.0                           # the amount already holds it
+    assert ok(res)[0]["price"] == 961.0                           # the amount already holds it — and says so
+    assert res["rows"][0]["warnings"] == ["FEE €1.00 TAKEN AS INCLUDED IN THE AMOUNT"]
 
 
 @pytest.mark.parametrize("word, action", [("Buy", "buy"), ("KAUF", "buy"), ("acquisto", "buy"), ("Sparplan", "buy"),
@@ -332,3 +334,105 @@ def test_a_sale_that_strands_a_later_one_in_your_file_is_the_pasted_rows_fault()
     book = [row("2025-01-02", "SAP.DE", "buy", 4, 961), row("2025-06-01", "SAP.DE", "sell", 4, 1000)]
     res = T.review(book, T.parse_bulk("2025-03-01,SAP.DE,sell,2,500\n", TODAY), "append")
     assert errors(res) == {1: "LEAVES YOUR SELL 4 SAP.DE ON 2025-06-01 SHORT: ONLY 2 HELD THEN"}
+
+
+# ── fix round 1 ───────────────────────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("value, msg", [(float("nan"), "SHARES IS NOT A NUMBER"), (float("inf"), "SHARES IS NOT A NUMBER"),
+                                        (2e9, "SHARES IS TOO LARGE"), ("1500000000", "SHARES IS TOO LARGE"),
+                                        ("1e5", "SHARES: '1e5' IS NOT A NUMBER")])
+def test_non_finite_or_huge_numbers_are_refused(value, msg):
+    with pytest.raises(T.TradeError, match=f"^{msg}"):
+        T.number(value, "SHARES")
+    assert T.number(1e9, "SHARES") == 1e9
+
+
+def test_tickers_lose_invisible_characters_and_keep_to_yahoos_alphabet():
+    t = T.make_trade({"ticker": "\u200bsap.de\u200d ", "action": "buy", "shares": 1, "pps": 1}, TODAY)
+    assert t["ticker"] == "SAP.DE"
+    for good in ("^GSPC", "EURUSD=X", "BRK-B", "1913.HK"):
+        assert T.make_trade({"ticker": good, "action": "buy", "shares": 1, "pps": 1}, TODAY)["ticker"] == good.upper()
+    for bad in ("BRK,B", "SAP;DE", 'A"B', "SAP DE", "ÄBC"):
+        with pytest.raises(T.TradeError, match="ONLY LETTERS, DIGITS AND"):
+            T.make_trade({"ticker": bad, "action": "buy", "shares": 1, "pps": 1}, TODAY)
+
+
+def test_case_never_splits_a_holding():
+    book = [row("2025-01-02", "sap.de", "buy", 4, 961), row("2025-03-01", "SAP.DE", "sell", 2, 500)]
+    assert T.oversold(book) == {}
+    assert T.duplicate(book, row("2025-01-02", "SAP.DE", "buy", 4, 961)) is book[0]
+    assert T.ids([book[0]]) == T.ids([{**book[0], "ticker": "SAP.DE"}])
+    assert T.to_csv(book).splitlines()[1].startswith("2025-01-02,SAP.DE,buy,")       # written in capitals
+
+
+def test_the_file_is_written_with_csv_quoting_and_your_extra_columns():
+    rows = [{**row("2025-01-15", "SAP.DE", "buy", 4, 961, 240), "extra": {"Notes": "first, buy", "Broker": "TR"}},
+            {**row("2025-01-16", "BRK,B", "buy", 1, 400, 400), "extra": {"Notes": 'say "hi"'}},
+            row("2025-01-17", "ALV.DE", "buy", 1, 300, 300)]
+    text = T.to_csv(rows, ["Notes", "Broker"])
+    assert text.splitlines() == ['Date,Ticker,Action,Shares,Price,PricePerShare,Notes,Broker',
+                                 '2025-01-15,SAP.DE,buy,4,961.00,240.00,"first, buy",TR',
+                                 '2025-01-16,"BRK,B",buy,1,400.00,400.00,"say ""hi""",',
+                                 '2025-01-17,ALV.DE,buy,1,300.00,300.00,,']
+    assert [t["ticker"] for t in parse_portfolio_text(text)["transactions"]] == ["SAP.DE", "BRK,B", "ALV.DE"]
+
+
+def test_us_dates_refuse_the_whole_paste():
+    """One date that only reads month first (03/15/2025) means every / date may be month/day: 01/02/2025 would
+    silently become 1 February — so the paste is refused with one line, nothing guessed."""
+    res = T.parse_bulk("Date,Symbol,Side,Quantity,Price\n01/02/2025,SAP.DE,buy,4,240\n03/15/2025,SAP.DE,sell,1,250\n", TODAY)
+    assert res["error"] == "DATES LOOK LIKE MONTH/DAY (03/15/2025) — WRITE THEM AS YYYY-MM-DD OR DD.MM.YYYY"
+    assert T.parse_bulk("Date,Ticker,Action,Shares,Total\n15/01/2025,SAP.DE,buy,4,961\n", TODAY)["error"] is None
+    amb = T.parse_bulk("Date,Symbol,Side,Quantity,Price\n01/02/2025,SAP.DE,buy,4,240\n03/04/2025,SAP.DE,sell,1,250\n", TODAY)
+    assert amb["error"] == ("/ DATES COULD BE MONTH/DAY (01/02/2025: 1 FEBRUARY OR 2 JANUARY?) — WRITE THEM AS "
+                            "YYYY-MM-DD OR DD.MM.YYYY")
+    day_first = T.parse_bulk("Date,Ticker,Action,Shares,Total\n01/02/2025,SAP.DE,buy,4,961\n15/02/2025,SAP.DE,buy,1,9\n", TODAY)
+    assert day_first["error"] is None and ok(day_first)[0]["date"] == "2025-02-01"     # 15/02 proves day first
+
+
+def test_a_side_column_outranks_an_order_type_column():
+    res = T.parse_bulk("Date,Ticker,Type,Side,Shares,Price\n2025-01-15,SAP.DE,Limit,Sell,4,240\n", TODAY)
+    assert ok(res)[0]["action"] == "sell"
+
+
+def test_a_tab_paste_with_dotted_thousands_lookalikes_is_flagged():
+    res = T.parse_bulk("Datum\tTicker\tTyp\tAnzahl\tBetrag\n15.01.2025\tSAP.DE\tKauf\t1.000\t12.500\n"
+                       "16.01.2025\tSAP.DE\tKauf\t2\t500.5\n", TODAY)
+    assert res["decimal"] == "point" and ok(res)[0]["shares"] == 1.0
+    assert res["rows"][0]["warnings"] == ["'1.000', '12.500' READ AS DECIMALS — IF THE DOT SEPARATES THOUSANDS, WRITE "
+                                          "THE NUMBERS WITHOUT IT"]
+    assert res["rows"][1]["warnings"] == []
+
+
+def test_the_terminals_own_header_without_pricepershare_reads_price_as_the_total():
+    res = T.parse_bulk("Date,Ticker,Action,Shares,Price\n2025-01-15,SAP.DE,buy,4,961.00\n", TODAY)
+    assert (ok(res)[0]["price"], ok(res)[0]["pps"]) == (961.0, 240.25)
+    assert res["notes"] == ["PRICE READ AS THE TOTAL PAID (THIS TERMINAL'S OWN COLUMNS) — NAME IT PRICE PER SHARE IF IT IS ONE"]
+    assert T.parse_bulk("date,symbol,side,qty,price\n2025-01-15,SAP.DE,buy,4,240\n", TODAY)["notes"] == []
+
+
+def test_utc_timestamps_become_your_local_date():
+    from datetime import datetime, timezone
+    want = datetime(2025, 1, 15, 23, 30, tzinfo=timezone.utc).astimezone().date().isoformat()
+    res = T.parse_bulk("Date,Ticker,Action,Shares,Total\n2025-01-15T23:30:00Z,SAP.DE,buy,4,961\n"
+                       "2025-01-15T23:30:00+00:00,SAP.DE,buy,1,240\n2025-01-15 23:30,SAP.DE,buy,1,240\n", TODAY)
+    assert [t["date"] for t in ok(res)] == [want, want, "2025-01-15"]          # no zone: the date as written
+
+
+def test_an_amount_and_a_fee_column_never_drop_the_fee_silently():
+    res = T.parse_bulk("Date,Ticker,Action,Shares,Price,Amount,Fee\n2025-01-15,SAP.DE,buy,4,240,960,1\n"
+                       "2025-01-16,SAP.DE,sell,2,250,500,1\n2025-01-17,SAP.DE,buy,1,240,241,1\n", TODAY)
+    assert [t["price"] for t in ok(res)] == [961.0, 499.0, 241.0]
+    assert [r["warnings"] for r in res["rows"]] == [["FEE €1.00 ADDED: THE AMOUNT IS SHARES × PRICE"],
+                                                   ["FEE €1.00 TAKEN OFF: THE AMOUNT IS SHARES × PRICE"],
+                                                   ["FEE €1.00 TAKEN AS INCLUDED IN THE AMOUNT"]]
+
+
+def test_line_numbers_and_texts_follow_the_csv_reader_not_splitlines():
+    res = T.parse_bulk("Date,Ticker,Action,Shares,Total,Notes\n2025-01-15,SAP.DE,buy,4,961,\"two\nlines\"\n"
+                       "2025-01-16,SAP.DE,buy,1,240,a\x0cb\x85c\n2025-01-17,SAP.DE,hold,1,240,x\n", TODAY)
+    assert [(r["line"], r["text"]) for r in res["rows"]] == [
+        (2, '2025-01-15,SAP.DE,buy,4,961,"two\nlines"'), (4, "2025-01-16,SAP.DE,buy,1,240,a\x0cb\x85c"),
+        (5, "2025-01-17,SAP.DE,hold,1,240,x")]
+    assert T.left_text(res, [2, 5]) == 'Date,Ticker,Action,Shares,Total,Notes\n2025-01-15,SAP.DE,buy,4,961,"two\nlines"\n' \
+        "2025-01-17,SAP.DE,hold,1,240,x\n"
+    assert T.left_text(res, []) == ""

@@ -1,6 +1,8 @@
 """monitor.portfolio.tradebook — input/portfolio.csv as TRADES edits it: every write names the version it was made
 on (409 when the file changed meanwhile), checks the whole resulting file, keeps a backup of the old one
-(input/backups/, the newest 20) and replaces it atomically in the canonical form. Temp dirs only."""
+(input/backups/: a ring of the newest 20, the file before the first write and before each START FRESH or REPLACE
+pinned) and replaces it atomically in the canonical form — your own extra columns carried along. UNDO puts back
+the file as it was before the last write. Temp dirs only."""
 import os
 import shutil
 from datetime import date
@@ -10,7 +12,7 @@ import pytest
 
 from monitor.portfolio import trades as T
 from monitor.portfolio.ledger import parse_portfolio
-from monitor.portfolio.tradebook import Conflict, Invalid, Missing, TradeBook
+from monitor.portfolio.tradebook import Blocked, Conflict, Invalid, Missing, TradeBook
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "portfolio.example.csv"
 TODAY = date(2026, 10, 4)
@@ -52,8 +54,9 @@ def test_add_slots_the_trade_in_by_date_backs_up_and_writes_canonically(book):
     assert book.csv.read_bytes() == T.to_csv([{k: r[k] for k in ("date", "ticker", "action", "shares", "price", "pps")}
                                               for r in rows]).encode("utf-8")
     assert b"\r\n" not in book.csv.read_bytes()
-    backups = list((book.csv.parent / "backups").glob("portfolio-*.csv"))
-    assert len(backups) == 1 and backups[0].read_bytes() == EXAMPLE.read_bytes()       # the old file, as it was
+    ring = list((book.csv.parent / "backups").glob("portfolio-[0-9]*.csv"))
+    assert [p.name for p in ring] == ["portfolio-0000001.csv"] and ring[0].read_bytes() == EXAMPLE.read_bytes()
+    assert (book.csv.parent / "backups" / "portfolio-original.csv").read_bytes() == EXAMPLE.read_bytes()   # pinned
     assert res["etag"] == book.read()["etag"] and not book.read()["example"]
 
 
@@ -146,7 +149,8 @@ def test_start_fresh_leaves_the_header_and_a_backup(book):
     assert book.csv.read_text(encoding="utf-8") == HEAD + "\n" and res["removed"] == 15
     s = book.read()
     assert s["rows"] == [] and not s["example"] and s["error"] is None
-    assert len(list((book.csv.parent / "backups").iterdir())) == 1
+    assert sorted(p.name for p in (book.csv.parent / "backups").glob("*.csv")) == [
+        "before-start-fresh-0001.csv", "portfolio-original.csv"]           # pinned, never the 20-copy ring
 
 
 def test_no_file_yet_reads_empty_and_the_first_trade_creates_it(tmp_path):
@@ -155,7 +159,7 @@ def test_no_file_yet_reads_empty_and_the_first_trade_creates_it(tmp_path):
     assert (s["exists"], s["rows"], s["etag"], s["example"]) == (False, [], "absent", False)
     b.add("absent", {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 240})
     assert b.csv.read_text(encoding="utf-8") == f"{HEAD}\n2026-10-04,SAP.DE,buy,1,240.00,240.00\n"
-    assert not (b.csv.parent / "backups").exists()                       # nothing was there to keep
+    assert [p.name for p in (b.csv.parent / "backups").iterdir()] == ["undo.json"]   # nothing was there to keep
 
 
 def test_a_file_that_cannot_be_read_is_shown_and_only_replace_or_start_fresh_write(book):
@@ -177,16 +181,17 @@ def test_an_excel_saved_file_keeps_its_ids_and_is_rewritten_canonically(book):
                                                       "pps": 240, "keep_pps": True, "date": "2024-12-16"})
     assert res["id"] == s["rows"][0]["id"]                                # the same trade, the same id
     assert book.csv.read_text(encoding="utf-8") == f"{HEAD}\n2024-12-16,SAP.DE,buy,4,961.00,240.00\n"
-    assert next((book.csv.parent / "backups").iterdir()).read_bytes() == excel.encode("utf-8")
+    assert (book.csv.parent / "backups" / "portfolio-original.csv").read_bytes() == excel.encode("utf-8")
 
 
 def test_only_the_newest_20_backups_are_kept(book):
     e = book.read()["etag"]
     for i in range(23):
         e = book.add(e, {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 100 + i, "date": "2026-01-02"})["etag"]
-    kept = list((book.csv.parent / "backups").iterdir())
-    assert len(kept) == 20 and all(p.name.startswith("portfolio-") and p.suffix == ".csv" for p in kept)
-    assert not any(p.read_bytes() == EXAMPLE.read_bytes() for p in kept)        # the oldest went first
+    kept = sorted((book.csv.parent / "backups").glob("portfolio-[0-9]*.csv"))
+    assert [p.name for p in kept] == [f"portfolio-{n:07d}.csv" for n in range(4, 24)]
+    assert not any(p.read_bytes() == EXAMPLE.read_bytes() for p in kept)        # the oldest went first …
+    assert (book.csv.parent / "backups" / "portfolio-original.csv").read_bytes() == EXAMPLE.read_bytes()   # … not this
     assert max(len(parse_portfolio(p)["transactions"]) for p in kept) == 15 + 22  # the newest is there
     assert sorted(os.listdir(book.csv.parent)) == ["backups", "portfolio.csv"]  # no temp or lock file left
 
@@ -199,7 +204,7 @@ def test_a_file_another_program_holds_is_one_line_and_left_as_it_was(book, monke
 
     def locked(*a, **k):
         raise PermissionError(13, "The process cannot access the file because it is being used by another process")
-    monkeypatch.setattr(TB, "write_text_atomic", locked)
+    monkeypatch.setattr(TB, "write_bytes_durable", locked)
     with pytest.raises(Blocked, match="^CANNOT WRITE portfolio.csv — OPEN IN EXCEL OR ANOTHER PROGRAM\\? CLOSE IT AND SAVE AGAIN$"):
         book.add(book.read()["etag"], {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 1})
     assert book.csv.read_bytes() == before
@@ -215,3 +220,141 @@ def test_a_big_import_is_quick(book):
     t = time.perf_counter()
     res = book.import_text(book.read()["etag"], rows, "append")
     assert res["added"] == 4000 and time.perf_counter() - t < 3
+
+
+# ── fix round 1 ───────────────────────────────────────────────────────────────────────────────────
+def _book(tmp_path, text, name="portfolio.csv"):
+    csv = tmp_path / "in" / name
+    csv.parent.mkdir(exist_ok=True)
+    csv.write_bytes(text.encode("utf-8") if isinstance(text, str) else text)
+    return TradeBook(csv, example=EXAMPLE, today=lambda: TODAY)
+
+
+def test_your_extra_columns_survive_every_rewrite(tmp_path):
+    b = _book(tmp_path, "\ufeffDate;Ticker;Action;Shares;Price;PricePerShare;Notes;Broker\r\n"
+                        "15.01.2025;SAP.DE;Buy;4;961,00;240,00;first buy;TR\r\n;;;;;;;\r\n"
+                        "17.01.2025;SAP.DE;sell;1;250,5;250,5;;TR\r\n")
+    r = b.add(b.read()["etag"], {"ticker": "ALV.DE", "action": "buy", "shares": 1, "pps": 300, "date": "2025-02-01"})
+    assert b.csv.read_text(encoding="utf-8").splitlines() == [
+        "Date,Ticker,Action,Shares,Price,PricePerShare,Notes,Broker",
+        "2025-01-15,SAP.DE,buy,4,961.00,240.00,first buy,TR", "2025-01-17,SAP.DE,sell,1,250.50,250.50,,TR",
+        "2025-02-01,ALV.DE,buy,1,300.00,300.00,,"]
+    sell = next(x for x in b.read()["rows"] if x["action"] == "sell")
+    b.update(r["etag"], sell["id"], {"ticker": "SAP.DE", "action": "sell", "shares": 1, "total": 251, "date": "2025-01-18"})
+    assert "2025-01-18,SAP.DE,sell,1,251.00,251.00,,TR" in b.csv.read_text(encoding="utf-8")    # the row's own notes
+
+
+def test_a_ticker_with_a_comma_in_your_file_is_quoted_not_a_500(tmp_path):
+    b = _book(tmp_path, "Date;Ticker;Action;Shares;Price;PricePerShare\n2025-01-15;BRK,B;buy;1;400;400\n")
+    b.add(b.read()["etag"], {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 1, "date": "2025-02-01"})
+    assert b.csv.read_text(encoding="utf-8").splitlines()[1] == '2025-01-15,"BRK,B",buy,1,400.00,400.00'
+    assert [x["ticker"] for x in b.read()["rows"]] == ["BRK,B", "SAP.DE"]
+
+
+def test_a_file_that_would_not_read_back_as_meant_is_never_written(tmp_path, monkeypatch):
+    b = _book(tmp_path, EXAMPLE.read_text(encoding="utf-8"))
+    before = b.csv.read_bytes()
+    real = T.to_csv
+    monkeypatch.setattr(T, "to_csv", lambda rows, extra=(): real(rows[:-1], extra))       # a writer bug
+    with pytest.raises(Invalid, match="^THE FILE WOULD NOT READ BACK AS WRITTEN — NOTHING CHANGED$"):
+        b.add(b.read()["etag"], {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 1})
+    assert b.csv.read_bytes() == before
+
+
+def test_old_lower_case_tickers_keep_working_and_are_written_in_capitals(tmp_path):
+    b = _book(tmp_path, f"{HEAD}\n2025-01-15,sap.de,buy,4,961.00,240.00\n2025-03-15,sap.de,sell,2,500.00,250.00\n")
+    s = b.read()
+    b.update(s["etag"], s["rows"][0]["id"], {"ticker": "sap.de", "action": "buy", "shares": 4, "total": 961, "pps": 240,
+                                             "keep_pps": True, "date": "2025-01-14"})
+    assert b.csv.read_text(encoding="utf-8") == (f"{HEAD}\n2025-01-14,SAP.DE,buy,4,961.00,240.00\n"
+                                                  "2025-03-15,SAP.DE,sell,2,500.00,250.00\n")
+
+
+def test_a_stored_total_is_never_rounded_by_an_edit_of_something_else(tmp_path):
+    b = _book(tmp_path, f"{HEAD}\n2025-01-15,IWDA.AS,bonus,0.1234,12.3456,100.0486\n")
+    s = b.read()
+    b.update(s["etag"], s["rows"][0]["id"], {"ticker": "IWDA.AS", "action": "bonus", "shares": "0.1234",
+                                             "total": "12.3456", "pps": 100.0486, "keep_pps": True, "date": "2025-01-16"})
+    assert b.csv.read_text(encoding="utf-8").splitlines()[1] == "2025-01-16,IWDA.AS,bonus,0.1234,12.3456,100.0486"
+
+
+def test_an_unreadable_file_counts_its_lines_and_start_fresh_says_how_many(tmp_path):
+    b = _book(tmp_path, f"{HEAD}\n2025-01-15,SAP.DE,buy,4,961.00,240.00\n2025-01-16,SAP.DE,buy,4,96x,240.00\n\n"
+                        "2025-01-17,ALV.DE,buy,4,961.00,240.00\n")
+    s = b.read()
+    assert (s["rows"], s["lines"]) == ([], 3) and "96x" in s["error"]
+    assert b.reset(s["etag"])["removed"] == 3
+    assert "96x" in (b.csv.parent / "backups" / "before-start-fresh-0001.csv").read_text(encoding="utf-8")
+
+
+def test_backups_are_numbered_not_dated_so_a_wrong_clock_never_deletes_the_new_one(tmp_path):
+    b = _book(tmp_path, EXAMPLE.read_text(encoding="utf-8"))
+    bk = b.csv.parent / "backups"
+    bk.mkdir()
+    for i in range(20):
+        (bk / f"portfolio-20991231-1200{i:02d}.csv").write_text("x", encoding="utf-8")   # an older naming, or a clock
+    b.add(b.read()["etag"], {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 1})
+    assert (bk / "portfolio-0000001.csv").read_bytes() == EXAMPLE.read_bytes()
+    assert len(list(bk.glob("portfolio-2099*.csv"))) == 20                # not ours to rotate
+
+
+def test_a_failed_write_rotates_nothing_and_its_retry_adds_no_second_copy(tmp_path, monkeypatch):
+    from monitor.portfolio import tradebook as TB
+    b = _book(tmp_path, EXAMPLE.read_text(encoding="utf-8"))
+    e = b.read()["etag"]
+    for i in range(20):
+        e = b.add(e, {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 100 + i})["etag"]
+    ring = lambda: sorted(p.name for p in (b.csv.parent / "backups").glob("portfolio-[0-9]*.csv"))   # noqa: E731
+    before = ring()
+    real = TB.write_bytes_durable
+
+    def held(path, data, **kw):
+        if Path(path).name == "portfolio.csv":
+            raise PermissionError(13, "in use")
+        return real(path, data, **kw)
+    monkeypatch.setattr(TB, "write_bytes_durable", held)
+    with pytest.raises(Blocked):
+        b.add(e, {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 1})
+    assert ring() == before + ["portfolio-0000021.csv"]                    # kept, nothing rotated out
+    monkeypatch.setattr(TB, "write_bytes_durable", real)
+    b.add(e, {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 1})
+    assert ring() == before[1:] + ["portfolio-0000021.csv"]                # the same bytes: no second copy
+
+
+def test_start_fresh_and_replace_backups_are_pinned_newest_5_each(tmp_path):
+    b = _book(tmp_path, EXAMPLE.read_text(encoding="utf-8"))
+    for i in range(6):
+        e = b.import_text(b.read()["etag"], f"2025-01-{i + 10},SAP.DE,buy,1,{100 + i}\n", "replace")["etag"]
+        b.reset(e)
+    bk = b.csv.parent / "backups"
+    assert sorted(p.name for p in bk.glob("before-*.csv")) == [f"before-replace-{n:04d}.csv" for n in range(2, 7)] + \
+        [f"before-start-fresh-{n:04d}.csv" for n in range(2, 7)]
+    assert (bk / "portfolio-original.csv").read_bytes() == EXAMPLE.read_bytes() and not list(bk.glob("portfolio-[0-9]*"))
+
+
+def test_undo_puts_back_the_file_as_it_was_and_is_undone_itself(tmp_path):
+    excel = "Date;Ticker;Action;Shares;Price;PricePerShare\r\n16.12.2024;SAP.DE;buy;4;961,00;240,00\r\n"
+    b = _book(tmp_path, excel)
+    assert b.read()["undo"] is None
+    with pytest.raises(Invalid, match="^NOTHING TO UNDO$"):
+        b.undo(b.read()["etag"])
+    r = b.add(b.read()["etag"], {"ticker": "ALV.DE", "action": "buy", "shares": 1, "pps": 300, "date": "2025-01-02"})
+    after = b.csv.read_bytes()
+    assert b.read()["undo"]["what"] == "ADD BUY 1 ALV.DE · €300.00/sh = €300.00"
+    u = b.undo(r["etag"])
+    assert b.csv.read_bytes() == excel.encode("utf-8") and u["text"] == "UNDID: ADD BUY 1 ALV.DE · €300.00/sh = €300.00"
+    assert b.read()["undo"]["what"] == "UNDO: ADD BUY 1 ALV.DE · €300.00/sh = €300.00"
+    b.undo(u["etag"])
+    assert b.csv.read_bytes() == after                                    # the undo, undone
+    b.csv.write_text(HEAD + "\n", encoding="utf-8")                       # edited in Excel since
+    with pytest.raises(Invalid, match="^THE FILE CHANGED SINCE THE LAST CHANGE HERE — UNDO WOULD LOSE THAT"):
+        b.undo(b.read()["etag"])
+
+
+def test_undo_of_the_very_first_write_removes_the_file_again(tmp_path):
+    b = TradeBook(tmp_path / "in" / "portfolio.csv", example=EXAMPLE, today=lambda: TODAY)
+    r = b.add("absent", {"ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 240})
+    b.undo(r["etag"])
+    assert not b.csv.exists() and b.read()["etag"] == "absent"
+    b.undo("absent")
+    assert len(b.read()["rows"]) == 1

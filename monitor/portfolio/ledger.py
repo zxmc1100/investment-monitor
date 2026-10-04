@@ -50,6 +50,12 @@ def _read_csv(path: Path, columns: tuple[str, ...]) -> tuple[list[tuple[int, dic
 
 def _split_csv(text: str, name: str, columns: tuple[str, ...]) -> tuple[list[tuple[int, dict, str | None]], bool]:
     """_read_csv of a file's text (`name`: the file it is, for the messages)."""
+    _, rows, comma = _table(text, name, columns)
+    return rows, comma
+
+
+def _table(text: str, name: str, columns: tuple[str, ...]) -> tuple[list[str] | None, list, bool]:
+    """(header — None for a file without one —, rows, decimal_comma): _split_csv with the header too."""
     text = text.removeprefix("\ufeff")
     first = next((line for line in text.splitlines() if line.strip()), "")
     sep = ";" if first.count(";") > first.count(",") else ","
@@ -72,7 +78,7 @@ def _split_csv(text: str, name: str, columns: tuple[str, ...]) -> tuple[list[tup
                        + ("a decimal comma? separate the fields with ; instead, or write 961.00"
                           if sep == "," else "a ; inside a value?"))
         rows.append((reader.line_num, dict(zip(header, cells + [""] * (len(header) - len(cells)))), problem))
-    return rows, sep == ";"
+    return header, rows, sep == ";"
 
 
 def _number(text: str, decimal_comma: bool) -> float:
@@ -150,6 +156,13 @@ def parse_portfolio_text(text: str, name: str = "portfolio.csv") -> dict:
     """parse_portfolio of a file holding `text` (named `name` in its messages) — TRADES checks a file
     this way before it writes it."""
     return _book(name, *_split_csv(text, name, COLUMNS))
+
+
+def read_table(text: str, name: str = "portfolio.csv") -> tuple[list[str], list[dict], dict]:
+    """(header, each row as {column: text} in file order, parse_portfolio_text's book) — the transactions match
+    the rows one for one. TRADES carries the columns the ledger does not read through every rewrite."""
+    header, rows, comma = _table(text, name, COLUMNS)
+    return header or [], [row for _, row, _ in rows], _book(name, rows, comma)
 
 
 def _book(name: str, rows: list, comma: bool) -> dict:

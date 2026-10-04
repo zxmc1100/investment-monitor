@@ -47,6 +47,50 @@ def write_text_atomic(path: Path, text: str, newline: str | None = None) -> Path
     return target
 
 
+def _fsync_dir(d: Path) -> None:
+    """Make a rename in `d` durable (POSIX); Windows has no directory handles to sync — a no-op there."""
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(d, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def write_bytes_durable(path: Path, data: bytes, *, retries: int = 5, delay: float = 0.1) -> Path:
+    """`data` into a temp file beside the target — flushed and fsynced — then os.replace, retried `retries` times
+    `delay` s apart while another program holds the target (Windows: Excel keeps a CSV it has open locked), then
+    the directory fsynced: after a crash the old file or the new one, never half of one. Still held: the error
+    (PermissionError), the old file untouched and no temp file left."""
+    target = Path(path).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        for attempt in range(retries):
+            try:
+                os.replace(tmp, target)
+                break
+            except PermissionError:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(delay)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    _fsync_dir(target.parent)
+    return target
+
+
 def write_csvs_atomic(items) -> None:
     """Several CSVs that belong together, [(df, path, to_csv kwargs)]: every temp file is written first,
     then each replaces its target — a failure while writing leaves every old file in place."""

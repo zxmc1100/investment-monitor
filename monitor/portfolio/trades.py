@@ -3,12 +3,14 @@ beyond reading a file to compare it (same_trades / has_trades); monitor.portfoli
 
 A trade is a row of input/portfolio.csv as monitor.portfolio.ledger reads it: {date (ISO), ticker, action
 (buy | sell | bonus), shares, price, pps}. `price` is the TOTAL in EUR — what left or reached your account,
-fees included; `pps` (PricePerShare) is display only.
+fees included; `pps` (PricePerShare) is display only. Tickers are written in capitals and compared without case.
 
 Fees are never added for you. Give the total you paid (fees in it) and the price per share is total / shares;
 give the price per share and the total is shares x price per share exactly — plus a fee on a buy, less it on a
-sell, only when you enter one (a bonus has none). A written file is always the canonical form: `,` between
-fields, a decimal point, ISO dates, `\\n` line ends (the backup keeps whatever the file was before).
+sell, only when you enter one (a bonus has none). A total given (or stored) is kept to the last digit; only a
+computed one is rounded, to the cent. A written file is always the canonical form: `,` between fields (csv-quoted
+where a value needs it), a decimal point, ISO dates, `\\n` line ends, your own extra columns after the six
+(the backup keeps whatever the file was before).
 
 parse_bulk() reads what you paste or import — a header optional, its column names in English, German or
 Italian; tab, `;` or `,` between fields — and review() checks it against your file.
@@ -18,9 +20,10 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import math
 import re
 import unicodedata
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Callable
@@ -30,6 +33,7 @@ from monitor.portfolio.ledger import COLUMNS, DUST, _date, _number, parse_portfo
 ACTIONS = ("buy", "sell", "bonus")
 HEADER = ",".join(COLUMNS)
 MISMATCH = 0.01          # price per share x shares vs a given total: flagged beyond 1 %
+LIMIT = 1e9              # shares, prices, totals and fees above this are typing slips, never trades
 
 
 class TradeError(ValueError):
@@ -61,11 +65,17 @@ def number(value, label: str, decimal_comma: bool = False) -> float:
     if isinstance(value, bool):
         raise TradeError(f"{label} MUST BE A NUMBER")
     if isinstance(value, (int, float)):
-        return float(value)
-    try:
-        return _number(str(value).strip(), decimal_comma)
-    except ValueError as e:
-        raise TradeError(_loud(f"{label}: {e}")) from None
+        v = float(value)
+    else:
+        try:
+            v = _number(str(value).strip(), decimal_comma)
+        except ValueError as e:
+            raise TradeError(_loud(f"{label}: {e}")) from None
+    if not math.isfinite(v):
+        raise TradeError(f"{label} IS NOT A NUMBER")
+    if abs(v) > LIMIT:
+        raise TradeError(f"{label} IS TOO LARGE (OVER 1,000,000,000)")
+    return v
 
 
 def _given(value) -> bool:
@@ -92,22 +102,27 @@ def _action(word) -> str:
     return a
 
 
+_TICKER = re.compile(r"[A-Z0-9.\-=^]+")
+
+
 def _ticker(text) -> str:
-    t = str(text or "").strip().upper()
+    """A new trade's ticker: invisible characters (zero-width spaces a copy from a web page brings) dropped,
+    capitals, and only what Yahoo tickers are made of — letters, digits, . - = ^."""
+    t = "".join(c for c in unicodedata.normalize("NFKC", str(text or "")) if unicodedata.category(c) != "Cf")
+    t = t.strip().upper()
     if not t:
         raise TradeError("TICKER MISSING")
-    bad = next((c for c in t if c.isspace() or c in ',;"'), None)
-    if bad is not None:
-        raise TradeError(f"TICKER '{t}' HAS A {'SPACE' if bad.isspace() else bad}")
+    if not _TICKER.fullmatch(t):
+        raise TradeError(f"TICKER '{t}': ONLY LETTERS, DIGITS AND . - = ^")
     return t
 
 
 # ── price per share <-> total ────────────────────────────────────────────────────────────────────
 def compute(action: str, shares: float, *, pps: float | None = None, total: float | None = None,
             fee: float | None = None) -> tuple[float, float]:
-    """(total, price per share) as stored. A total given wins: price per share = total / shares (a fee is
-    already in it). Else total = shares x price per share, + fee on a buy, - fee on a sell (a bonus has
-    none). Totals to the cent, prices per share to 4 decimals."""
+    """(total, price per share) as stored. A total given wins, kept exactly as given: price per share = total /
+    shares (a fee is already in it). Else total = shares x price per share, + fee on a buy, - fee on a sell (a
+    bonus has none), rounded to the cent. Prices per share to 4 decimals."""
     action = _action(action)
     if shares is None or not shares > 0:
         raise TradeError("SHARES MUST BE > 0")
@@ -116,7 +131,7 @@ def compute(action: str, shares: float, *, pps: float | None = None, total: floa
     if total is not None:
         if not total > 0:
             raise TradeError("TOTAL MUST BE > 0")
-        return money(total), per_share(total / shares)
+        return float(total), per_share(total / shares)
     if pps is None:
         raise TradeError("PRICE PER SHARE OR TOTAL REQUIRED")
     if not pps > 0:
@@ -176,13 +191,26 @@ def fmt_money(x: float) -> str:
     return f"{whole}.{frac.ljust(2, '0')}"
 
 
+def _cells(t: dict) -> list[str]:
+    return [t["date"], t["ticker"].upper(), t["action"], fmt_qty(t["shares"]), fmt_money(t["price"]), fmt_money(t["pps"])]
+
+
 def canonical(t: dict) -> str:
-    return ",".join((t["date"], t["ticker"], t["action"], fmt_qty(t["shares"]), fmt_money(t["price"]), fmt_money(t["pps"])))
+    """A row's six fields as one line — what its id is made of (the ticker in capitals: case never matters)."""
+    return ",".join(_cells(t))
 
 
-def to_csv(rows: list[dict]) -> str:
-    """The file, canonical: header, one line per trade in the given order, `\\n` line ends."""
-    return "".join(f"{line}\n" for line in (HEADER, *map(canonical, rows)))
+def to_csv(rows: list[dict], extra: list[str] | tuple = ()) -> str:
+    """The file, canonical: header, one line per trade in the given order, `\\n` line ends, csv-quoted where a
+    value holds a `,` or a quote. `extra`: your own further columns, after the six — each row's from its "extra"
+    ({column: text}; blank for a new row)."""
+    buf = io.StringIO()
+    out = csv.writer(buf, lineterminator="\n")
+    out.writerow([*COLUMNS, *extra])
+    for r in rows:
+        mine = r.get("extra") or {}
+        out.writerow([*_cells(r), *(mine.get(c, "") for c in extra)])
+    return buf.getvalue()
 
 
 def ids(rows: list[dict]) -> list[str]:
@@ -209,7 +237,7 @@ def oversold(rows: list[dict]) -> dict[int, float]:
     held: dict[str, float] = {}
     out = {}
     for i, r in enumerate(rows):
-        t = r["ticker"]
+        t = r["ticker"].upper()
         if r["action"] in ("buy", "bonus"):
             held[t] = held.get(t, 0.0) + r["shares"]
         elif r["action"] == "sell":
@@ -240,7 +268,7 @@ def place(rows: list[dict], trade: dict) -> tuple[list[dict], int]:
 
 def _key(t: dict) -> tuple:
     """What makes two rows the same trade: date, ticker, action, shares, total — not the display price."""
-    return t["date"], t["ticker"], t["action"], t["shares"], t["price"]
+    return t["date"], t["ticker"].upper(), t["action"], t["shares"], t["price"]
 
 
 def duplicate(rows: list[dict], trade: dict) -> dict | None:
@@ -293,6 +321,8 @@ _COLS = {
            "transactionfee orderfee kosten",
 }
 _FIELD = {w: f for f, words in _COLS.items() for w in words.split()}
+# a column named so wins over an earlier one naming the same field loosely: Side (Sell) over Type (Limit)
+_STRONG = {"action": 0, "side": 0, "buysell": 0, "direction": 0, "transactiontype": 1, "tipooperazione": 1}
 _ACTION_WORDS = {
     "buy": "buy b bought purchase kauf kaufen acquisto acquista compra achat plan pac sparplan savingsplan "
            "sparplanausfuhrung savingsplanexecution piano pianodiaccumulo",
@@ -301,11 +331,17 @@ _ACTION_WORDS = {
 }
 _ACTION = {w: a for a, words in _ACTION_WORDS.items() for w in words.split()}
 _ISIN = re.compile(r"[A-Z]{2}[A-Z0-9]{9}\d")
-_STAMP = re.compile(r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})(?:[T ].*)?")
+_STAMP = re.compile(r"(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})(?:[T ](.*))?")
+_ZONED = re.compile(r"(Z|[+-]\d{2}:?\d{2})$")
+_SLASH = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
+_DOTTED = re.compile(r"[+-]?\d{1,3}\.\d{3}")
 _CCY = re.compile(r"^\s*(?:€|EUR)\s*|\s*(?:€|EUR)\s*$", re.IGNORECASE)
+_BREAK = re.compile(r"\r\n|\r|\n")          # the line breaks the csv reader splits on — not str.splitlines()'
 LABEL = {"date": "DATE", "ticker": "TICKER", "isin": "ISIN", "action": "ACTION", "shares": "SHARES",
          "pps": "PRICE PER SHARE", "total": "TOTAL", "fee": "FEE"}
 HEADLESS = "WRITE DATE,TICKER,ACTION,SHARES,TOTAL[,PRICEPERSHARE] OR …,SHARES,@PRICEPERSHARE"
+OWN = ("date", "ticker", "action", "shares", "price")
+OWN_NOTE = "PRICE READ AS THE TOTAL PAID (THIS TERMINAL'S OWN COLUMNS) — NAME IT PRICE PER SHARE IF IT IS ONE"
 
 
 def _is_date(cell: str) -> bool:
@@ -320,22 +356,35 @@ def _is_date(cell: str) -> bool:
 
 
 def _bulk_date(cell: str, today: date) -> str:
-    m = _STAMP.fullmatch(cell.strip())
-    return trade_date(m.group(1) if m else cell.strip(), today)
+    """A pasted date: YYYY-MM-DD / DD.MM.YYYY / DD/MM/YYYY, a time after it ignored — but a UTC or offset
+    timestamp (2025-01-15T23:30:00Z, a broker's export) is the day it was where you are."""
+    c = cell.strip()
+    m = _STAMP.fullmatch(c)
+    if m and m.group(2) and "-" in m.group(1) and _ZONED.search(m.group(2)):
+        try:
+            when = datetime.fromisoformat(c.replace(" ", "T", 1).removesuffix("Z") + ("+00:00" if c.endswith("Z") else ""))
+            return trade_date(when.astimezone().date().isoformat(), today)
+        except ValueError:
+            pass
+    return trade_date(m.group(1) if m else c, today)
 
 
-def _mapping(header: list[str]) -> tuple[dict[str, int], dict[str, str]]:
-    """{field: column index} and {field: the header's own name} — the first column naming a field wins. `Price`
-    is the total only in this project's own format (a header that also has PricePerShare)."""
+def _mapping(header: list[str]) -> tuple[dict[str, int], dict[str, str], bool, list[str]]:
+    """({field: column index}, {field: the header's own name}, whether Price is the total, notes). The first
+    column naming a field wins. `Price` is the total in this terminal's own format: a header that also has
+    PricePerShare — or exactly its first five, Date,Ticker,Action,Shares,Price, and no further known column (a
+    note says so)."""
     folded = [_fold(h) for h in header]
     project = "price" in folded and "pricepershare" in folded
-    cols, names = {}, {}
+    own = not project and tuple(folded[:5]) == OWN and not any(_FIELD.get(f) for f in folded[5:])
+    cols, names, rank = {}, {}, {}
     for i, f in enumerate(folded):
-        field = ("total" if f == "price" else "pps" if f == "pricepershare" else None) if project else None
+        field = ("total" if f == "price" else "pps" if f == "pricepershare" else None) if project or own else None
         field = field or _FIELD.get(f)
-        if field and field not in cols:
-            cols[field], names[field] = i, header[i].strip().upper()
-    return cols, names
+        r = _STRONG.get(f, 9)
+        if field and (field not in cols or r < rank[field]):
+            cols[field], names[field], rank[field] = i, header[i].strip().upper(), r
+    return cols, names, project, [OWN_NOTE] if own else []
 
 
 def _missing(cols: dict) -> list[str]:
@@ -358,49 +407,77 @@ def _cell_number(text: str, label: str, comma: bool) -> float | None:
     return abs(number(t, label, comma))
 
 
+MON = ("JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER",
+       "NOVEMBER", "DECEMBER")
+
+
+def _slash_dates(dates) -> str | None:
+    """Why a paste's `/` dates cannot be read, or None. Day first unless one reads only month first (03/15/2025:
+    then 01/02/2025 may be 2 January too); and when every one could be either (01/02/2025), one that can only be
+    day first (15/02/2025) must say so — nothing is guessed."""
+    seen = [m for d in dates if (m := _SLASH.match(d.strip()))]
+    for m in seen:
+        if int(m.group(1)) <= 12 < int(m.group(2)) <= 31:
+            return f"DATES LOOK LIKE MONTH/DAY ({m.group(0)}) — WRITE THEM AS YYYY-MM-DD OR DD.MM.YYYY"
+    if seen and not any(int(m.group(1)) > 12 for m in seen):
+        m = next((m for m in seen if m.group(1) != m.group(2)), None)
+        if m:
+            d, mo = int(m.group(1)), int(m.group(2))
+            return (f"/ DATES COULD BE MONTH/DAY ({m.group(0)}: {d} {MON[mo - 1]} OR {mo} {MON[d - 1]}?) — WRITE THEM "
+                    f"AS YYYY-MM-DD OR DD.MM.YYYY")
+    return None
+
+
 def parse_bulk(text: str, today: date, *, isin: Callable[[str], str | None] | None = None) -> dict:
     """Read pasted rows or an imported CSV (as text). One record per row, the first row a header when no cell
     of it is a date and one names a column (English, German or Italian synonyms, case and accents ignored).
     Fields split by a tab, `;` or `,` (whichever the first row holds: a tab, else the more of `;` and `,`); a
     decimal comma in a `;` file, either style in a tab paste (a comma in any amount makes it the decimal
-    mark). Without a header a row is Date,Ticker,Action,Shares,Total[,PricePerShare] — or
-    Date,Ticker,Action,Shares,@PricePerShare. `isin(code) -> ticker | None` resolves an ISIN.
+    mark; 1.000 / 12.500 without one is flagged). Without a header a row is
+    Date,Ticker,Action,Shares,Total[,PricePerShare] — or Date,Ticker,Action,Shares,@PricePerShare.
+    `isin(code) -> ticker | None` resolves an ISIN. `/` dates are day first, but a paste is refused whole when
+    one reads only month first (03/15/2025) or every one could be either (01/02/2025) — never guessed.
 
-    Returns {"rows": [{"line", "text", "trade" | None, "error" | None, "warnings": [...]}], "error" | None,
-    "delimiter", "decimal": "point" | "comma", "header": bool}. A bad row says why and never stops the rest."""
-    text = (text or "").removeprefix("\ufeff")
-    raw = text.splitlines()
-    first = next((ln for ln in raw if ln.strip(" \t,;\"")), None)
-    out = {"rows": [], "error": None, "delimiter": ",", "decimal": "point", "header": False}
+    Returns {"rows": [{"line", "end", "text", "trade" | None, "error" | None, "warnings": [...]}], "error" |
+    None, "notes": [...], "delimiter", "decimal": "point" | "comma", "header": bool, "head": the header's text}.
+    `line` / `end` are the record's first / last line as the csv reader counts them (a quoted value may span
+    lines). A bad row says why and never stops the rest."""
+    text = (text or "").removeprefix("﻿")
+    lines = _BREAK.split(text)
+    first = next((ln for ln in lines if ln.strip(" \t,;\"")), None)
+    out = {"rows": [], "error": None, "notes": [], "delimiter": ",", "decimal": "point", "header": False, "head": ""}
     if first is None:
         return {**out, "error": "NOTHING TO READ — PASTE ROWS OR PICK A CSV FILE"}
     sep = "\t" if "\t" in first else ";" if first.count(";") > first.count(",") else ","
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=sep)
-    records = []
+    records, done = [], 0
     for cells in reader:
+        start, done = done + 1, reader.line_num
         cells = [c.strip() for c in cells]
         if any(cells):
-            records.append((reader.line_num, cells))
-    head = records[0][1]
+            records.append((start, done, cells))
+    _, head_end, head = records[0]
     header = not any(_is_date(c) for c in head) and any(_fold(c) in _FIELD or _fold(c) == "pricepershare" for c in head)
-    cols, names = _mapping(head) if header else ({}, {})
+    cols, names, project, notes = _mapping(head) if header else ({}, {}, False, [])
+    out.update(delimiter=sep, header=header, notes=notes, head="\n".join(lines[:head_end]).strip("\n") if header else "")
     if header and (missing := _missing(cols)):
-        return {**out, "delimiter": sep, "header": True,
-                "error": f"NO {', '.join(missing)} COLUMN — NAME THEM DATE, TICKER, ACTION, SHARES AND PRICE "
-                         f"(PER SHARE) OR TOTAL"}
+        return {**out, "error": f"NO {', '.join(missing)} COLUMN — NAME THEM DATE, TICKER, ACTION, SHARES AND PRICE "
+                                f"(PER SHARE) OR TOTAL"}
     body = records[1:] if header else records
+    at = cols.get("date", 0)
+    if why := _slash_dates(cells[at] for _, _, cells in body if at < len(cells)):
+        return {**out, "error": why}
+    amounts = [cols[f] for f in ("shares", "pps", "total", "fee") if f in cols] if header else [3, 4, 5]
     if sep == ";":
         comma = True
     elif sep == "\t":
-        amounts = [cols[f] for f in ("shares", "pps", "total", "fee") if f in cols] if header else [3, 4, 5]
-        comma = any("," in cells[i] for _, cells in body for i in amounts if i < len(cells))
+        comma = any("," in cells[i] for _, _, cells in body for i in amounts if i < len(cells))
     else:
         comma = False
-    project = header and "price" in [_fold(h) for h in head] and "pricepershare" in [_fold(h) for h in head]
     rows = []
-    for line, cells in body:
-        rec = {"line": line, "text": raw[line - 1] if 0 < line <= len(raw) else sep.join(cells),
-               "trade": None, "error": None, "warnings": []}
+    for start, end, cells in body:
+        rec = {"line": start, "end": end, "text": "\n".join(lines[start - 1:end]), "trade": None, "error": None,
+               "warnings": []}
         try:
             if header:
                 if len(cells) > len(head) and any(cells[len(head):]):
@@ -410,8 +487,22 @@ def parse_bulk(text: str, today: date, *, isin: Callable[[str], str | None] | No
                 rec["trade"], rec["warnings"] = _headless_row(cells, sep, comma, today, isin)
         except TradeError as e:
             rec["error"] = str(e)
+        if sep == "\t" and not comma and rec["trade"]:
+            dotted = [cells[i].lstrip("@") for i in amounts if i < len(cells) and _DOTTED.fullmatch(cells[i].lstrip("@"))]
+            if dotted:
+                rec["warnings"].append(", ".join(f"'{d}'" for d in dotted) + " READ AS DECIMALS — IF THE DOT SEPARATES "
+                                       "THOUSANDS, WRITE THE NUMBERS WITHOUT IT")
         rows.append(rec)
-    return {**out, "rows": rows, "delimiter": sep, "decimal": "comma" if comma else "point", "header": header}
+    return {**out, "rows": rows, "decimal": "comma" if comma else "point"}
+
+
+def left_text(bulk: dict, lines: list[int]) -> str:
+    """What stays in the paste box once the good rows went in: the header (when one was read) and the records
+    starting on `lines`, each whole and as typed — nothing when every row went in."""
+    keep = [r["text"] for r in bulk["rows"] if r["line"] in set(lines)]
+    if not keep:
+        return ""
+    return "".join(f"{t}\n" for t in ([bulk["head"]] if bulk.get("head") else []) + keep)
 
 
 def _too_many(n: int, expected: int, sep: str) -> str:
@@ -458,10 +549,22 @@ def _bulk_row(cells, cols, names, keep_pps, comma, today, isin) -> tuple[dict, l
     shares, total, pps, fee = amount("shares"), amount("total"), amount("pps"), amount("fee")
     if shares is None:
         raise TradeError("SHARES MISSING")
-    price, unit = compute(action, shares, pps=pps, total=total, fee=None if total is not None else fee)
     warnings = []
+    fee_in = False                                   # a fee column next to an amount: where is the fee?
+    if total is not None and fee:
+        bare = pps is not None and abs(shares * pps - total) <= 0.01
+        if action == "bonus":
+            warnings.append(f"FEE {_eur(fee)} IGNORED: A BONUS HAS NO FEE")
+        elif bare:                                   # amount = shares x price: the fee comes on top (or off)
+            total = total + fee if action == "buy" else total - fee
+            warnings.append(f"FEE {_eur(fee)} {'ADDED' if action == 'buy' else 'TAKEN OFF'}: THE AMOUNT IS SHARES × PRICE")
+        else:
+            fee_in = True
+            warnings.append(f"FEE {_eur(fee)} TAKEN AS INCLUDED IN THE AMOUNT")
+    price, unit = compute(action, shares, pps=pps, total=total, fee=None if total is not None else fee)
     if total is not None and pps is not None and pps > 0:
-        expect = shares * pps + ((fee or 0) if action == "buy" else -(fee or 0) if action == "sell" else 0)
+        sign = 1 if action == "buy" else -1 if action == "sell" else 0
+        expect = shares * pps + (sign * fee if fee_in else 0)
         gap = abs(expect - price) / price
         if gap > MISMATCH and abs(expect - price) > 0.01:
             warnings.append(f"{fmt_qty(shares)} × {_eur(pps)} = {_eur(money(expect))} BUT TOTAL {_eur(price)} "

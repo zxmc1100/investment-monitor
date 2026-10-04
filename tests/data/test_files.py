@@ -114,3 +114,27 @@ def test_write_text_atomic_can_keep_line_ends_exactly(tmp_path, monkeypatch):
     monkeypatch.setattr(files.os, "linesep", "\r\n")
     p = files.write_text_atomic(tmp_path / "t.csv", "a,b\n1,2\n", newline="\n")
     assert p.read_bytes() == b"a,b\n1,2\n"
+
+
+def test_write_bytes_durable_retries_a_held_file_then_gives_up_cleanly(tmp_path, monkeypatch):
+    """Windows: a file another program holds (Excel) refuses os.replace for a moment — retried ~5 x 100 ms; still
+    held: the error, the old file and no temp file left. The bytes are fsynced before the replace."""
+    target = tmp_path / "t.csv"
+    target.write_bytes(b"old\n")
+    real, calls, synced = os.replace, [], []
+    monkeypatch.setattr(files.os, "fsync", lambda fd: synced.append(fd))
+
+    def flaky(a, b):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError(13, "in use")
+        return real(a, b)
+    monkeypatch.setattr(files.os, "replace", flaky)
+    monkeypatch.setattr(files.time, "sleep", lambda s: None)
+    files.write_bytes_durable(target, b"new\n")
+    assert target.read_bytes() == b"new\n" and len(calls) == 3 and synced
+    calls.clear()
+    monkeypatch.setattr(files.os, "replace", lambda a, b: (calls.append(1), (_ for _ in ()).throw(PermissionError(13, "in use"))))
+    with pytest.raises(PermissionError):
+        files.write_bytes_durable(target, b"newer\n")
+    assert target.read_bytes() == b"new\n" and len(calls) == 5 and not list(tmp_path.glob(".*.tmp"))
