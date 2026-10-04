@@ -79,8 +79,7 @@ def test_shutdown_terminates_the_build_child(tmp_path, monkeypatch):
     eng.build("FAKE")
     assert _until(lambda: "1/1 WAIT" in _progress(rec))
     eng.shutdown()
-    with pytest.raises(ProcessLookupError):
-        os.kill(int(pid.read_text()), 0)
+    assert _dead(int(pid.read_text()))
 
 
 def test_a_build_screen_loads_when_cold_newer_or_recoded_but_never_builds_unasked(tmp_path, monkeypatch):
@@ -127,6 +126,17 @@ def test_a_scheduled_build_tells_the_child_and_a_manual_one_does_not(tmp_path, m
 
 
 def _dead(pid: int) -> bool:
+    if os.name == "nt":                          # os.kill(pid, 0) would TERMINATE it on Windows: ask instead
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        handle = k32.OpenProcess(0x1000, False, pid)            # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return True
+        try:
+            code = ctypes.c_ulong()
+            return bool(k32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value != 259   # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(handle)
     try:
         os.kill(pid, 0)                          # a zombie (killed, never waited for) still answers
     except ProcessLookupError:

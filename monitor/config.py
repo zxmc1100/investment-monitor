@@ -65,7 +65,7 @@ def load_settings(path: Path, explicit: bool = False) -> tuple[dict, str | None]
     path = Path(path)
     out = {k: dict(d) if isinstance(d, dict) else d for k, (d, _) in _SETTINGS.items()}   # fresh tables
     try:
-        shown = path.resolve().relative_to(REPO_ROOT)
+        shown = path.resolve().relative_to(REPO_ROOT).as_posix()      # input/settings.toml on Windows too
     except ValueError:
         shown = path
     try:

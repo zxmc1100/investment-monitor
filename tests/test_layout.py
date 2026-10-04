@@ -79,7 +79,7 @@ def test_no_public_module_imports_the_addon():
     """Only monitor/plugins.py names the add-on's package (by string, through importlib)."""
     imports = [f"{n} -> {i}" for n, i in _edges() if i.split(".")[0] == ADDON]
     assert not imports, imports
-    named = [str(f.relative_to(REPO)) for f in PKG.rglob("*.py") if ADDON in f.read_text()]
+    named = [f.relative_to(REPO).as_posix() for f in PKG.rglob("*.py") if ADDON in f.read_text()]
     assert named == ["monitor/plugins.py"], named
 
 

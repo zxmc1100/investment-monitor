@@ -3,6 +3,8 @@ it never overwrites, and says what it did."""
 import shutil
 from pathlib import Path
 
+import pytest
+
 from monitor import init as I
 from monitor.__main__ import main
 
@@ -37,7 +39,10 @@ def test_never_overwrites_and_fills_only_the_gaps(tmp_path):
 def test_a_dangling_symlink_counts_as_present(tmp_path):
     inp = tmp_path / "input"
     inp.mkdir()
-    (inp / "portfolio.csv").symlink_to(tmp_path / "elsewhere.csv")       # e.g. a worktree's link
+    try:
+        (inp / "portfolio.csv").symlink_to(tmp_path / "elsewhere.csv")   # e.g. a worktree's link
+    except OSError:                                                      # Windows without the privilege
+        pytest.skip("this account may not create symlinks")
     I.init(inp, EX)
     assert (inp / "portfolio.csv").is_symlink() and not (tmp_path / "elsewhere.csv").exists()
 

@@ -1,10 +1,10 @@
 """Crash- and race-safe local files: a CSV written whole or not at all, and an exclusive lock shared by
 processes that read-merge-replace the same file (e.g. the terminal's daily tier and `python -m monitor
-export` both appending to one log)."""
+export` both appending to one log). Portable: the lock is fcntl.flock on POSIX, msvcrt.locking on Windows."""
 from __future__ import annotations
 
 import contextlib
-import fcntl
+import errno
 import os
 import tempfile
 import time
@@ -38,7 +38,7 @@ def write_text_atomic(path: Path, text: str) -> Path:
     fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
     os.close(fd)
     try:
-        Path(tmp).write_text(text)
+        Path(tmp).write_text(text, encoding="utf-8")
         os.replace(tmp, target)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -82,15 +82,41 @@ def sweep_tmp(dirs, older_than_s: float = 3600.0) -> list[Path]:
     return gone
 
 
+def _lock_functions():
+    """(lock, unlock) for an open binary file: exclusive, blocking, held per open file — so between
+    processes and between threads alike — and dropped by the OS if the holder dies."""
+    if os.name == "nt":
+        import msvcrt
+        busy = {errno.EACCES, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
+
+        def lock(fh):
+            while True:
+                fh.seek(0)                               # the locked region: byte 0, whatever the file holds
+                try:
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)   # retries for ~10 s, then EDEADLOCK
+                    return
+                except OSError as e:
+                    if e.errno not in busy:
+                        raise
+
+        def unlock(fh):
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        return lock, unlock
+    import fcntl
+    return (lambda fh: fcntl.flock(fh, fcntl.LOCK_EX)), (lambda fh: fcntl.flock(fh, fcntl.LOCK_UN))
+
+
 @contextlib.contextmanager
 def locked(path: Path):
-    """Hold an exclusive advisory lock on `<path>.lock` (fcntl.flock: between processes and between
-    threads alike); released on exit, or by the OS if the holder dies."""
+    """Hold an exclusive lock on `<path>.lock` (fcntl.flock on POSIX, msvcrt.locking on Windows: between
+    processes and between threads alike); released on exit, or by the OS if the holder dies."""
+    lock_fn, unlock_fn = _lock_functions()
     lock = Path(f"{path}.lock")
     lock.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock, "a") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
+    with open(lock, "ab") as fh:
+        lock_fn(fh)
         try:
             yield
         finally:
-            fcntl.flock(fh, fcntl.LOCK_UN)
+            unlock_fn(fh)
