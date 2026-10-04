@@ -287,6 +287,7 @@ def same_trades(a: Path, b: Path) -> bool:
 
 
 _ERRORS: dict[tuple, str | None] = {}
+_MISS = object()
 
 
 def book_error(path: Path) -> str | None:
@@ -298,15 +299,18 @@ def book_error(path: Path) -> str | None:
     except OSError:
         return None
     key = (str(p), st.st_mtime_ns, st.st_size)
-    if key not in _ERRORS:
-        if len(_ERRORS) > 32:
-            _ERRORS.clear()
-        try:
-            parse_portfolio(p)
-            _ERRORS[key] = None
-        except (CSVError, OSError) as e:
-            _ERRORS[key] = str(e)
-    return _ERRORS[key]
+    hit = _ERRORS.get(key, _MISS)                   # one read: another thread may clear the cache meanwhile
+    if hit is not _MISS:
+        return hit
+    try:
+        parse_portfolio(p)
+        error = None
+    except (CSVError, OSError) as e:
+        error = str(e)
+    if len(_ERRORS) > 32:
+        _ERRORS.clear()
+    _ERRORS[key] = error
+    return error
 
 
 def has_trades(path: Path) -> bool:
@@ -465,7 +469,7 @@ def parse_bulk(text: str, today: date, *, isin: Callable[[str], str | None] | No
     None, "notes": [...], "delimiter", "decimal": "point" | "comma", "header": bool, "head": the header's text}.
     `line` / `end` are the record's first / last line as the csv reader counts them (a quoted value may span
     lines). A bad row says why and never stops the rest."""
-    text = (text or "").removeprefix("﻿")
+    text = (text or "").removeprefix("\ufeff")
     lines = _BREAK.split(text)
     first = next((ln for ln in lines if ln.strip(" \t,;\"")), None)
     out = {"rows": [], "error": None, "notes": [], "delimiter": ",", "decimal": "point", "header": False, "head": ""}

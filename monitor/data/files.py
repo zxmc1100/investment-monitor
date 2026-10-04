@@ -9,6 +9,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 
@@ -63,11 +64,13 @@ def _fsync_dir(d: Path) -> None:
         os.close(fd)
 
 
-def write_bytes_durable(path: Path, data: bytes, *, retries: int = 5, delay: float = 0.1) -> Path:
+def write_bytes_durable(path: Path, data: bytes, *, retries: int = 5, delay: float = 0.1,
+                        check: Callable[[], None] | None = None) -> Path:
     """`data` into a temp file beside the target — flushed and fsynced — then os.replace, retried `retries` times
     `delay` s apart while another program holds the target (Windows: Excel keeps a CSV it has open locked), then
     the directory fsynced: after a crash the old file or the new one, never half of one. Still held: the error
-    (PermissionError), the old file untouched and no temp file left."""
+    (PermissionError), the old file untouched and no temp file left. `check()` runs right before the replace and
+    may raise to call it off (the target changed meanwhile): nothing is written then either."""
     target = Path(path).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
@@ -76,6 +79,8 @@ def write_bytes_durable(path: Path, data: bytes, *, retries: int = 5, delay: flo
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
+        if check is not None:
+            check()
         for attempt in range(retries):
             try:
                 os.replace(tmp, target)

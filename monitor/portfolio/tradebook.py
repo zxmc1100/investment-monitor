@@ -19,7 +19,9 @@ input/backups/ holds
 """
 from __future__ import annotations
 
+import base64
 import json
+import logging
 import os
 import re
 import threading
@@ -32,11 +34,13 @@ from monitor.data.files import write_bytes_durable
 from monitor.portfolio import trades as T
 from monitor.portfolio.ledger import COLUMNS, CSVError, parse_portfolio_text, read_table
 
-KEEP = 20              # the ring of ordinary backups
-KEEP_PINNED = 5        # before-start-fresh / before-replace, each
+KEEP = 20              # the ring of ordinary backups (pinned copies are never pruned)
 FIELDS = ("date", "ticker", "action", "shares", "price", "pps")
 FRESH, REPLACE = "before-start-fresh", "before-replace"
 BLOCKED = "CANNOT WRITE {} — OPEN IN EXCEL OR ANOTHER PROGRAM? CLOSE IT AND SAVE AGAIN"
+_RING = re.compile(r"\d+\.csv")       # the ring's names after "<stem>-"
+_PLAIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.csv")      # a backup's name in the undo record
+log = logging.getLogger("monitor.trades")
 
 
 class Conflict(Exception):
@@ -116,37 +120,58 @@ class TradeBook:
                 "undo": undo}
 
     # ── the backups and the undo record ────────────────────────────────────────────────────────
-    def _numbered(self, prefix: str, digits: int) -> list[tuple[int, Path]]:
-        pat = re.compile(rf"{re.escape(prefix)}-(\d{{{digits}}})\.csv")
+    def _numbered(self, prefix: str) -> list[tuple[int, Path]]:
+        """(number, path) of `<prefix>-<digits>.csv`, by number — never by the name's text, so 10000 follows 9999."""
+        pat = re.compile(rf"{re.escape(prefix)}-(\d+)\.csv")
         found = [(int(m.group(1)), p) for p in self.backups.glob(f"{prefix}-*.csv") if (m := pat.fullmatch(p.name))]
         return sorted(found)
 
     def _ring(self) -> list[tuple[int, Path]]:
-        return self._numbered(self.csv.stem, 7)
+        return self._numbered(self.csv.stem)
 
-    def _keep_backup(self, data: bytes, pin: str | None) -> str:
-        """Copy the file about to be replaced: the original once, then a pinned copy (START FRESH / REPLACE) or the
-        ring's next — unless the ring's newest already holds these very bytes. Returns the copy's name."""
+    def _next(self, prefix: str, width: int) -> Path:
+        have = self._numbered(prefix)
+        return self.backups / f"{prefix}-{(have[-1][0] if have else 0) + 1:0{width}d}.csv"
+
+    def _copy_of(self, data: bytes) -> Path | None:
+        """A file in backups/ holding exactly `data` — pinned ones first."""
+        same = [p for p in self.backups.glob("*.csv") if p.stat().st_size == len(data) and p.read_bytes() == data]
+        return min(same, key=lambda p: (bool(_RING.fullmatch(p.name.removeprefix(f"{self.csv.stem}-"))), p.name),
+                   default=None)
+
+    def _keep_backup(self, data: bytes, pin: str | None) -> dict:
+        """Keep the file about to be replaced, and say where for the undo record. Never two copies of the same bytes
+        (an existing one is reused — a ring copy that must now be pinned is renamed, not copied); never a copy of a
+        file without trades (empty, a header alone): its bytes go into the undo record itself. The first copy ever
+        is portfolio-original.csv; then a pinned before-start-fresh-N / before-replace-N, or the ring's next."""
+        if not _data_lines(data.decode("utf-8", "replace")):
+            return {"kind": "inline", "b64": base64.b64encode(data).decode("ascii")}
         self.backups.mkdir(parents=True, exist_ok=True)
+        found = self._copy_of(data)
         original = self.backups / f"{self.csv.stem}-original.csv"
-        if not original.exists():
+        ring = found is not None and found.parent == self.backups and bool(_RING.fullmatch(
+            found.name.removeprefix(f"{self.csv.stem}-")))
+        if found is None and not original.exists():
             write_bytes_durable(original, data)
-        if pin:
-            have = self._numbered(pin, 4)
-            target = self.backups / f"{pin}-{(have[-1][0] if have else 0) + 1:04d}.csv"
-        else:
-            ring = self._ring()
-            if ring and ring[-1][1].read_bytes() == data:
-                return ring[-1][1].name
-            target = self.backups / f"{self.csv.stem}-{(ring[-1][0] if ring else 0) + 1:07d}.csv"
-        write_bytes_durable(target, data)
-        return target.name
+            return {"kind": "file", "name": original.name}
+        if pin and (found is None or ring):
+            target = self._next(pin, 4)
+            if found is None:
+                write_bytes_durable(target, data)
+            else:
+                os.replace(found, target)                    # promoted: the one copy, now pinned
+            return {"kind": "file", "name": target.name}
+        if found is None:
+            found = self._next(self.csv.stem, 7)
+            write_bytes_durable(found, data)
+        return {"kind": "file", "name": found.name}
 
-    def _rotate(self) -> None:
-        """After a write went in: the ring down to `keep`, each pinned kind down to KEEP_PINNED."""
-        for found, keep in ((self._ring(), self.keep), (self._numbered(FRESH, 4), KEEP_PINNED),
-                            (self._numbered(REPLACE, 4), KEEP_PINNED)):
-            for _, p in found[:-keep]:
+    def _rotate(self, protect: str | None) -> None:
+        """After a write went in: the ring down to its newest `keep` — but never the copy the undo record names.
+        Pinned copies are never pruned (none duplicates another)."""
+        ring = [p for _, p in self._ring()]
+        for p in ring[:max(0, len(ring) - self.keep)]:
+            if p.name != protect:
                 p.unlink(missing_ok=True)
 
     def _last(self) -> dict | None:
@@ -154,24 +179,49 @@ class TradeBook:
             rec = json.loads(self.journal.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        return rec if isinstance(rec, dict) and {"what", "after", "backup", "at"} <= rec.keys() else None
+        ok = isinstance(rec, dict) and {"what", "after", "before", "at"} <= rec.keys() and isinstance(rec["before"], dict)
+        return rec if ok else None
+
+    def _bytes(self) -> bytes | None:
+        try:
+            return self.csv.read_bytes()
+        except FileNotFoundError:
+            return None
 
     def _commit(self, data: bytes | None, blob: bytes | None, what: str, pin: str | None = None) -> str:
-        """Replace the file by `blob` (None: remove it) after keeping `data` (None: there was no file); then rotate
-        and record the undo. Returns the new etag. Blocked when the file cannot be written."""
+        """Replace the file by `blob` (None: remove it) after keeping `data` (None: there was no file). The same
+        bytes again: nothing is written and the undo record stays. Right before the replace the file is read once
+        more — changed since `data` was read: Conflict, nothing written. After it: the undo record, then the ring
+        rotated; a failure there is logged, never the write's failure. Returns the new etag."""
+        if blob == data:
+            return T.etag(data)
         try:
-            kept = self._keep_backup(data, pin) if data is not None else None
+            before = self._keep_backup(data, pin) if data is not None else {"kind": "absent"}
+        except OSError:
+            raise Blocked(f"CANNOT WRITE {self.csv.parent.name}/backups/ — IS THE FOLDER READ-ONLY OR THE DISK FULL? "
+                          "NOTHING CHANGED") from None
+
+        def unchanged() -> None:
+            if self._bytes() != data:
+                raise Conflict()
+        try:
             if blob is None:
+                unchanged()
                 self._remove()
             else:
-                write_bytes_durable(self.csv, blob)
+                write_bytes_durable(self.csv, blob, check=unchanged)
         except OSError:
             raise Blocked(BLOCKED.format(self.csv.name)) from None
-        self._rotate()
         after = T.etag(blob)
-        self.backups.mkdir(parents=True, exist_ok=True)
-        record = {"what": what, "at": datetime.now().isoformat(timespec="seconds"), "backup": kept, "after": after}
-        write_bytes_durable(self.journal, json.dumps(record, ensure_ascii=False).encode("utf-8"))
+        record = {"what": what, "at": datetime.now().isoformat(timespec="seconds"), "before": before, "after": after}
+        try:
+            write_bytes_durable(self.journal, json.dumps(record, ensure_ascii=False).encode("utf-8"))
+        except OSError:
+            log.warning("the undo record could not be written — UNDO is off until the next change", exc_info=True)
+        try:
+            self._rotate(before.get("name"))
+        except OSError:
+            log.warning("an old backup could not be rotated out of %s", self.backups, exc_info=True)
         return after
 
     def _remove(self, tries: int = 5) -> None:
@@ -307,7 +357,7 @@ class TradeBook:
 
     def import_text(self, etag: str, text: str, mode: str = "append") -> dict:
         """The good rows of a paste or file: appended (each by its date) or replacing every trade (the file before
-        kept as before-replace-NNNN.csv). Bad rows are never written — {"added", "skipped", "lines": the skipped
+        kept until you delete it, as before-replace-N.csv). Bad rows are never written — {"added", "skipped", "lines": the skipped
         rows' first lines, "header": one was read, "left": the header and the skipped rows, as typed}."""
         mode = _mode(mode)
         with self._lock:
@@ -330,8 +380,9 @@ class TradeBook:
                 "header": bulk["header"], "left": T.left_text(bulk, skipped)}
 
     def reset(self, etag: str) -> dict:
-        """Start fresh: the header alone (your extra columns kept); the file before is pinned as
-        before-start-fresh-NNNN.csv. `removed` counts its rows — its data lines when it cannot be read."""
+        """Start fresh: the header alone (your extra columns kept); the file before is kept until you delete it (as
+        before-start-fresh-N.csv, unless a copy of it is already there). `removed` counts its rows — its data lines
+        when it cannot be read."""
         with self._lock:
             f = self._current(etag, readable=False)
             n = f["lines"]
@@ -346,19 +397,34 @@ class TradeBook:
             rec = self._last()
             if rec is None:
                 raise Invalid("NOTHING TO UNDO")
+            before = rec["before"]
+            name = before.get("name") if before.get("kind") == "file" else None
             if rec["after"] != T.etag(f["data"]):
-                where = f"; THE FILE BEFORE IT IS input/backups/{rec['backup']}" if rec["backup"] else ""
+                where = f"; THE FILE BEFORE IT IS input/backups/{name}" if name else ""
                 raise Invalid(f"THE FILE CHANGED SINCE THE LAST CHANGE HERE — UNDO WOULD LOSE THAT{where}")
-            blob = None
-            if rec["backup"] is not None:
-                src = self.backups / rec["backup"]
-                try:
-                    blob = src.read_bytes()
-                except OSError:
-                    raise Invalid(f"THE BACKUP input/backups/{rec['backup']} IS GONE — NOTHING TO UNDO") from None
+            blob = self._before_bytes(before)
             what = rec["what"].removeprefix("UNDO: ") if rec["what"].startswith("UNDO: ") else f"UNDO: {rec['what']}"
             out = self._commit(f["data"], blob, what)
             return {"etag": out, "text": f"UNDID: {rec['what']}"}
+
+    def _before_bytes(self, before: dict) -> bytes | None:
+        """The file an undo record says was there before (None: no file). A damaged record — a name that is not a
+        plain file in backups/ — or a missing copy: Invalid."""
+        kind = before.get("kind")
+        if kind == "absent":
+            return None
+        if kind == "inline":
+            try:
+                return base64.b64decode(before.get("b64", ""), validate=True)
+            except ValueError:
+                raise Invalid("THE UNDO RECORD IS DAMAGED — NOTHING TO UNDO") from None
+        name = before.get("name")
+        if kind != "file" or not isinstance(name, str) or not _PLAIN.fullmatch(name):
+            raise Invalid("THE UNDO RECORD IS DAMAGED — NOTHING TO UNDO")
+        try:
+            return (self.backups / name).read_bytes()
+        except OSError:
+            raise Invalid(f"THE BACKUP input/backups/{name} IS GONE — NOTHING TO UNDO") from None
 
 
 def _mode(mode: str) -> str:
