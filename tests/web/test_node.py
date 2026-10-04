@@ -12,5 +12,5 @@ HERE = Path(__file__).resolve().parent
 def test_js_unit_tests_pass():
     files = sorted(str(p) for p in HERE.glob("*.test.mjs"))
     assert files, "no JS tests found"
-    r = subprocess.run(["node", "--test", *files], capture_output=True, text=True, timeout=120)
+    r = subprocess.run(["node", "--test", *files], capture_output=True, text=True, timeout=120, encoding="utf-8")
     assert r.returncode == 0, r.stdout + r.stderr

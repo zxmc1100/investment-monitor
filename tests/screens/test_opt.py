@@ -88,7 +88,7 @@ def test_public_view_has_no_ticket_or_euros(parts):
 def test_opt_needs_two_positions_fails_readably(tmp_path, monkeypatch):
     fakes_yf.install(monkeypatch)
     one = tmp_path / "one.csv"
-    one.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-06,AAA.F,buy,10,1000.00,100.00\n")
+    one.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2025-01-06,AAA.F,buy,10,1000.00,100.00\n", encoding="utf-8")
     with time_machine.travel("2026-06-30 14:00:00+00:00", tick=False):
         ctx = Ctx(force=True, buffer_dir=tmp_path / "b", portfolio_csv=one, equity_log=None)
         with pytest.raises(ValueError, match="at least two priced positions"):
@@ -125,7 +125,7 @@ def test_ticket_choices_never_reach_the_public_view(parts):
 def test_weights_name_a_holding_from_the_tr_universe(tmp_path, monkeypatch):
     fakes_yf.install(monkeypatch)
     csv = tmp_path / "p.csv"
-    csv.write_text(FIX.read_text().rstrip("\n") + "\n2026-03-02,RHM.DE,buy,2,1000.00,500.00\n")
+    csv.write_text(FIX.read_text(encoding="utf-8").rstrip("\n") + "\n2026-03-02,RHM.DE,buy,2,1000.00,500.00\n", encoding="utf-8")
     with time_machine.travel("2026-06-30 14:00:00+00:00", tick=False):
         ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=csv, equity_log=None)
         p = opt.assemble({t: opt.compute(t, ctx) for t in opt.SCREEN.tiers}, dict(META))

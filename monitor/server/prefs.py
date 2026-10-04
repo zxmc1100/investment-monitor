@@ -17,7 +17,7 @@ def load(path: Path | None) -> dict:
     if path is None or not Path(path).exists():
         return prefs
     try:
-        raw = json.loads(Path(path).read_text())
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception as e:
         log.warning("unreadable prefs %s (%s) — using defaults", path, e)
         return prefs
@@ -33,7 +33,7 @@ def save(path: Path | None, prefs: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(prefs, f)
         os.replace(tmp, path)
     except BaseException:

@@ -85,7 +85,7 @@ def hand_edited(path):
              "down": True, "ack": False},
             {"id": "E6", "rule": "A4", "subject": "NVD.F", "ts": 1759300000, "value": 5.1, "msg": "int ts",
              "down": False, "ack": False}]
-    path.write_text(json.dumps({**d, "log": junk + d["log"], "seq": {**d["seq"], "entry": 9}}))
+    path.write_text(json.dumps({**d, "log": junk + d["log"], "seq": {**d["seq"], "entry": 9}}), encoding="utf-8")
 
 
 def test_alrt_assembles_from_degraded_inputs(tmp_path):

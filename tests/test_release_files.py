@@ -33,5 +33,5 @@ def test_gitignore_keeps_generated_data_and_a_linked_venv_out():
 
 
 def test_the_license_is_mit():
-    text = (REPO / "LICENSE").read_text()
+    text = (REPO / "LICENSE").read_text(encoding="utf-8")
     assert text.startswith("MIT License") and "Copyright (c) 2026 the Investment Monitor contributors" in text

@@ -61,6 +61,16 @@ def test_a_failed_build_keeps_the_last_good_part_and_reports_its_last_stderr_lin
     assert eng.payload("FAKE") is not None
 
 
+def test_a_build_childs_last_line_keeps_its_accents_whatever_the_locale(tmp_path, monkeypatch):
+    """The child's output is read as UTF-8 and the child is told to write UTF-8 (a German Windows would
+    otherwise use cp1252 on one side or the other)."""
+    script = "import sys; sys.stderr.write('ValueError: Soci\\u00e9t\\u00e9 \\u00b7 3,95 \\u20ac\\n'); sys.exit(2)"
+    eng, _, _, _, _ = _engine(tmp_path, monkeypatch, script)
+    eng.build("FAKE")
+    assert eng.runner.wait_idle(10)
+    assert eng.live("FAKE")["error"]["error"] == "BuildFailed: ValueError: Soci\u00e9t\u00e9 \u00b7 3,95 \u20ac"
+
+
 def test_the_build_child_runs_outside_the_network_lock(tmp_path, monkeypatch):
     eng, rec, _, _, _ = _engine(tmp_path, monkeypatch,
                                 "import time; print('STAGE 1/1 WAIT', flush=True); time.sleep(1.5)")
@@ -79,7 +89,7 @@ def test_shutdown_terminates_the_build_child(tmp_path, monkeypatch):
     eng.build("FAKE")
     assert _until(lambda: "1/1 WAIT" in _progress(rec))
     eng.shutdown()
-    assert _dead(int(pid.read_text()))
+    assert _dead(int(pid.read_text(encoding="utf-8")))
 
 
 def test_a_build_screen_loads_when_cold_newer_or_recoded_but_never_builds_unasked(tmp_path, monkeypatch):
@@ -95,7 +105,7 @@ def test_a_build_screen_loads_when_cold_newer_or_recoded_but_never_builds_unaske
     os.utime(art, (at + 1, at + 1))
     assert eng.due_tiers("FAKE") == ["quote", "heavy"]          # newer artifact: reload every tier
     os.utime(art, (at - 60, at - 60))
-    dep.write_text("X = 2  # edited\n")
+    dep.write_text("X = 2  # edited\n", encoding="utf-8")
     assert eng.due_tiers("FAKE") == ["quote", "heavy"]          # new code: reload (cheap), no build
 
 
@@ -109,7 +119,7 @@ def test_a_second_refresh_while_building_attaches_to_the_running_build(tmp_path,
     eng.build("FAKE")               # REFRESH again (or the schedule) while it builds
     eng.ensure_fresh("FAKE")                     # a poke: the cold heavy part is due — a load, attached too
     assert eng.runner.wait_idle(10)
-    assert runs.read_text() == "x"               # one child
+    assert runs.read_text(encoding="utf-8") == "x"               # one child
 
 
 def test_a_scheduled_build_tells_the_child_and_a_manual_one_does_not(tmp_path, monkeypatch):
@@ -119,7 +129,7 @@ def test_a_scheduled_build_tells_the_child_and_a_manual_one_does_not(tmp_path, m
     assert eng.runner.wait_idle(10)
     eng.build("FAKE")
     assert eng.runner.wait_idle(10)
-    assert out.read_text().splitlines() == ["['--scheduled']", "[]"]
+    assert out.read_text(encoding="utf-8").splitlines() == ["['--scheduled']", "[]"]
     with pytest.raises(ValueError):
         Engine({"P": make_screen(tmp_path, monkeypatch, sid="P")[0]}, Store(tmp_path / "s2"), Recorder(),
                ctx=Ctx(buffer_dir=tmp_path), workers=0).build("P")
@@ -155,7 +165,7 @@ def test_a_build_child_past_its_wall_clock_limit_is_killed_and_reaped(tmp_path, 
     assert eng.runner.wait_idle(15)
     err = eng.live("FAKE")["error"]
     assert err["tier"] == "heavy" and err["error"].startswith("BuildFailed: build timed out after")
-    assert _dead(int(pid.read_text())) and not eng._children
+    assert _dead(int(pid.read_text(encoding="utf-8"))) and not eng._children
 
 
 def test_a_failure_while_reading_the_child_kills_and_reaps_it(tmp_path, monkeypatch):
@@ -170,7 +180,7 @@ def test_a_failure_while_reading_the_child_kills_and_reaps_it(tmp_path, monkeypa
     eng.build("FAKE")
     assert eng.runner.wait_idle(15)
     assert "relay broke" in eng.live("FAKE")["error"]["error"]
-    assert _dead(int(pid.read_text())) and not eng._children
+    assert _dead(int(pid.read_text(encoding="utf-8"))) and not eng._children
 
 
 def test_plain_refresh_reloads_a_build_screen_but_never_builds(tmp_path, monkeypatch):

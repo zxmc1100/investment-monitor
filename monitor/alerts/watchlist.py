@@ -20,7 +20,7 @@ def load(path: Path | None) -> list[dict]:
     if path is None or not Path(path).exists():
         return []
     try:
-        raw = json.loads(Path(path).read_text())
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception as e:
         log.warning("unreadable watchlist %s (%s) — treating as empty", path, e)
         return []

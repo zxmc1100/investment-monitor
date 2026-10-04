@@ -11,7 +11,7 @@ HEAD = "Date,Ticker,Action,Shares,Price,PricePerShare\n"
 
 def book(tmp_path, rows):
     p = tmp_path / "p.csv"
-    p.write_text(HEAD + "\n".join(rows) + "\n")
+    p.write_text(HEAD + "\n".join(rows) + "\n", encoding="utf-8")
     return parse_portfolio(p)
 
 
@@ -145,7 +145,7 @@ def test_dividends_are_net_of_german_tax(monkeypatch):
 def test_load_interest_reads_dated_euro_amounts_sorted(tmp_path):
     from monitor.portfolio.ledger import load_interest
     p = tmp_path / "interest.csv"
-    p.write_text("Date,Amount\n2026-02-01,4.10\n2026-01-01,3.95\n")
+    p.write_text("Date,Amount\n2026-02-01,4.10\n2026-01-01,3.95\n", encoding="utf-8")
     assert load_interest(p) == [{"date": "2026-01-01", "eur": 3.95}, {"date": "2026-02-01", "eur": 4.10}]
 
 
@@ -159,7 +159,7 @@ def test_load_interest_skips_a_malformed_row_with_a_warning(tmp_path, caplog):
 
     from monitor.portfolio.ledger import load_interest
     p = tmp_path / "interest.csv"
-    p.write_text("Date,Amount\n2026-01-01,3.95\n2026-02-01,abc\nnot-a-date,1.00\n2026-03-01,\n2026-04-01,2.50\n")
+    p.write_text("Date,Amount\n2026-01-01,3.95\n2026-02-01,abc\nnot-a-date,1.00\n2026-03-01,\n2026-04-01,2.50\n", encoding="utf-8")
     with caplog.at_level(logging.WARNING):
         out = load_interest(p)
     assert out == [{"date": "2026-01-01", "eur": 3.95}, {"date": "2026-04-01", "eur": 2.50}]
@@ -177,7 +177,7 @@ def test_load_interest_rejects_a_row_with_the_wrong_number_of_fields(tmp_path, c
 
     from monitor.portfolio.ledger import load_interest
     p = tmp_path / "interest.csv"
-    p.write_text("Date,Amount\n2026-01-01,3,95\n2026-02-01\n2026-03-01,2.50\n")
+    p.write_text("Date,Amount\n2026-01-01,3,95\n2026-02-01\n2026-03-01,2.50\n", encoding="utf-8")
     with caplog.at_level(logging.WARNING):
         out = load_interest(p)
     assert out == [{"date": "2026-03-01", "eur": 2.50}]
@@ -189,7 +189,7 @@ def test_load_interest_accepts_a_quoted_decimal_comma(tmp_path, caplog):
 
     from monitor.portfolio.ledger import load_interest
     p = tmp_path / "interest.csv"
-    p.write_text('Date,Amount\n2026-01-01,"3,95"\n2026-02-01,"1.234,56"\n')
+    p.write_text('Date,Amount\n2026-01-01,"3,95"\n2026-02-01,"1.234,56"\n', encoding="utf-8")
     with caplog.at_level(logging.WARNING):
         out = load_interest(p)
     assert out == [{"date": "2026-01-01", "eur": 3.95}]            # ambiguous thousands: skipped, not guessed

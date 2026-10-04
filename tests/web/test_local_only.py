@@ -11,7 +11,7 @@ CMD = Path(__file__).resolve().parents[2] / "web" / "app" / "cmd.js"
 
 
 def test_local_only_matches_the_private_screens():
-    m = re.search(r"export const LOCAL_ONLY = (\{[^}]*\});", CMD.read_text())
+    m = re.search(r"export const LOCAL_ONLY = (\{[^}]*\});", CMD.read_text(encoding="utf-8"))
     assert m, "LOCAL_ONLY table missing from web/app/cmd.js"
     table = json.loads(re.sub(r"(\w+):", r'"\1":', m.group(1)))
     assert table == {s.id: s.fkey for s in SCREENS.values() if not s.public}

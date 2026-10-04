@@ -24,11 +24,11 @@ def test_missing_file_and_round_trip(tmp_path):
 
 def test_corrupt_file_falls_back_to_defaults_and_is_kept(tmp_path, caplog):
     f = tmp_path / "alerts.json"
-    f.write_text("{oops")
+    f.write_text("{oops", encoding="utf-8")
     assert S.load(f) == S.defaults()
     assert "unreadable alerts file" in caplog.text
-    assert (tmp_path / "alerts.json.bad").read_text() == "{oops"
-    f.write_text('["not", "a", "dict"]')
+    assert (tmp_path / "alerts.json.bad").read_text(encoding="utf-8") == "{oops"
+    f.write_text('["not", "a", "dict"]', encoding="utf-8")
     assert S.load(f) == S.defaults()
 
 
@@ -43,7 +43,7 @@ def test_hand_edited_file_keeps_valid_rules_only(tmp_path):
         "state": {"A1": {"NVD.F": {"armed": False, "day": None, "at": "x"}, "BAD": {"armed": "yes"}},
                   "A2": {"NVD.F": {"armed": True}}},
         "log": [{"id": "E40", "rule": "A1", "msg": "m", "ack": False}, {"id": "junk"}, "x"],
-        "seq": {"rule": 2, "entry": "many"}}))
+        "seq": {"rule": 2, "entry": "many"}}), encoding="utf-8")
     d = S.load(f)
     assert [(r["id"], r["value"]) for r in d["rules"]] == [("A1", 150.0), ("A9", 4.0)]
     assert d["state"] == {"A1": {"NVD.F": {"armed": False, "day": None, "at": "x"}}}
@@ -97,7 +97,7 @@ def test_view_rule_states_and_last_fired():
 
 def test_non_finite_numbers_take_the_corrupt_path(tmp_path):
     f = tmp_path / "alerts.json"
-    f.write_text('{"rules": [{"id": "A1", "kind": "LEVEL", "ticker": "X", "op": "<", "value": NaN}], "log": []}')
+    f.write_text('{"rules": [{"id": "A1", "kind": "LEVEL", "ticker": "X", "op": "<", "value": NaN}], "log": []}', encoding="utf-8")
     assert S.load(f) == S.defaults() and (tmp_path / "alerts.json.bad").exists()
     S.save(f, S.load(f))                                   # and saving the result works
 
@@ -108,7 +108,7 @@ def test_unsafe_state_and_log_fields_are_dropped(tmp_path):
         "rules": [{"id": "A1", "kind": "STALE", "ticker": "*", "op": None, "value": None}],
         "state": {"A1": {"X": {"armed": True, "day": ["l"], "at": 5}}},
         "log": [{"id": "E1", "rule": ["A1"], "msg": "m"}, {"id": "E2", "rule": "A1", "msg": "m", "value": {"a": 1}},
-                {"id": "E3", "rule": "A1", "msg": "m", "value": 1.5, "down": True}]}))
+                {"id": "E3", "rule": "A1", "msg": "m", "value": 1.5, "down": True}]}), encoding="utf-8")
     d = S.load(f)
     assert d["state"] == {"A1": {"X": {"armed": True, "day": None, "at": None}}}
     assert [e["id"] for e in d["log"]] == ["E3"]
@@ -124,7 +124,7 @@ def test_hand_edited_log_timestamps_load_as_none(tmp_path):
         "log": [{"id": "E4", "rule": "A1", "msg": "m", "ts": "2026-10-01T09:00:00"},
                 {"id": "E3", "rule": "A1", "msg": "m", "ts": "yesterday 3pm"},
                 {"id": "E2", "rule": "A1", "msg": "m", "ts": 1759300000},
-                {"id": "E1", "rule": "A1", "msg": "m", "ts": None}]}))
+                {"id": "E1", "rule": "A1", "msg": "m", "ts": None}]}), encoding="utf-8")
     d = S.load(f)
     assert [(e["id"], e["ts"]) for e in d["log"]] == [("E4", "2026-10-01T09:00:00"), ("E3", None), ("E2", None),
                                                       ("E1", None)]
@@ -136,7 +136,7 @@ def test_a_new_rule_never_reuses_an_id_still_in_the_log(tmp_path):
     f.write_text(json.dumps({
         "rules": [{"id": "A1", "kind": "STALE", "ticker": "*", "op": None, "value": None}],
         "log": [{"id": "E1", "rule": "A7", "msg": "m", "ts": "2026-10-01T09:00:00"}],
-        "seq": {"rule": 1, "entry": 1}}))              # a hand edit lowered seq below the logged A7
+        "seq": {"rule": 1, "entry": 1}}), encoding="utf-8")              # a hand edit lowered seq below the logged A7
     d = S.load(f)
     assert d["seq"]["rule"] == 7
     d, r = S.add_rule(d, parse_rule("NVD.F < 180"))

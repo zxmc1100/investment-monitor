@@ -33,7 +33,7 @@ dividend_tax = 0.25
 
 def _write(tmp_path, text: str) -> Path:
     p = tmp_path / "settings.toml"
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     return p
 
 
@@ -96,7 +96,7 @@ def _fresh_import(tmp_path, text: str) -> dict:
             "'tmap': i.TICKER_MAP, 'names': i.COMPANY_NAMES, 'sec': m.PORTFOLIO_SECTOR_MAP, "
             "'cty': m.PORTFOLIO_COUNTRY_MAP, 'builtin_sec': m._BUILTIN_SECTORS}))")
     env = {**os.environ, "MONITOR_SETTINGS": str(_write(tmp_path, text))}
-    out = subprocess.run([sys.executable, "-c", code], cwd=REPO, env=env, capture_output=True, text=True, check=True)
+    out = subprocess.run([sys.executable, "-c", code], cwd=REPO, env=env, capture_output=True, text=True, check=True, encoding="utf-8")
     return json.loads(out.stdout)
 
 
@@ -148,7 +148,7 @@ def test_list_defaults_read_as_toml_in_messages(tmp_path):
 def test_sectors_and_countries_from_settings_speak_the_books_vocabulary(settings_file):
     from monitor.portfolio import meta
     settings_file.write_text('[sectors]\n"XYZ.F" = "Technology"\n"ABC.F" = "Semis"\n'
-                             '[countries]\n"XYZ.F" = "DE"\n"ABC.F" = "USA"\n')
+                             '[countries]\n"XYZ.F" = "DE"\n"ABC.F" = "USA"\n', encoding="utf-8")
     config.refresh_settings()
     assert meta.PORTFOLIO_SECTOR_MAP["XYZ.F"] == "Information Technology"
     assert meta.PORTFOLIO_SECTOR_MAP["ABC.F"] == "Semis"                  # your own label is kept
@@ -157,5 +157,5 @@ def test_sectors_and_countries_from_settings_speak_the_books_vocabulary(settings
 
 
 def test_the_example_header_tells_how_errors_fall_back():
-    text = (REPO / "examples" / "settings.example.toml").read_text()
+    text = (REPO / "examples" / "settings.example.toml").read_text(encoding="utf-8")
     assert "syntax error" in text and "every key" in text and "falls back to its default alone" in text

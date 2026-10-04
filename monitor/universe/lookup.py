@@ -59,7 +59,7 @@ def _load(root: Path) -> pd.DataFrame:
         meta = None
     try:
         uni = pd.read_csv(root / "tr_universe.csv", dtype=str)
-        tmap = json.loads((root / "tr_ticker_map.json").read_text())
+        tmap = json.loads((root / "tr_ticker_map.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         if meta is None or not {"isin", "ticker", "name", "country"} <= set(meta.columns):
             log.warning("TR universe unavailable under %s (%s): lookup is empty", root, e)
@@ -69,7 +69,7 @@ def _load(root: Path) -> pd.DataFrame:
         uni = m[["isin", "name", "country"]].astype(str)
         tmap = dict(zip(m["isin"], m["ticker"].astype(str)))
     try:
-        sectors = json.loads((root / "sector_map.json").read_text())
+        sectors = json.loads((root / "sector_map.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         sectors = {}
     return build(uni, tmap, meta, sectors)

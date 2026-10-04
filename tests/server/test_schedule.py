@@ -147,7 +147,7 @@ def test_the_server_runs_the_schedule_only_for_a_monthly_screen(tmp_path, monkey
     eng, _, _, _ = _setup(tmp_path, monkeypatch, built=None)
     web = tmp_path / "web"
     (web / "app").mkdir(parents=True)
-    (web / "index.html").write_text("x")
+    (web / "index.html").write_text("x", encoding="utf-8")
     app = create_app(eng, web_dir=web, schedule_file=tmp_path / "schedule.json")
     with TestClient(app, base_url="http://127.0.0.1"):
         task = app.state.build_task

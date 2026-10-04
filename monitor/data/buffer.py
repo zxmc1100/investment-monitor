@@ -194,20 +194,20 @@ def cached_market_caps(tickers, ttl_hours=24, force=False,
     cached: dict[str, float] = {}
     if path.exists():
         try:
-            cached = json.loads(path.read_text())
+            cached = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             cached = {}
     if not force and _fresh(path, ttl_hours) and set(tickers) <= set(cached):
         return {t: cached[t] for t in tickers if t in cached}
     fresh = _fetch(tickers)                       # dict, possibly partial/empty
     merged = {**cached, **fresh}                  # new wins, keep last-good for missing
-    path.write_text(json.dumps(merged))
+    path.write_text(json.dumps(merged), encoding="utf-8")
     return {t: merged[t] for t in tickers if t in merged}
 
 
 def _write_json_atomic(path: Path, obj) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, allow_nan=False))
+    tmp.write_text(json.dumps(obj, allow_nan=False), encoding="utf-8")
     tmp.replace(path)
 
 
@@ -220,7 +220,7 @@ def cached_dividends(tickers, ttl_hours: float = 24, force: bool = False,
     path = _dir(buffer_dir) / "dividends.json"
     tickers = sorted(set(tickers))
     try:
-        cached = json.loads(path.read_text()) if path.exists() else {}
+        cached = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except Exception:
         cached = {}
     data, asked = cached.get("data", {}), set(cached.get("asked", []))
@@ -253,7 +253,7 @@ def cached_quotes(tickers, *, force: bool = False, fresh_s: float = 0, buffer_di
     _fetch = _fetch or Y.fetch_quotes
     path = _dir(buffer_dir) / "quotes.json"
     try:
-        buf: dict[str, dict] = json.loads(path.read_text()) if path.exists() else {}
+        buf: dict[str, dict] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except Exception:
         buf = {}
     if not force and all(t in buf for t in tickers):
@@ -305,7 +305,7 @@ def age_s(ts, now: datetime | None = None) -> float:
 
 def _read_json(path: Path) -> dict:
     try:
-        raw = json.loads(path.read_text()) if path.exists() else {}
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     except Exception:
         raw = {}
     return raw if isinstance(raw, dict) else {}

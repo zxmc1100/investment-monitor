@@ -279,7 +279,7 @@ def test_my_names_and_sectors_place_a_holding_no_map_knows(ctx, tmp_path, monkey
     monkeypatch.setattr(Y, "fetch_info", lambda t: {"name": "BASF SE", "sector": "Basic Materials",
                                                     "country": "Germany"} if t == "BAS.DE" else None)
     csv = tmp_path / "p.csv"
-    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2026-01-05,BAS.DE,buy,10,450.00,45.00\n")
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n2026-01-05,BAS.DE,buy,10,450.00,45.00\n", encoding="utf-8")
     p = build(replace(ctx, portfolio_csv=csv))
     assert {r["tkr"]: r["name"] for r in panel(p, "names")["rows"]}["BAS.DE"] == "BASF"   # universe name
     assert [r["sector"] for r in panel(p, "sectors")["rows"]] == ["Materials"]           # Yahoo sector, GICS name

@@ -19,8 +19,8 @@ from tests.server.helpers import Recorder, make_screen
 def web(tmp_path):
     w = tmp_path / "web"
     (w / "app").mkdir(parents=True)
-    (w / "index.html").write_text('<meta name="im-mode" content="live">INDEX')
-    (w / "app" / "app.js").write_text("export {};")
+    (w / "index.html").write_text('<meta name="im-mode" content="live">INDEX', encoding="utf-8")
+    (w / "app" / "app.js").write_text("export {};", encoding="utf-8")
     return w
 
 
@@ -139,7 +139,7 @@ def test_no_portfolio_yet_is_a_cold_view_that_says_how_to_start(tmp_path, web, m
                 assert r.status_code == 200 and r.json()["screen"] == sid and r.json()["live"]["error"] is None
             assert c.get("/api/screens").status_code == 200
             csv.parent.mkdir()
-            csv.write_text((Path(__file__).resolve().parent.parent / "fixtures" / "portfolio_small.csv").read_text())
+            csv.write_text((Path(__file__).resolve().parent.parent / "fixtures" / "portfolio_small.csv").read_text(encoding="utf-8"), encoding="utf-8")
             r = c.get("/api/screen/PORT")
             assert r.status_code == 202 and "reason" not in r.json()            # computing now
             assert eng.runner.wait_idle(30)

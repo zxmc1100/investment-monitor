@@ -40,7 +40,7 @@ def parse_portfolio(csv_path: str | Path) -> dict:
     lots: dict[str, deque] = {}            # ticker -> deque of [shares, EUR cost per share]
     transactions = []
 
-    with open(csv_path, newline="") as f:
+    with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             ticker   = row["Ticker"].strip()

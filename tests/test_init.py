@@ -17,7 +17,7 @@ def test_creates_input_from_the_examples(tmp_path):
     inp = tmp_path / "input"
     lines = I.init(inp, EX)
     for dest, src in FILES.items():
-        assert (inp / dest).read_text() == (EX / src).read_text()
+        assert (inp / dest).read_text(encoding="utf-8") == (EX / src).read_text(encoding="utf-8")
         assert any(f"created input/{dest}" in line for line in lines), lines
     assert any("bash start.sh" in line for line in lines)
 
@@ -25,14 +25,14 @@ def test_creates_input_from_the_examples(tmp_path):
 def test_never_overwrites_and_fills_only_the_gaps(tmp_path):
     inp = tmp_path / "input"
     inp.mkdir()
-    (inp / "portfolio.csv").write_text("my trades\n")
+    (inp / "portfolio.csv").write_text("my trades\n", encoding="utf-8")
     lines = I.init(inp, EX)
-    assert (inp / "portfolio.csv").read_text() == "my trades\n"
+    assert (inp / "portfolio.csv").read_text(encoding="utf-8") == "my trades\n"
     assert any("kept input/portfolio.csv" in line for line in lines)
     assert (inp / "interest.csv").exists() and (inp / "settings.toml").exists()
-    (inp / "settings.toml").write_text("order_fee_eur = 2\n")
+    (inp / "settings.toml").write_text("order_fee_eur = 2\n", encoding="utf-8")
     again = I.init(inp, EX)
-    assert (inp / "settings.toml").read_text() == "order_fee_eur = 2\n"
+    assert (inp / "settings.toml").read_text(encoding="utf-8") == "order_fee_eur = 2\n"
     assert all("created" not in line for line in again)
 
 
@@ -61,12 +61,12 @@ def test_cli_dispatch_prints_what_it_did(tmp_path, monkeypatch, capsys):
 def test_messages_name_the_venv_python():
     import monitor.__main__ as M
     from monitor.screens.base import NO_PORTFOLIO
-    for text in (NO_PORTFOLIO, (EX / "README.md").read_text(), M.usage({})):
+    for text in (NO_PORTFOLIO, (EX / "README.md").read_text(encoding="utf-8"), M.usage({})):
         assert ".venv/bin/python -m monitor init" in text
 
 
 def test_input_being_a_file_or_missing_examples_is_one_line_not_a_traceback(tmp_path, monkeypatch, capsys):
-    (tmp_path / "input").write_text("oops")
+    (tmp_path / "input").write_text("oops", encoding="utf-8")
     monkeypatch.setattr(I.config, "INPUT_DIR", tmp_path / "input")
     assert main(["init"]) == 1
     err = capsys.readouterr().err.strip()
@@ -79,6 +79,6 @@ def test_input_being_a_file_or_missing_examples_is_one_line_not_a_traceback(tmp_
 
 
 def test_readme_explains_bonus_price_and_plan_tickers():
-    text = (EX / "README.md").read_text() + (EX / "settings.example.toml").read_text()
+    text = (EX / "README.md").read_text(encoding="utf-8") + (EX / "settings.example.toml").read_text(encoding="utf-8")
     assert "bonus" in text and "books" in text
     assert text.count("as written in your CSV's Ticker column") >= 2

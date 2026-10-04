@@ -28,12 +28,12 @@ def port_data(csv: Path) -> dict:
 
 def _check(d: dict) -> None:
     if os.environ.get("DUMP_GOLDEN"):
-        Path(os.environ["DUMP_GOLDEN"]).write_text(json.dumps(golden.canon(d), sort_keys=True, indent=1))
+        Path(os.environ["DUMP_GOLDEN"]).write_text(json.dumps(golden.canon(d), sort_keys=True, indent=1), encoding="utf-8")
     digest = golden.digest(d)
     if os.environ.get("UPDATE_GOLDEN") == "1":
-        GOLDEN.write_text(digest + "\n")
+        GOLDEN.write_text(digest + "\n", encoding="utf-8")
     assert GOLDEN.exists(), "golden missing — run once with UPDATE_GOLDEN=1"
-    assert digest == GOLDEN.read_text().strip()
+    assert digest == GOLDEN.read_text(encoding="utf-8").strip()
 
 
 def test_port_data_is_pinned(port_env):

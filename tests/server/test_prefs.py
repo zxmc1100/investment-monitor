@@ -10,9 +10,9 @@ def test_defaults_when_missing(tmp_path):
 
 def test_corrupt_or_unknown_prefs_fall_back_to_defaults(tmp_path):
     f = tmp_path / "p.json"
-    f.write_text("{not json")
+    f.write_text("{not json", encoding="utf-8")
     assert prefs.load(f) == {"target": "HRP"}
-    f.write_text('{"target": "YOLO"}')
+    f.write_text('{"target": "YOLO"}', encoding="utf-8")
     assert prefs.load(f) == {"target": "HRP"}
 
 

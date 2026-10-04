@@ -12,7 +12,7 @@ def write_atomic(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(obj, f, allow_nan=False, indent=1)
         os.replace(tmp, path)
     except BaseException:

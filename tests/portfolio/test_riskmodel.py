@@ -75,7 +75,7 @@ def test_portfolios_match_the_frozen_legacy_report(port_env):
     tests/fixtures/golden/riskmodel_legacy.json before the report was deleted."""
     import json
     from monitor.portfolio import snapshot
-    frozen = json.loads((FIXTURES / "golden" / "riskmodel_legacy.json").read_text())
+    frozen = json.loads((FIXTURES / "golden" / "riskmodel_legacy.json").read_text(encoding="utf-8"))
     m = R.build_model(**snapshot.risk_inputs(snapshot.load_book(port_env)))
     assert m.universe == frozen["universe"]
     np.testing.assert_allclose(m.cur_w, frozen["cur_w"], atol=1e-12)

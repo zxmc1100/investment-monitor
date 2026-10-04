@@ -32,7 +32,7 @@ def append_snapshot(path: str | Path, row: dict) -> None:
 
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", newline="") as f:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=FIELDS)
             w.writeheader()
             for r in rows:
@@ -47,7 +47,7 @@ def load(path: str | Path) -> list[dict]:
     path = Path(path)
     if not path.exists():
         return []
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         out = []
         for r in csv.DictReader(f):
             for k in FIELDS:

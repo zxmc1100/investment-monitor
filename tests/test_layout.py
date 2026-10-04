@@ -27,7 +27,7 @@ def _modules() -> dict[str, Path]:
 
 def _imported(f: Path, known: dict) -> set[str]:
     out = set()
-    for n in ast.walk(ast.parse(f.read_text())):
+    for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
         if isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
             for a in n.names:
                 full = f"{n.module}.{a.name}"
@@ -79,7 +79,7 @@ def test_no_public_module_imports_the_addon():
     """Only monitor/plugins.py names the add-on's package (by string, through importlib)."""
     imports = [f"{n} -> {i}" for n, i in _edges() if i.split(".")[0] == ADDON]
     assert not imports, imports
-    named = [f.relative_to(REPO).as_posix() for f in PKG.rglob("*.py") if ADDON in f.read_text()]
+    named = [f.relative_to(REPO).as_posix() for f in PKG.rglob("*.py") if ADDON in f.read_text(encoding="utf-8")]
     assert named == ["monitor/plugins.py"], named
 
 
@@ -105,6 +105,6 @@ def test_no_tracked_file_carries_addon_code():
         if rel.startswith("private/"):
             hits.append(rel)
         elif f.suffix in (".py", ".js", ".mjs", ".md", ".toml", ".txt", ".html", ".css") and f.is_file() \
-                and RESEARCH.search(f.read_text(errors="ignore")):
+                and RESEARCH.search(f.read_text(errors="ignore", encoding="utf-8")):
             hits.append(rel)
     assert not hits, hits

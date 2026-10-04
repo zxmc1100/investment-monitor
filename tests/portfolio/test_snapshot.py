@@ -139,17 +139,17 @@ def test_long_history_fetch_failure_degrades_to_beta_estimates(env, monkeypatch,
 
 def test_load_book_reads_interest_next_to_the_csv(tmp_path):
     csv = tmp_path / "portfolio.csv"
-    csv.write_text(FIX.read_text())
+    csv.write_text(FIX.read_text(encoding="utf-8"), encoding="utf-8")
     assert S.load_book(csv)["interest"] == []                                  # no file, no interest
-    (tmp_path / "interest.csv").write_text("Date,Amount\n2026-02-01,4.10\n2026-01-01,3.95\n")
+    (tmp_path / "interest.csv").write_text("Date,Amount\n2026-02-01,4.10\n2026-01-01,3.95\n", encoding="utf-8")
     assert S.load_book(csv)["interest"] == [{"date": "2026-01-01", "eur": 3.95}, {"date": "2026-02-01", "eur": 4.10}]
 
 
 def test_quote_tier_reports_interest_outside_roi(env, tmp_path):
     csv = tmp_path / "portfolio.csv"
-    csv.write_text(FIX.read_text())
+    csv.write_text(FIX.read_text(encoding="utf-8"), encoding="utf-8")
     a0 = S.quote_tier(S.load_book(csv), force=True, buffer_dir=env)["acct"]
-    (tmp_path / "interest.csv").write_text("Date,Amount\n2026-01-01,3.95\n2026-02-01,4.10\n")
+    (tmp_path / "interest.csv").write_text("Date,Amount\n2026-01-01,3.95\n2026-02-01,4.10\n", encoding="utf-8")
     a = S.quote_tier(S.load_book(csv), buffer_dir=env)["acct"]
     assert a0["interest"] == 0.0 and a["interest"] == pytest.approx(8.05)
     assert a["total_pnl"] == pytest.approx(a0["total_pnl"]) and a["simple_roi"] == pytest.approx(a0["simple_roi"])

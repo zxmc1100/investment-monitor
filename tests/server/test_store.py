@@ -17,9 +17,9 @@ def test_payload_rejects_nan_and_writes_nothing(tmp_path):
 
 
 def test_corrupt_files_read_as_cold(tmp_path):
-    (tmp_path / "X.json").write_text("{trunc")
+    (tmp_path / "X.json").write_text("{trunc", encoding="utf-8")
     (tmp_path / "X.quote.pkl").write_bytes(b"garbage")
-    (tmp_path / "X.quote.json").write_text("nope")
+    (tmp_path / "X.quote.json").write_text("nope", encoding="utf-8")
     s = Store(tmp_path)
     assert s.get_payload("X") is None
     assert s.get_part("X", "quote") is None and s.part_info("X", "quote") is None

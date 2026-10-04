@@ -93,7 +93,7 @@ def test_public_view_leaks_nothing_private(frozen, tmp_path):
     canary = tmp_path / "canary.csv"
     canary.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n"
                       "2025-01-06,AAA.F,buy,4242.4242,5237.07,1.2345\n"
-                      "2025-02-03,BBB.F,buy,20,1000.00,50.00\n")
+                      "2025-02-03,BBB.F,buy,20,1000.00,50.00\n", encoding="utf-8")
     p = build(tmp_path, canary)
     pub = public_view(p)
     s = json.dumps(pub)
@@ -157,7 +157,7 @@ def test_posval_markers_follow_exits_and_rebuys(frozen, tmp_path):
                    "2025-01-06,AAA.F,buy,10,1000.00,100.00\n"
                    "2025-01-06,BBB.F,buy,10,500.00,50.00\n"
                    "2025-04-01,AAA.F,sell,10,1200.00,120.00\n"
-                   "2025-09-01,AAA.F,buy,10,1000.00,100.00\n")
+                   "2025-09-01,AAA.F,buy,10,1000.00,100.00\n", encoding="utf-8")
     sv = panel(build(tmp_path, csv), "posval")["series_by_key"]["AAA.F"]
     x = sv["x"]
     ser = {s["name"]: s["y"] for s in sv["series"]}
@@ -179,7 +179,7 @@ def test_port_payload_stays_under_300kb(frozen, tmp_path):
     for n in (1, 4, 9):
         lines.append(f"2025-08-01,T{n:02d}.F,sell,4,240.00,60.00")
     csv = tmp_path / "many.csv"
-    csv.write_text("\n".join(lines) + "\n")
+    csv.write_text("\n".join(lines) + "\n", encoding="utf-8")
     size = len(json.dumps(build(tmp_path, csv)))
     assert size < 300_000
 
@@ -229,9 +229,9 @@ def test_day_column_is_plain_on_a_trading_day(frozen, tmp_path):
 def _with(tmp_path, *rows, interest=None):
     csv = tmp_path / "book" / "portfolio.csv"
     csv.parent.mkdir(exist_ok=True)
-    csv.write_text(FIX.read_text().rstrip("\n") + "\n" + "".join(r + "\n" for r in rows))
+    csv.write_text(FIX.read_text(encoding="utf-8").rstrip("\n") + "\n" + "".join(r + "\n" for r in rows), encoding="utf-8")
     if interest is not None:
-        (csv.parent / "interest.csv").write_text("Date,Amount\n" + "".join(f"{d},{a}\n" for d, a in interest))
+        (csv.parent / "interest.csv").write_text("Date,Amount\n" + "".join(f"{d},{a}\n" for d, a in interest), encoding="utf-8")
     return csv
 
 

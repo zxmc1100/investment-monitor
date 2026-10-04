@@ -136,8 +136,8 @@ class Engine:
         child running past config.BUILD_TIMEOUT_MIN is killed (BuildFailed: timed out); on any way out
         of here a child still running is killed and reaped."""
         proc = subprocess.Popen([sys.executable, *scr.build_cmd, *extra], cwd=config.REPO_ROOT, text=True, bufsize=1,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                env={**os.environ, "PYTHONUNBUFFERED": "1"})
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
+                                env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"})
         with self._locks_guard:
             self._children.add(proc)
         tail: collections.deque[str] = collections.deque(maxlen=20)

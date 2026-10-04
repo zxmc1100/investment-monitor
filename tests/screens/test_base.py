@@ -9,7 +9,7 @@ from monitor.screens.base import Screen, code_version
 def _dep(tmp_path, monkeypatch, body="X = 1\n"):
     name = f"cv_dep_{uuid.uuid4().hex[:8]}"
     f = tmp_path / f"{name}.py"
-    f.write_text(body)
+    f.write_text(body, encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
     return name, f
 
@@ -18,7 +18,7 @@ def test_code_version_tracks_dep_source(tmp_path, monkeypatch):
     name, f = _dep(tmp_path, monkeypatch)
     v1 = code_version((name,))
     assert len(v1) == 12 and v1 == code_version((name,))
-    f.write_text("X = 2\n")
+    f.write_text("X = 2\n", encoding="utf-8")
     assert code_version((name,)) != v1
 
 

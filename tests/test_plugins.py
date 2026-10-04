@@ -36,7 +36,7 @@ def addon(tmp_path, monkeypatch):
     The settings registry, sys.path and sys.modules are restored afterwards."""
     root = tmp_path / "private"
     (root / "monitor_private").mkdir(parents=True)
-    (root / "monitor_private" / "__init__.py").write_text("")
+    (root / "monitor_private" / "__init__.py").write_text("", encoding="utf-8")
     monkeypatch.setattr(sys, "path", list(sys.path))
     monkeypatch.setattr(plugins, "ADDON_DIR", root)
     monkeypatch.setattr(plugins, "_hooks", None)
@@ -48,7 +48,7 @@ def addon(tmp_path, monkeypatch):
             del sys.modules[m]
 
     def write(src: str) -> plugins.Hooks:
-        (root / "monitor_private" / "plugin.py").write_text(textwrap.dedent(src))
+        (root / "monitor_private" / "plugin.py").write_text(textwrap.dedent(src), encoding="utf-8")
         drop_modules()
         return plugins.load()
 
@@ -98,7 +98,7 @@ def test_an_addon_adds_screens_keys_commands_settings_and_paths(addon, settings_
     from monitor.__main__ import main
     assert main(["hello", "world"]) == 0 and capsys.readouterr().out == "hello world\n"
     assert main(["--help"]) == 0 and "say hello (an add-on command)" in capsys.readouterr().out
-    settings_file.write_text('xtra_note = "kept"\n')       # its key is a known setting now, bound to a constant
+    settings_file.write_text('xtra_note = "kept"\n', encoding="utf-8")       # its key is a known setting now, bound to a constant
     config.refresh_settings(force=True)
     assert config.SETTINGS_ERROR is None and config.XTRA_NOTE == "kept" and hooks.settings[0][0] == "xtra_note"
 
@@ -161,12 +161,12 @@ def test_the_export_never_names_an_addons_private_screen(addon, tmp_path, monkey
     """)
     web = tmp_path / "web"
     (web / "app").mkdir(parents=True)
-    (web / "index.html").write_text('<head><meta name="im-mode" content="live"></head>')
+    (web / "index.html").write_text('<head><meta name="im-mode" content="live"></head>', encoding="utf-8")
     pub, _, _ = make_screen(tmp_path, monkeypatch, panels=[])
     reg = plugins.apply_screens({"FAKE": pub, "SEC": Screen("SEC", "Security", None, params=lambda ctx: [])})
     eng = Engine(reg, Store(tmp_path / "store"), Recorder(), ctx=Ctx(buffer_dir=tmp_path))
     export(tmp_path / "docs", engine=eng, web_dir=web)
-    listed = [s["id"] for s in json.loads((tmp_path / "docs" / "data" / "screens.json").read_text())["screens"]]
+    listed = [s["id"] for s in json.loads((tmp_path / "docs" / "data" / "screens.json").read_text(encoding="utf-8"))["screens"]]
     assert listed == ["FAKE", "SEC"] and not list((tmp_path / "docs" / "data").glob("XTRA*"))
 
 

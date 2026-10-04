@@ -21,7 +21,7 @@ CSV, INTEREST, SETTINGS = EX / "portfolio.example.csv", EX / "interest.example.c
 
 
 def test_example_portfolio_parses_through_the_real_ledger():
-    assert CSV.read_text().splitlines()[0] == "Date,Ticker,Action,Shares,Price,PricePerShare"
+    assert CSV.read_text(encoding="utf-8").splitlines()[0] == "Date,Ticker,Action,Shares,Price,PricePerShare"
     book = parse_portfolio(CSV)
     tx = book["transactions"]
     tickers = {t["ticker"] for t in tx}
@@ -49,7 +49,7 @@ def test_example_interest_parses_cleanly(caplog):
 
 
 def test_example_settings_document_every_key_and_hold_the_defaults():
-    text = SETTINGS.read_text()
+    text = SETTINGS.read_text(encoding="utf-8")
     for key in config._SETTINGS:
         assert re.search(rf"^\[?{key}\]?\s*(=|$)", text, re.M), f"{key} undocumented"
     s, err = config.load_settings(SETTINGS)
@@ -61,8 +61,8 @@ def test_port_builds_from_the_example_portfolio(tmp_path, monkeypatch):
     fakes_yf.install(monkeypatch)
     book = tmp_path / "input"
     book.mkdir()
-    (book / "portfolio.csv").write_text(CSV.read_text())
-    (book / "interest.csv").write_text(INTEREST.read_text())
+    (book / "portfolio.csv").write_text(CSV.read_text(encoding="utf-8"), encoding="utf-8")
+    (book / "interest.csv").write_text(INTEREST.read_text(encoding="utf-8"), encoding="utf-8")
     with time_machine.travel("2026-10-02 14:00:00+00:00", tick=False):
         ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=book / "portfolio.csv", equity_log=None)
         p = port.assemble({t: port.compute(t, ctx) for t in port.SCREEN.tiers},

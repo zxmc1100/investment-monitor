@@ -62,7 +62,7 @@ def export(out_dir: Path = config.DOCS_DIR, *, engine: Engine | None = None, cac
     web_dir = Path(web_dir)
     if not (web_dir / "app").is_dir():
         raise RuntimeError(f"{web_dir / 'app'} is not a directory")
-    page = (web_dir / "index.html").read_text() if (web_dir / "index.html").is_file() else ""
+    page = (web_dir / "index.html").read_text(encoding="utf-8") if (web_dir / "index.html").is_file() else ""
     if LIVE_META not in page:
         raise RuntimeError("web/index.html lacks the im-mode meta tag")
     refuse_unpublishable(engine)                      # before touching docs/: the published snapshot stays
@@ -92,12 +92,13 @@ def export(out_dir: Path = config.DOCS_DIR, *, engine: Engine | None = None, cac
                 payload = src.build_stored(sid) if cached else src.compute_now(sid, force=True)
                 if payload is None:
                     raise RuntimeError(f"{sid}: no stored payload at the current code and inputs — run export without --cached")
-                (data / f"{sid}.json").write_text(json.dumps(public_view(payload), allow_nan=False, separators=(",", ":")))
+                (data / f"{sid}.json").write_text(json.dumps(public_view(payload), allow_nan=False, separators=(",", ":")),
+                                                  encoding="utf-8")
                 published.append(sid)
                 entries.append(scr.entry())
-        (data / "screens.json").write_text(json.dumps({"screens": entries}, allow_nan=False))
+        (data / "screens.json").write_text(json.dumps({"screens": entries}, allow_nan=False), encoding="utf-8")
         shutil.copytree(web_dir / "app", stage / "app")
-        (stage / "index.html").write_text(page.replace(LIVE_META, STATIC_META))
+        (stage / "index.html").write_text(page.replace(LIVE_META, STATIC_META), encoding="utf-8")
         for name in ("data", "app", "index.html"):
             _swap(stage / name, out_dir / name)
     finally:

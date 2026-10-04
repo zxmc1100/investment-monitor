@@ -229,7 +229,7 @@ def test_put_and_assemble_stores_and_publishes(tmp_path, monkeypatch):
 def web(tmp_path):
     w = tmp_path / "web"
     (w / "app").mkdir(parents=True)
-    (w / "index.html").write_text('<meta name="im-mode" content="live">INDEX')
+    (w / "index.html").write_text('<meta name="im-mode" content="live">INDEX', encoding="utf-8")
     return w
 
 

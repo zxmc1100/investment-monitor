@@ -18,9 +18,9 @@ PANELS = [{"id": "k", "n": 1, "title": "K", "type": "kpi", "vis": "public",
 def web(tmp_path):
     w = tmp_path / "web"
     (w / "app" / "render").mkdir(parents=True)
-    (w / "index.html").write_text('<head><meta name="im-mode" content="live"></head>')
-    (w / "app" / "app.js").write_text("export {};")
-    (w / "app" / "render" / "kpi.js").write_text("export {};")
+    (w / "index.html").write_text('<head><meta name="im-mode" content="live"></head>', encoding="utf-8")
+    (w / "app" / "app.js").write_text("export {};", encoding="utf-8")
+    (w / "app" / "render" / "kpi.js").write_text("export {};", encoding="utf-8")
     return w
 
 
@@ -33,16 +33,16 @@ def _engine(tmp_path, monkeypatch):
 def test_export_writes_public_static_site(tmp_path, monkeypatch, web):
     out = tmp_path / "docs"
     (out / "data").mkdir(parents=True)
-    (out / "data" / "STALE.json").write_text("{}")
+    (out / "data" / "STALE.json").write_text("{}", encoding="utf-8")
     export(out, engine=_engine(tmp_path, monkeypatch), web_dir=web)
-    data = (out / "data" / "FAKE.json").read_text()
+    data = (out / "data" / "FAKE.json").read_text(encoding="utf-8")
     assert "12.5" in data and "987654.32" not in data and "parts" not in json.loads(data)
-    reg = json.loads((out / "data" / "screens.json").read_text())
+    reg = json.loads((out / "data" / "screens.json").read_text(encoding="utf-8"))
     assert reg == {"screens": reg["screens"]} and [s["id"] for s in reg["screens"]] == ["FAKE", "SOON"]
     assert all({"id", "fkey", "title", "public"} <= set(s) for s in reg["screens"])   # every screen, flagged
     assert reg["screens"][1]["status"] == "soon" and not (out / "data" / "SOON.json").exists()
     assert not (out / "data" / "STALE.json").exists()
-    assert STATIC_META in (out / "index.html").read_text()
+    assert STATIC_META in (out / "index.html").read_text(encoding="utf-8")
     assert (out / "app" / "render" / "kpi.js").exists()
 
 
@@ -70,7 +70,7 @@ def test_export_opt_and_risk_public_views(tmp_path, monkeypatch, web):
         export(tmp_path / "docs", engine=eng, web_dir=web)
     data = tmp_path / "docs" / "data"
     assert sorted(p.name for p in data.glob("*.json")) == ["OPT.json", "RISK.json", "screens.json"]
-    text = (data / "OPT.json").read_text() + (data / "RISK.json").read_text()
+    text = (data / "OPT.json").read_text(encoding="utf-8") + (data / "RISK.json").read_text(encoding="utf-8")
     for forbidden in ('"ticket"', '"now_eur"', '"d_eur"', '"loss"', "VaR95 1D €"):
         assert forbidden not in text
 
@@ -86,7 +86,7 @@ def test_export_never_writes_the_live_store(tmp_path, monkeypatch, web):
     export(tmp_path / "docs", engine=eng, web_dir=web)                 # fresh: a throw-away store
     export(tmp_path / "docs2", engine=eng, web_dir=web, cached=True)   # cached: read-only re-assemble
     assert _files(tmp_path / "store") == before
-    assert "12.5" in (tmp_path / "docs2" / "data" / "FAKE.json").read_text()
+    assert "12.5" in (tmp_path / "docs2" / "data" / "FAKE.json").read_text(encoding="utf-8")
 
 
 def test_cached_export_assembles_opt_with_default_target(tmp_path, monkeypatch, web):
@@ -103,7 +103,7 @@ def test_cached_export_assembles_opt_with_default_target(tmp_path, monkeypatch, 
         eng.set_target("RP")                                      # the private, stored preference
         assert eng.payload("OPT")["meta"]["prefs"]["target"] == "RP"
         export(tmp_path / "docs", engine=eng, web_dir=web, cached=True)
-    pub = json.loads((tmp_path / "docs" / "data" / "OPT.json").read_text())
+    pub = json.loads((tmp_path / "docs" / "data" / "OPT.json").read_text(encoding="utf-8"))
     tgt = next(p for p in pub["panels"] if p["id"] == "target")
     assert {i["k"]: i["v"] for i in tgt["items"]}["TARGET"] == "HRP"
     assert "TARGET RP" not in json.dumps(pub)
@@ -140,7 +140,7 @@ def test_export_publishes_mkt_public_panels_only(tmp_path, monkeypatch, web):
         export(tmp_path / "docs", engine=eng, web_dir=web)
     data = tmp_path / "docs" / "data"
     assert sorted(p.name for p in data.glob("*.json")) == ["MKT.json", "screens.json"]
-    text = (data / "MKT.json").read_text()
+    text = (data / "MKT.json").read_text(encoding="utf-8")
     pub = json.loads(text)
     assert [p["id"] for p in pub["panels"]] == ["indices", "fx", "cmdty", "gainers", "losers", "spikes", "sectors"]
     for forbidden in ("FNTN.DE", "freenet", "€", '"names"', '"events"', '"last"', '"stale"'):
@@ -156,14 +156,14 @@ def _book_engine(tmp_path, csv_text=None, monkeypatch=None):
     csv = tmp_path / "input" / "portfolio.csv"
     if csv_text is not None:
         csv.parent.mkdir(parents=True, exist_ok=True)
-        csv.write_text(csv_text)
+        csv.write_text(csv_text, encoding="utf-8")
     return Engine(dict(SCREENS), Store(tmp_path / "store"), Recorder(), ctx=Ctx(portfolio_csv=csv, buffer_dir=tmp_path, equity_log=None))
 
 
 def _published(tmp_path):
     out = tmp_path / "docs"
     (out / "data").mkdir(parents=True)
-    (out / "data" / "PORT.json").write_text("{}")
+    (out / "data" / "PORT.json").write_text("{}", encoding="utf-8")
     return out
 
 
@@ -172,7 +172,7 @@ def test_export_without_a_portfolio_has_nothing_to_publish_and_touches_nothing(t
     out = _published(tmp_path)
     with pytest.raises(RuntimeError, match="^NOTHING TO PUBLISH — no input/portfolio.csv$"):
         export(out, engine=_book_engine(tmp_path), web_dir=web)
-    assert (out / "data" / "PORT.json").read_text() == "{}"          # the published snapshot stays
+    assert (out / "data" / "PORT.json").read_text(encoding="utf-8") == "{}"          # the published snapshot stays
     monkeypatch.setattr(E, "export", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("NOTHING TO PUBLISH — x")))
     assert E.main([]) == 1
     assert capsys.readouterr().err.strip() == "NOTHING TO PUBLISH — x"   # one line, no traceback
@@ -181,10 +181,10 @@ def test_export_without_a_portfolio_has_nothing_to_publish_and_touches_nothing(t
 def test_export_refuses_the_untouched_example_portfolio(tmp_path, web, monkeypatch):
     from monitor.init import EXAMPLES_DIR
     out = _published(tmp_path)
-    eng = _book_engine(tmp_path, (EXAMPLES_DIR / "portfolio.example.csv").read_text(), monkeypatch)
+    eng = _book_engine(tmp_path, (EXAMPLES_DIR / "portfolio.example.csv").read_text(encoding="utf-8"), monkeypatch)
     with pytest.raises(RuntimeError, match="example portfolio"):
         export(out, engine=eng, web_dir=web)
-    assert (out / "data" / "PORT.json").read_text() == "{}"
+    assert (out / "data" / "PORT.json").read_text(encoding="utf-8") == "{}"
 
 
 def test_export_refuses_while_settings_have_an_error(tmp_path, web, monkeypatch):
@@ -194,7 +194,7 @@ def test_export_refuses_while_settings_have_an_error(tmp_path, web, monkeypatch)
     with pytest.raises(RuntimeError, match="input/settings.toml: unknown key 'fee' ignored"):
         export(out, engine=_book_engine(tmp_path, "Date,Ticker,Action,Shares,Price,PricePerShare\n", monkeypatch),
                web_dir=web)
-    assert (out / "data" / "PORT.json").read_text() == "{}"
+    assert (out / "data" / "PORT.json").read_text(encoding="utf-8") == "{}"
 
 
 def test_export_skips_a_screen_that_cannot_compute_and_publishes_the_rest(tmp_path, web, monkeypatch, capsys):
@@ -209,7 +209,7 @@ def test_export_skips_a_screen_that_cannot_compute_and_publishes_the_rest(tmp_pa
     names = {p.name for p in (out / "data").glob("*.json")}
     assert {"PORT.json", "MKT.json", "screens.json"} <= names and not {"OPT.json", "RISK.json"} & names
     assert f"skipped OPT: {NEEDS_TWO}" in capsys.readouterr().err
-    listed = {s["id"]: s for s in json.loads((out / "data" / "screens.json").read_text())["screens"]}
+    listed = {s["id"]: s for s in json.loads((out / "data" / "screens.json").read_text(encoding="utf-8"))["screens"]}
     assert listed["OPT"]["public"] is True and listed["OPT"]["cold"] == NEEDS_TWO    # public, nothing to show
     assert listed["ALRT"]["public"] is False and set(listed) == set(eng.screens)
 
@@ -226,7 +226,7 @@ def test_a_failing_export_keeps_the_published_snapshot_whole(tmp_path, monkeypat
     def boom(tier, ctx):
         raise ValueError("Yahoo down")
     eng.screens["FAKE"] = __import__("dataclasses").replace(scr, compute=boom)
-    (web / "app" / "new.js").write_text("export {};")
+    (web / "app" / "new.js").write_text("export {};", encoding="utf-8")
     with pytest.raises(ValueError, match="Yahoo down"):
         export(out, engine=eng, web_dir=web)
     after = {p.relative_to(out): p.read_bytes() for p in out.rglob("*") if p.is_file()}

@@ -159,7 +159,7 @@ def test_contribution_counts_the_bonus_value_as_gain(tmp_path, monkeypatch):
     contributions stop adding up to ROI."""
     fakes_yf.install(monkeypatch)
     csv = tmp_path / "portfolio.csv"
-    csv.write_text(FIX.read_text().rstrip("\n") + "\n2026-04-01,AAA.F,bonus,0.1,12.00,120.00\n")
+    csv.write_text(FIX.read_text(encoding="utf-8").rstrip("\n") + "\n2026-04-01,AAA.F,bonus,0.1,12.00,120.00\n", encoding="utf-8")
     with time_machine.travel("2026-06-30 14:00:00+00:00", tick=False):
         c = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=csv, equity_log=None)
         q = snapshot.quote_tier(snapshot.load_book(csv), force=True, buffer_dir=c.buffer_dir)
@@ -226,6 +226,6 @@ def test_a_holding_no_map_knows_is_named_from_yahoo(ctx, tmp_path, monkeypatch):
     monkeypatch.setattr(Y, "fetch_info", lambda t: {"name": "Zed AG", "sector": None, "country": None}
                         if t == "ZZZ.DE" else None)
     csv = tmp_path / "p.csv"
-    csv.write_text(FIX.read_text().rstrip("\n") + "\n2026-03-02,ZZZ.DE,buy,10,1000.00,100.00\n")
+    csv.write_text(FIX.read_text(encoding="utf-8").rstrip("\n") + "\n2026-03-02,ZZZ.DE,buy,10,1000.00,100.00\n", encoding="utf-8")
     p = build(dataclasses.replace(ctx, portfolio_csv=csv), "ZZZ.DE")
     assert p["title"] == "ZZZ.DE · Zed AG"

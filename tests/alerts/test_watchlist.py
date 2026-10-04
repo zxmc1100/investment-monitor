@@ -18,11 +18,11 @@ def test_add_is_idempotent_and_remove(tmp_path):
 
 def test_corrupt_or_mangled_file_reads_as_empty_or_cleaned(tmp_path):
     f = tmp_path / "w.json"
-    f.write_text("{not json")
+    f.write_text("{not json", encoding="utf-8")
     assert W.load(f) == []
-    f.write_text('{"ticker": "AAPL"}')
+    f.write_text('{"ticker": "AAPL"}', encoding="utf-8")
     assert W.load(f) == []
-    f.write_text('[{"ticker": "aapl"}, {"ticker": ""}, 7, {"name": "x"}, {"ticker": "AAPL", "name": "dup"}]')
+    f.write_text('[{"ticker": "aapl"}, {"ticker": ""}, 7, {"name": "x"}, {"ticker": "AAPL", "name": "dup"}]', encoding="utf-8")
     assert W.load(f) == [{"ticker": "AAPL", "name": "AAPL", "added": ""}]
     W.add(f, "NVDA", "NVIDIA")                      # a corrupt file is replaced by a clean one
     assert W.tickers(f) == ["AAPL", "NVDA"]

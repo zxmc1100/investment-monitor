@@ -51,7 +51,7 @@ def _age(bufdir, days):
     import time
     for f in bufdir.glob("hist_*"):
         if f.suffix == ".json":
-            f.write_text(json.dumps({t: time.time() - days * 86400 for t in json.loads(f.read_text())}))
+            f.write_text(json.dumps({t: time.time() - days * 86400 for t in json.loads(f.read_text(encoding="utf-8"))}), encoding="utf-8")
         os.utime(f, (time.time() - days * 86400,) * 2)
 
 
@@ -291,8 +291,8 @@ def test_movers_unreadable_tried_is_expired_not_an_error(bufdir):
     fetch = Counter(ROWS)
     BUF.cached_movers(["AAA"], buffer_dir=bufdir, _fetch=fetch)
     path = next(bufdir.glob("movers_*.json"))
-    raw = json.loads(path.read_text())
-    path.write_text(json.dumps({**raw, "tried": "yesterday-ish"}))
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**raw, "tried": "yesterday-ish"}), encoding="utf-8")
     rows, at, stale = BUF.cached_movers(["AAA"], buffer_dir=bufdir, _fetch=fetch)
     assert rows == ROWS and fetch.calls == 2
 
@@ -303,8 +303,8 @@ def test_events_unreadable_asked_is_expired_not_an_error(bufdir):
     fetch = Counter(ev)
     BUF.cached_events(["A"], buffer_dir=bufdir, _fetch=fetch)
     path = bufdir / "events.json"
-    raw = json.loads(path.read_text())
-    path.write_text(json.dumps({**raw, "asked": {"A": "not-a-time"}}))
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**raw, "asked": {"A": "not-a-time"}}), encoding="utf-8")
     assert BUF.cached_events(["A"], buffer_dir=bufdir, _fetch=fetch) == ev and fetch.calls == 2
 
 
@@ -314,7 +314,7 @@ def test_movers_write_prunes_other_sets_older_than_a_week(bufdir):
     bufdir.mkdir(parents=True, exist_ok=True)
     old, recent = bufdir / "movers_old000000000.json", bufdir / "movers_new000000000.json"
     for p, days in ((old, 8), (recent, 2)):
-        p.write_text("{}")
+        p.write_text("{}", encoding="utf-8")
         os.utime(p, (time.time() - days * 86400,) * 2)
     BUF.cached_movers(["AAA"], buffer_dir=bufdir, _fetch=Counter(ROWS))
     assert not old.exists() and recent.exists()
@@ -359,9 +359,9 @@ def test_never_quoted_reads_the_quote_buffer_without_fetching_or_writing(bufdir)
     assert BUF.never_quoted(["A", "B"], buffer_dir=bufdir) == set()           # no buffer yet: no claim
     cached_quotes(["A", "B"], buffer_dir=bufdir, _fetch=Counter({"A": _q(10.0), "B": None}))
     path = bufdir / "quotes.json"
-    before = (path.read_text(), path.stat().st_mtime_ns)
+    before = (path.read_text(encoding="utf-8"), path.stat().st_mtime_ns)
     assert BUF.never_quoted(["A", "B", "C"], buffer_dir=bufdir) == {"B", "C"}
-    assert (path.read_text(), path.stat().st_mtime_ns) == before
+    assert (path.read_text(encoding="utf-8"), path.stat().st_mtime_ns) == before
 
 
 def test_history_seen_says_when_each_line_was_really_priced(bufdir):

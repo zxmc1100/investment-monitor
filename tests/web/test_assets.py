@@ -6,7 +6,7 @@ WEB = Path(__file__).resolve().parents[2] / "web"
 
 
 def test_index_references_exist():
-    html = (WEB / "index.html").read_text()
+    html = (WEB / "index.html").read_text(encoding="utf-8")
     refs = re.findall(r'(?:src|href)="(app/[^"]+)"', html)
     assert len(refs) == 4, refs
     missing = [r for r in refs if not (WEB / r).exists()]
@@ -19,7 +19,7 @@ def test_relative_imports_resolve():
     for f in sorted((WEB / "app").rglob("*.js")):
         if "vendor" in f.parts:
             continue
-        for spec in re.findall(r'from\s+"(\.{1,2}/[^"]+)"', f.read_text()):
+        for spec in re.findall(r'from\s+"(\.{1,2}/[^"]+)"', f.read_text(encoding="utf-8")):
             if not (f.parent / spec).resolve().exists():
                 bad.append(f"{f.relative_to(WEB)} -> {spec}")
     assert not bad, bad

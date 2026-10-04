@@ -21,7 +21,7 @@ def make_screen(tmp_path, monkeypatch, *, sid="FAKE", fail=None, panels=None, pa
     Returns (screen, calls, dep_file); calls records (tier, ctx.force)."""
     name = f"fake_dep_{uuid.uuid4().hex[:8]}"
     dep = tmp_path / f"{name}.py"
-    dep.write_text("X = 1\n")
+    dep.write_text("X = 1\n", encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
     calls: list[tuple[str, bool]] = []
     fail = fail if fail is not None else {}

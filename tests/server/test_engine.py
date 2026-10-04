@@ -53,7 +53,7 @@ def test_code_change_serves_old_payload_flags_it_and_recomputes_everything(tmp_p
     scr, _, dep = make_screen(tmp_path, monkeypatch)
     eng, _ = _engine(tmp_path, scr)
     eng.compute_now("FAKE")
-    dep.write_text("X = 2  # edited\n")
+    dep.write_text("X = 2  # edited\n", encoding="utf-8")
     assert eng.payload("FAKE") is not None
     assert eng.live("FAKE")["code_changed"] is True
     assert eng.due_tiers("FAKE") == ["quote", "daily"]
@@ -126,7 +126,7 @@ def test_heavy_tier_never_auto_runs(tmp_path, monkeypatch):
     eng.refresh("FAKE", ["heavy"])
     assert eng.runner.wait_idle(5)
     assert eng.payload("FAKE") is not None
-    dep.write_text("X = 2  # edited\n")
+    dep.write_text("X = 2  # edited\n", encoding="utf-8")
     assert eng.due_tiers("FAKE") == ["quote", "daily"]
     eng.ensure_fresh("FAKE")
     assert eng.runner.wait_idle(5)
@@ -184,7 +184,7 @@ def test_prune_drops_old_sec_keys_nobody_traded_or_watches(tmp_path, monkeypatch
             rec = eng.store.get_part(f"SEC~{p}", t)
             eng.store.put_part(f"SEC~{p}", t, rec["data"], rec["code"])
             (tmp_path / "store" / f"SEC~{p}.{t}.json").write_text(
-                f'{{"at": "{week_ago}", "code": "{rec["code"]}"}}')
+                f'{{"at": "{week_ago}", "code": "{rec["code"]}"}}', encoding="utf-8")
     assert eng.prune_params() == ["SEC~OLD.F"]
     assert eng.store.keys("SEC~", scr.tiers) == {"SEC~HELD.F", "SEC~FRESH.F"}     # held kept, fresh kept
     assert eng.payload("SEC", "OLD.F") is None and eng.payload("SEC", "FRESH.F")
@@ -235,7 +235,7 @@ def test_a_screen_that_needs_the_portfolio_stays_cold_without_one(tmp_path, monk
     assert eng.ensure_fresh("FAKE") == [] and eng.refresh("FAKE") == [] and calls == []
     with pytest.raises(RuntimeError, match="NO PORTFOLIO YET"):
         eng.compute_now("FAKE")
-    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n")
+    csv.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n", encoding="utf-8")
     assert eng.cold_reason("FAKE") is None and {j.tier for j in eng.ensure_fresh("FAKE")} == {"quote", "daily"}
     assert eng.runner.wait_idle(5) and eng.payload("FAKE") is not None
     plain, _ = _engine(tmp_path / "p", scr)
@@ -249,17 +249,17 @@ def test_opt_and_risk_need_two_priced_positions(tmp_path):
     from monitor.screens.common import NEEDS_TWO
     csv = tmp_path / "portfolio.csv"
     head = "Date,Ticker,Action,Shares,Price,PricePerShare\n"
-    csv.write_text(head + "2025-01-06,AAA.F,buy,10,1000.00,100.00\n")
+    csv.write_text(head + "2025-01-06,AAA.F,buy,10,1000.00,100.00\n", encoding="utf-8")
     eng = Engine(dict(SCREENS), Store(tmp_path / "store"), Recorder(),
                  ctx=Ctx(buffer_dir=tmp_path / "buf", portfolio_csv=csv, equity_log=None), workers=0)
     assert eng.cold_reason("OPT") == NEEDS_TWO and eng.cold_reason("RISK") == NEEDS_TWO
     assert eng.cold_reason("PORT") is None and eng.ensure_fresh("OPT") == []
-    csv.write_text(head + "2025-01-06,AAA.F,buy,10,1000.00,100.00\n2025-02-03,BBB.F,buy,20,1000.00,50.00\n")
+    csv.write_text(head + "2025-01-06,AAA.F,buy,10,1000.00,100.00\n2025-02-03,BBB.F,buy,20,1000.00,50.00\n", encoding="utf-8")
     assert eng.cold_reason("OPT") is None                                 # no quote buffer yet: both count
     (tmp_path / "buf").mkdir()
     (tmp_path / "buf" / "quotes.json").write_text(_json.dumps({"AAA.F": {"price": 1.0, "prev_close": 1.0,
                                                                          "date": "2026-06-30", "ts": "x"},
-                                                               "BBB.F": None}))
+                                                               "BBB.F": None}), encoding="utf-8")
     assert eng.cold_reason("RISK") == NEEDS_TWO                           # Yahoo never priced BBB.F
-    csv.write_text("not,a,ledger\n1,2,3\n")
+    csv.write_text("not,a,ledger\n1,2,3\n", encoding="utf-8")
     assert eng.cold_reason("OPT") is None                                 # unreadable book: the compute reports it

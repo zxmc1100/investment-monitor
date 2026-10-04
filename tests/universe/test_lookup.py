@@ -71,7 +71,7 @@ def test_a_query_that_folds_to_nothing_matches_nothing():
 
 def _write_universe(root, rows):
     pd.DataFrame([r[:3] for r in rows], columns=["isin", "name", "country"]).to_csv(root / "tr_universe.csv", index=False)
-    (root / "tr_ticker_map.json").write_text(json.dumps({r[0]: r[3] for r in rows}))
+    (root / "tr_ticker_map.json").write_text(json.dumps({r[0]: r[3] for r in rows}), encoding="utf-8")
 
 
 def test_refreshed_universe_is_picked_up_without_restart(tmp_path):
@@ -96,7 +96,7 @@ def _meta_only(tmp_path):
     from pathlib import Path
     fix = Path(__file__).resolve().parent.parent / "fixtures" / "universe"
     for f in ("universe_meta.csv", "sector_map.json"):
-        (tmp_path / f).write_text((fix / f).read_text())
+        (tmp_path / f).write_text((fix / f).read_text(encoding="utf-8"), encoding="utf-8")
     return tmp_path
 
 

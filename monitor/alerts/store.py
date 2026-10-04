@@ -71,7 +71,7 @@ def load(path: Path | None) -> dict:
         return defaults()
     path = Path(path)
     try:
-        raw = json.loads(path.read_text(), parse_constant=_no_constant)
+        raw = json.loads(path.read_text(encoding="utf-8"), parse_constant=_no_constant)
         if not isinstance(raw, dict) or not isinstance(raw.get("rules"), list):
             raise ValueError("not an alerts file")
     except Exception as e:
