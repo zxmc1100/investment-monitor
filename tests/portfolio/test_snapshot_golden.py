@@ -40,6 +40,10 @@ def _check(d: dict) -> None:
 
 
 def test_port_data_is_pinned(port_env):
+    from datetime import datetime
     d = port_data(port_env)
     assert d["positions"] and not d["roi_series"].empty and d["asset_values"]
+    # as_of is the frozen moment in the machine's local time: checked here, kept out of the pin, so the
+    # golden is the same in every time zone (GitHub's runners are UTC)
+    assert datetime.fromisoformat(d.pop("as_of")) == datetime.now().replace(microsecond=0)
     _check(d)
