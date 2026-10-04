@@ -84,3 +84,15 @@ def test_dev_requirements_add_what_the_tests_need():
     dev = _requirements("requirements-dev.txt")
     assert {"pytest", "time-machine", "httpx"} <= dev
     assert _third_party_imports(REPO / "tests") <= dev | _requirements("requirements.txt")
+
+
+def test_the_readme_says_how_to_install_and_start():
+    """Short, for someone who has never used a terminal: what is needed, a double-click per OS, the URL."""
+    from monitor import config
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    assert len(text.splitlines()) <= 135
+    for needed in ("Python 3.11 or newer", "internet connection", "Not financial advice", "Download ZIP",
+                   "start-mac.command", "Extract All", "start-windows.bat", "Add python.exe to PATH", "./start.sh",
+                   f"http://localhost:{config.PORT}", "requirements-dev.txt", "actions/workflows/tests.yml/badge.svg"):
+        assert needed in text, needed
+    assert (REPO / ".github" / "workflows" / "tests.yml").is_file()
