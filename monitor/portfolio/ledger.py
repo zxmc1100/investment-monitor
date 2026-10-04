@@ -1,8 +1,9 @@
 """Portfolio parser and P&L calculator for Trade Republic holdings."""
 
 import csv
+import io
 import logging
-import math
+import re
 from collections import deque
 from datetime import date
 from pathlib import Path
@@ -17,6 +18,102 @@ DUST = 0.001          # a holding below this many shares counts as fully exited
 ADDS = ("buy", "bonus")
 
 
+COLUMNS = ("Date", "Ticker", "Action", "Shares", "Price", "PricePerShare")
+
+
+class CSVError(ValueError):
+    """What in your CSV cannot be read safely: one line naming the file, the row (as Excel numbers it) and
+    the column."""
+
+
+# ── reading the CSVs you write (or Excel saves) ──────────────────────────────────────────────────────
+_DMY = re.compile(r"(\d{1,2})([./])(\d{1,2})\2(\d{4})")       # 15.01.2025, 15/01/2025 (day first)
+_NUMBER = re.compile(r"[+-]?(\d+([.,]\d*)?|[.,]\d+)")
+_GROUPED = re.compile(r"[+-]?[1-9]\d{0,2}[.,]\d{3}")          # 1.234 / 1,234: thousands, or a decimal?
+
+
+def _read_csv(path: Path, columns: tuple[str, ...]) -> tuple[list[tuple[int, dict, str | None]], bool]:
+    """(rows, decimal_comma) of a CSV as you or Excel wrote it: UTF-8 with or without a BOM; fields split
+    by `;` when the header line holds more `;` than `,` (Excel in most of Europe — then a decimal comma is
+    the norm), else by `,`. Header names and values are stripped; blank rows (Excel's `;;;;;` too) are
+    skipped. rows = [(row number as Excel counts it, {column: text}, problem | None)] — problem: the row
+    has more fields than the header (e.g. an unquoted decimal comma in a `,` file). CSVError when the
+    file is not UTF-8 or a column is missing."""
+    name = path.name
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            text = f.read()
+    except UnicodeDecodeError:
+        raise CSVError(f'{name}: not UTF-8 text — in Excel use Save As → "CSV UTF-8"') from None
+    first = next((line for line in text.splitlines() if line.strip()), "")
+    sep = ";" if first.count(";") > first.count(",") else ","
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=sep)
+    header, rows = None, []
+    for cells in reader:
+        cells = [c.strip() for c in cells]
+        if not any(cells):
+            continue
+        if header is None:
+            header = cells
+            missing = [c for c in columns if c not in header]
+            if missing:
+                raise CSVError(f"{name} row {reader.line_num}: column {missing[0]} missing — the first row "
+                               f"must name the columns {sep.join(columns)}")
+            continue
+        problem = None
+        if len(cells) > len(header) and any(cells[len(header):]):
+            problem = (f"{len(cells)} fields, expected {len(header)} — "
+                       + ("a decimal comma? separate the fields with ; instead, or write 961.00"
+                          if sep == "," else "a ; inside a value?"))
+        rows.append((reader.line_num, dict(zip(header, cells + [""] * (len(header) - len(cells)))), problem))
+    return rows, sep == ";"
+
+
+def _number(text: str, decimal_comma: bool) -> float:
+    """961.00, or 961,00 (a decimal comma: a `;` file, or quoted in a `,` file). A thousands separator is
+    rejected, never guessed: 1.234,56 / 1,234.56 / 1 234 / 1'234, and 1.234 in a decimal-comma file
+    (1,234 in a decimal-point one)."""
+    if not text:
+        raise ValueError("empty")
+    if any(ch in text for ch in " '’_\u00a0\u202f") or ("," in text and "." in text) \
+            or text.count(",") > 1 or text.count(".") > 1 \
+            or (_GROUPED.fullmatch(text) and ("," in text) != decimal_comma):
+        raise ValueError(f"{text!r} has a thousands separator — write it without one, "
+                         f"e.g. {'1234,56' if decimal_comma else '1234.56'}")
+    if not _NUMBER.fullmatch(text):
+        raise ValueError(f"{text!r} is not a number")
+    return float(text.replace(",", "."))
+
+
+def _date(text: str) -> str:
+    """YYYY-MM-DD, DD.MM.YYYY or DD/MM/YYYY (day first, always) -> YYYY-MM-DD."""
+    if not text:
+        raise ValueError("empty — write the date as YYYY-MM-DD")
+    m = _DMY.fullmatch(text)
+    try:
+        if m:
+            return date(int(m.group(4)), int(m.group(3)), int(m.group(1))).isoformat()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+            return date.fromisoformat(text).isoformat()
+    except ValueError:
+        if m and m.group(2) == "/" and int(m.group(3)) > 12:
+            raise ValueError(f"{text!r}: dates with / are read day/month/year — write it as YYYY-MM-DD") from None
+    raise ValueError(f"{text!r} is not a date — write it as YYYY-MM-DD (or DD.MM.YYYY)")
+
+
+def _cell(name: str, n: int, row: dict, column: str, read):
+    try:
+        return read(row[column])
+    except ValueError as e:
+        raise CSVError(f"{name} row {n}, column {column}: {e}") from None
+
+
+def _text(value: str) -> str:
+    if not value:
+        raise ValueError("empty")
+    return value
+
+
 def _lot_cost(lots) -> float:
     return sum(n * c for n, c in lots)
 
@@ -29,6 +126,10 @@ def parse_portfolio(csv_path: str | Path) -> dict:
     `PricePerShare`. Sales realize their exact `Price`. Rows apply in file order (the CSV is
     chronological). A `bonus` row (see ADDS) builds holdings and lots exactly like a buy.
 
+    The file may be as Excel saves it (see _read_csv): `,` or `;` between fields, a decimal comma in a
+    `;` file, dates YYYY-MM-DD, DD.MM.YYYY or DD/MM/YYYY (day first). Anything that cannot be read
+    safely raises CSVError naming the file, row and column — the whole file, never a guess.
+
     Returns:
       holdings: {ticker: {shares, avg_cost, total_invested, first_buy, last_activity}}
                 avg_cost = remaining lots' cost / remaining shares
@@ -40,65 +141,71 @@ def parse_portfolio(csv_path: str | Path) -> dict:
     lots: dict[str, deque] = {}            # ticker -> deque of [shares, EUR cost per share]
     transactions = []
 
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            ticker   = row["Ticker"].strip()
-            action   = row["Action"].strip().lower()
-            shares   = float(row["Shares"])
-            price    = float(row["Price"])          # total EUR (exact)
-            pps      = float(row["PricePerShare"])  # EUR per share (rounded; display only)
-            date     = row["Date"].strip()
+    path = Path(csv_path)
+    rows, comma = _read_csv(path, COLUMNS)
 
-            transactions.append({
-                "date": date, "ticker": ticker, "action": action,
-                "shares": shares, "price": price, "pps": pps,
-            })
+    def num(text):
+        return _number(text, comma)
 
-            if action in ADDS:
-                if ticker not in holdings:
-                    holdings[ticker] = {
-                        "shares": 0.0, "avg_cost": 0.0,
-                        "total_invested": 0.0, "first_buy": date,
-                    }
-                    lots[ticker] = deque()
+    for n, row, problem in rows:
+        if problem:
+            raise CSVError(f"{path.name} row {n}: {problem}")
+        date     = _cell(path.name, n, row, "Date", _date)
+        ticker   = _cell(path.name, n, row, "Ticker", _text)
+        action   = _cell(path.name, n, row, "Action", _text).lower()
+        shares   = _cell(path.name, n, row, "Shares", num)
+        price    = _cell(path.name, n, row, "Price", num)           # total EUR (exact)
+        pps      = _cell(path.name, n, row, "PricePerShare", num)   # EUR per share (rounded; display only)
+
+        transactions.append({
+            "date": date, "ticker": ticker, "action": action,
+            "shares": shares, "price": price, "pps": pps,
+        })
+
+        if action in ADDS:
+            if ticker not in holdings:
+                holdings[ticker] = {
+                    "shares": 0.0, "avg_cost": 0.0,
+                    "total_invested": 0.0, "first_buy": date,
+                }
+                lots[ticker] = deque()
+            h = holdings[ticker]
+            if shares > 0:
+                lots[ticker].append([shares, price / shares])
+            h["shares"] += shares
+            h["total_invested"] += price
+            h["last_activity"] = date
+            h["avg_cost"] = _lot_cost(lots[ticker]) / h["shares"] if h["shares"] > 0 else pps
+
+        elif action == "sell":
+            if ticker not in realized:
+                realized[ticker] = {"pnl_eur": 0.0, "shares_sold": 0.0, "proceeds": 0.0}
+            r = realized[ticker]
+            held = lots.get(ticker, deque())
+            cost_sold, left = 0.0, shares
+            while left > 1e-12 and held:
+                lot = held[0]
+                take = min(left, lot[0])
+                cost_sold += take * lot[1]
+                lot[0] -= take
+                left -= take
+                if lot[0] <= 1e-12:
+                    held.popleft()
+            if left > 1e-12 and shares > 0:     # sold more than the ledger holds: no basis,
+                cost_sold += price * left / shares   # so no P&L on the excess
+            r["pnl_eur"]     += price - cost_sold
+            r["shares_sold"] += shares
+            r["proceeds"]    += price
+
+            if ticker in holdings:
                 h = holdings[ticker]
-                if shares > 0:
-                    lots[ticker].append([shares, price / shares])
-                h["shares"] += shares
-                h["total_invested"] += price
+                h["shares"] -= shares
                 h["last_activity"] = date
-                h["avg_cost"] = _lot_cost(lots[ticker]) / h["shares"] if h["shares"] > 0 else pps
-
-            elif action == "sell":
-                if ticker not in realized:
-                    realized[ticker] = {"pnl_eur": 0.0, "shares_sold": 0.0, "proceeds": 0.0}
-                r = realized[ticker]
-                held = lots.get(ticker, deque())
-                cost_sold, left = 0.0, shares
-                while left > 1e-12 and held:
-                    lot = held[0]
-                    take = min(left, lot[0])
-                    cost_sold += take * lot[1]
-                    lot[0] -= take
-                    left -= take
-                    if lot[0] <= 1e-12:
-                        held.popleft()
-                if left > 1e-12 and shares > 0:     # sold more than the ledger holds: no basis,
-                    cost_sold += price * left / shares   # so no P&L on the excess
-                r["pnl_eur"]     += price - cost_sold
-                r["shares_sold"] += shares
-                r["proceeds"]    += price
-
-                if ticker in holdings:
-                    h = holdings[ticker]
-                    h["shares"] -= shares
-                    h["last_activity"] = date
-                    if h["shares"] <= DUST:
-                        del holdings[ticker]        # fully exited
-                        lots.pop(ticker, None)
-                    else:
-                        h["avg_cost"] = _lot_cost(lots[ticker]) / h["shares"]
+                if h["shares"] <= DUST:
+                    del holdings[ticker]        # fully exited
+                    lots.pop(ticker, None)
+                else:
+                    h["avg_cost"] = _lot_cost(lots[ticker]) / h["shares"]
 
     return {
         "holdings": holdings,
@@ -134,44 +241,33 @@ def dividend_cash(transactions: list[dict], dividends: dict[str, list], today=No
     return sorted(out, key=lambda d: (d["date"], d["ticker"]))
 
 
-def _euro_amount(text: str) -> float:
-    """'3.95' or German '3,95' (quote it in the CSV, or the comma splits the field). A value with
-    both separators ('1.234,56') is ambiguous and rejected rather than guessed."""
-    text = text.strip()
-    if "," in text:
-        if "." in text:
-            raise ValueError("ambiguous decimal separators")
-        text = text.replace(",", ".")
-    eur = float(text)
-    if not math.isfinite(eur):
-        raise ValueError("not a finite amount")
-    return eur
-
-
 def load_interest(path: str | Path) -> list[dict]:
     """Interest Trade Republic paid on uninvested cash: `interest.csv` with columns Date,Amount (EUR
-    received; a decimal comma works when quoted: "3,95"). Reported in ACCOUNTING only — never part
-    of ROI, XIRR or YTD. Tolerates an Excel BOM and spaces in the header. A missing file means no
-    interest; a malformed row — bad date or amount, or the wrong number of fields (an unquoted
-    3,95) — is skipped with a warning, never misread. Returns [{date, eur}] sorted by date."""
+    received). Reported in ACCOUNTING only — never part of ROI, XIRR or YTD. Read like the portfolio
+    (_read_csv: a BOM, `;` and a decimal comma, DD.MM.YYYY dates are fine; a decimal comma in a `,` file
+    works when quoted: "3,95"). A missing file means no interest; a malformed row — bad date or amount,
+    a thousands separator, the wrong number of fields (an unquoted 3,95) — is skipped with a warning
+    naming the row and column, never misread; a file that cannot be read at all is one warning and no
+    interest. Returns [{date, eur}] sorted by date."""
     path = Path(path)
     if not path.exists():
         return []
+    try:
+        rows, comma = _read_csv(path, ("Date", "Amount"))
+    except CSVError as e:
+        log.warning("interest file skipped: %s", e)
+        return []
     out = []
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames:
-            reader.fieldnames = [(name or "").strip() for name in reader.fieldnames]
-        for n, row in enumerate(reader, start=2):
-            try:
-                if None in row or None in row.values():
-                    raise ValueError("wrong number of fields (quote a decimal comma: \"3,95\")")
-                d = date.fromisoformat((row.get("Date") or "").strip()).isoformat()
-                eur = _euro_amount(row.get("Amount") or "")
-            except (TypeError, ValueError) as e:
-                log.warning("interest file %s line %d skipped (%s): %r", path.name, n, e, row)
-                continue
-            out.append({"date": d, "eur": eur})
+    for n, row, problem in rows:
+        try:
+            if problem:
+                raise CSVError(f"{path.name} row {n}: {problem}")
+            d = _cell(path.name, n, row, "Date", _date)
+            eur = _cell(path.name, n, row, "Amount", lambda text: _number(text, comma))
+        except CSVError as e:
+            log.warning("interest row skipped: %s", e)
+            continue
+        out.append({"date": d, "eur": eur})
     return sorted(out, key=lambda r: r["date"])
 
 
