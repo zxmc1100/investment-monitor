@@ -19,7 +19,8 @@ def test_creates_input_from_the_examples(tmp_path):
     for dest, src in FILES.items():
         assert (inp / dest).read_text(encoding="utf-8") == (EX / src).read_text(encoding="utf-8")
         assert any(f"created input/{dest}" in line for line in lines), lines
-    assert any("bash start.sh" in line for line in lines)
+    assert any(line.startswith("next: start the terminal (start-mac.command / start-windows.bat")
+               for line in lines), lines
 
 
 def test_never_overwrites_and_fills_only_the_gaps(tmp_path):
@@ -58,11 +59,19 @@ def test_cli_dispatch_prints_what_it_did(tmp_path, monkeypatch, capsys):
     assert main([]) == 0 and "init" in capsys.readouterr().out                # listed in the help
 
 
-def test_messages_name_the_venv_python():
+def test_messages_never_name_a_venv_path(tmp_path):
+    """A downloaded ZIP is started with a double-click: what people read says how to start it (or the
+    generic `python -m monitor init`), never `.venv/bin/python`, which is not even the path on Windows."""
     import monitor.__main__ as M
     from monitor.screens.base import NO_PORTFOLIO
-    for text in (NO_PORTFOLIO, (EX / "README.md").read_text(encoding="utf-8"), M.usage({})):
-        assert ".venv/bin/python -m monitor init" in text
+    texts = {"cold view": NO_PORTFOLIO, "examples/README.md": (EX / "README.md").read_text(encoding="utf-8"),
+             "help": M.usage({}), "init": "\n".join(I.init(tmp_path / "input", EX))}
+    for name, text in texts.items():
+        assert ".venv/bin" not in text and ".venv\\Scripts" not in text, name
+    assert "python -m monitor init" in NO_PORTFOLIO and "input/portfolio.csv" in NO_PORTFOLIO
+    assert "python -m monitor init" in M.usage({})
+    for name in ("init", "examples/README.md"):
+        assert "start-mac.command" in texts[name] and "start-windows.bat" in texts[name], name
 
 
 def test_input_being_a_file_or_missing_examples_is_one_line_not_a_traceback(tmp_path, monkeypatch, capsys):

@@ -16,7 +16,8 @@ def serve(argv=None) -> int:
     ap.add_argument("--no-open", action="store_true", help="don't open a browser tab")
     args = ap.parse_args(argv)
     url = f"http://localhost:{args.port}"
-    print(f"Investment Monitor terminal at {url}  (edits under monitor/ reload; Ctrl-C stops)")
+    print(f"Investment Monitor terminal at {url} — keep this window open while you use it; "
+          "close it or press Ctrl-C to stop.", flush=True)
     if not args.no_open:
         threading.Timer(1.5, webbrowser.open, args=(url,)).start()
     uvicorn.run("monitor.server.app:create_app", factory=True, host=config.HOST, port=args.port,

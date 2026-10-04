@@ -34,7 +34,8 @@ from monitor.config import EQUITY_LOG, PORTFOLIO_CSV
 
 TIERS = ("quote", "daily", "heavy")
 # What a screen built from your trades shows while input/portfolio.csv does not exist yet.
-NO_PORTFOLIO = "NO PORTFOLIO YET — run: .venv/bin/python -m monitor init  (or put your trades in input/portfolio.csv)"
+NO_PORTFOLIO = ("NO PORTFOLIO YET — put your trades in input/portfolio.csv, or restart the terminal for the example "
+                "(python -m monitor init)")
 
 
 @dataclass(frozen=True)

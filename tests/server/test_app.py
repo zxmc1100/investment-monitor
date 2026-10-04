@@ -123,8 +123,8 @@ def test_no_portfolio_yet_is_a_cold_view_that_says_how_to_start(tmp_path, web, m
                      ctx=Ctx(portfolio_csv=csv, buffer_dir=tmp_path / "buf", equity_log=None,
                              watchlist=tmp_path / "wl.json", alerts=tmp_path / "alerts.json"))
         with TestClient(create_app(eng, web_dir=web), base_url="http://127.0.0.1") as c:
-            assert NO_PORTFOLIO == ("NO PORTFOLIO YET — run: .venv/bin/python -m monitor init  "
-                                    "(or put your trades in input/portfolio.csv)")
+            assert NO_PORTFOLIO == ("NO PORTFOLIO YET — put your trades in input/portfolio.csv, or restart the "
+                                    "terminal for the example (python -m monitor init)")
             for sid in ("PORT", "OPT", "RISK"):
                 r = c.get(f"/api/screen/{sid}")
                 assert r.status_code == 202 and r.json()["cold"] is True and r.json()["reason"] == NO_PORTFOLIO

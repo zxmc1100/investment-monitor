@@ -1,8 +1,8 @@
-"""`.venv/bin/python -m monitor <command> [args]` — init, serve, export, plus a local add-on's commands
-(monitor.plugins). `--help` lists them."""
+"""`python -m monitor <command> [args]` (the venv's Python — the start files set it up) — init, serve, export,
+plus a local add-on's commands (monitor.plugins). `--help` lists them."""
 import sys
 
-HEAD = ".venv/bin/python -m monitor <command> [args]      (e.g. .venv/bin/python -m monitor init)"
+HEAD = "python -m monitor <command> [args]      (e.g. python -m monitor init)"
 CORE = {"init": "create input/ from examples/ (portfolio, interest, settings; never overwrites)",
         "serve": "terminal server on http://localhost:8000 (auto-reload)",
         "export": "public static snapshot → docs/"}
