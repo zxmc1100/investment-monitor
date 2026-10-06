@@ -2,15 +2,15 @@ import { esc } from "../dom.js";
 import { fmt } from "../fmt.js";
 
 // Calendar-year table (PORT SUMMARY `years`): shown only when the panel is maximized — CSS switches
-// on `.max`. FIRST DAY / LAST DAY / CHANGE / GAIN exist only when the rows carry them (the private build);
-// the public one has the time-weighted return alone.
+// on `.max`. GROWTH (v, money-weighted: payments excluded) and TIME-WEIGHTED (v2) always; FIRST DAY / LAST
+// DAY / GAIN € only when the rows carry them (the private build).
 export function yearsTable(rows) {
-  const priv = rows.some((r) => "chg" in r);
+  const priv = rows.some((r) => "gain" in r);
   const cell = (v, spec) => { const f = fmt(v, spec); return `<td class="r ${f.cls}">${esc(f.text)}</td>`; };
-  const head = `<tr><th>YEAR</th>${priv ? `<th class="r">FIRST DAY €</th><th class="r">LAST DAY €</th>`
-    + `<th class="r">CHANGE</th>` : ""}<th class="r">TIME-WEIGHTED</th>${priv ? `<th class="r">GAIN €</th>` : ""}</tr>`;
+  const head = `<tr><th>YEAR</th>${priv ? `<th class="r">FIRST DAY €</th><th class="r">LAST DAY €</th>` : ""}`
+    + `<th class="r">GROWTH</th><th class="r">TIME-WEIGHTED</th>${priv ? `<th class="r">GAIN €</th>` : ""}</tr>`;
   const body = rows.map((r) => `<tr><td>${esc(r.label)}</td>`
-    + `${priv ? cell(r.first, "eur") + cell(r.end, "eur") + cell(r.chg, r.fmt) : ""}${cell(r.v, r.fmt)}`
+    + `${priv ? cell(r.first, "eur") + cell(r.end, "eur") : ""}${cell(r.v, r.fmt)}${cell(r.v2, r.fmt)}`
     + `${priv ? cell(r.gain, "eur+") : ""}</tr>`).join("");
   return `<div class="kpi-years"><table>${head}${body}</table></div>`;
 }

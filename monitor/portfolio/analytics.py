@@ -418,8 +418,11 @@ def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
       simple = gain / (start + buys − sells) x 100    the spreadsheet: value on 1 Jan + net money
                gain = end + sells + dividends − start − buys     added; new money dilutes it
       twr    = (Π r_t − 1) x 100,  r_t = (V_t + W_t) / (V_{t−1} + B_t)     time-weighted
-      change = (end / first − 1) x 100     how much the value grew, money added included; `first` = the
-               value on the year's first day: `start`, or in the first year the first close held
+      growth = gain / (start + Σ net in_d x left_d) x 100     money-weighted (Modified Dietz): the gain
+               over the money at work — each euro paid in (less each taken out) counted for the share
+               `left_d` of the period after its day; payments are never growth. The period: the
+               year, from the first trade in the first year, to today in the current one.
+      `first` = the value on the year's first day: `start`, or in the first year the first close held.
 
     TWR convention: money coming in (B_t, the day's buys) counts from the START of its day, money
     going out (W_t, the day's sells + dividends) at the END of its day — so a same-day move of newly
@@ -434,8 +437,8 @@ def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
     one final step to live_value carrying every move dated today or later in the index, plus every
     move dated after the last index date up to today — whatever its calendar year (a daily part
     that ended 30 Dec does not turn a 31 Dec buy into this year's gain). Moves dated after today are
-    not counted. Rows: {year, start, end, buys, sells, dividends, gain, simple, twr, first, change};
-    simple/twr/change None when undefined (no money at work, nothing held).
+    not counted. Rows: {year, start, end, buys, sells, dividends, gain, simple, twr, growth, first};
+    simple/twr/growth None when undefined (no money at work).
     """
     if not transactions:
         return []
@@ -455,7 +458,8 @@ def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
         if (last is None or ts > last) and ts <= tday:
             tail[kind] += eur
 
-    first_year = int(min(t["date"] for t in transactions)[:4])
+    first_trade = pd.Timestamp(min(t["date"] for t in transactions))
+    first_year = first_trade.year
     rows = []
     for y in range(today.year, first_year - 1, -1):
         live = live_value is not None and y == today.year
@@ -490,11 +494,17 @@ def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
         base = start + buys - sells
         held = vals[in_year & (vals > 0)]
         first = start if start > 0 else (float(held[0]) if len(held) else None)
+        # money at work: each day's net money in, counted for the share of the period left after it (a move
+        # after the last close, in live_value only, counts for none of it)
+        p0, p1 = max(pd.Timestamp(y, 1, 1), first_trade), min(pd.Timestamp(y, 12, 31), tday)
+        dated = in_year & np.asarray(index <= p1)
+        left = np.clip((p1 - index[dated]).days.to_numpy() / max((p1 - p0).days, 1), 0.0, 1.0)
+        working = start + float(((money_in - money_out)[dated] * left).sum())
         rows.append({"year": y, "start": start, "end": end, "buys": buys, "sells": sells,
                      "dividends": divs, "gain": gain,
                      "simple": gain / base * 100 if base > 0 else None,
                      "twr": (factor - 1) * 100 if steps else None,
-                     "first": first, "change": (end / first - 1) * 100 if first else None})
+                     "growth": gain / working * 100 if working > 0 else None, "first": first})
     return rows
 
 

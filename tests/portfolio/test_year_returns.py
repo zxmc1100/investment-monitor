@@ -62,21 +62,32 @@ def test_simple_is_the_spreadsheet_formula():
     assert y["twr"] == pytest.approx((1720 / 1700) * (1800 / 1400) * 100 - 100)
 
 
-def test_change_is_how_much_the_value_grew_from_the_first_day_to_the_last():
-    """The plain growth of the holdings' value over each year, money added included: from the last close
-    before the year (the first year: the close of the first day anything was held) to its last close, or
-    to the live value in the current year."""
+def test_growth_is_the_gain_over_the_money_at_work_payments_excluded():
+    """Money-weighted (Modified Dietz): the year's gain ÷ (value on its first day + each euro paid in, less
+    each taken out, counted for the share of the year it was invested). 2026 to 30 Jun (180 days): 500 in on
+    2 Mar (120 days left), 20 dividend out on 1 Apr (90), 300 sold on 4 May (57)."""
     y = by_year(year_returns(HOLD, TXNS, DIVS, today=date(2026, 6, 30)))
-    assert (y[2025]["first"], y[2025]["change"]) == (1000.0, pytest.approx(20.0))       # 1000 → 1200
-    assert (y[2026]["first"], y[2026]["change"]) == (1200.0, pytest.approx(50.0))       # 1200 → 1800
-    live = by_year(year_returns(HOLD, TXNS, DIVS, live_value=1890.0, today=date(2026, 6, 30)))
-    assert live[2026]["change"] == pytest.approx(1890 / 1200 * 100 - 100)
+    at_work = 1200 + 500 * 120 / 180 - 20 * 90 / 180 - 300 * 57 / 180
+    assert y[2026]["growth"] == pytest.approx(420 / at_work * 100)
+    assert y[2026]["first"] == 1200.0
+    # the first year runs from the first trade (2 Jun 2025): the 1000 bought then was at work all of it
+    assert (y[2025]["first"], y[2025]["growth"]) == (1000.0, pytest.approx(20.0))
 
 
-def test_no_value_on_the_first_day_gives_no_change():
+def test_growth_never_counts_money_paid_in_as_growth():
+    """A flat market and a big deposit: the value doubles, growth stays 0."""
+    idx = pd.bdate_range("2026-01-02", "2026-06-30")
+    hold = pd.Series(1000.0, index=idx)
+    hold.loc["2026-04-01":] = 2000.0
+    rows = year_returns(hold, [tx("2025-12-01", "buy", 1000.0), tx("2026-04-01", "buy", 1000.0)], [],
+                        today=date(2026, 6, 30))
+    assert by_year(rows)[2026]["growth"] == pytest.approx(0.0)
+
+
+def test_no_money_at_work_gives_no_growth():
     idx = pd.bdate_range("2026-01-05", "2026-01-09")
     rows = year_returns(pd.Series(0.0, index=idx), [tx("2026-01-05", "buy", 0.0)], [], today=date(2026, 1, 9))
-    assert rows[0]["change"] is None
+    assert rows[0]["growth"] is None
 
 
 def test_first_year_starts_at_zero():

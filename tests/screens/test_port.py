@@ -122,7 +122,7 @@ def test_public_view_leaks_nothing_private(frozen, tmp_path):
     assert "4242.4242" not in s and "5237.07" not in s
     assert [q["id"] for q in pub["panels"]] == ["summary", "risk", "positions", "roi", "allocation"]
     assert [c["k"] for c in panel(pub, "positions")["cols"]] == ["tkr", "name", "day", "wt", "pnlp", "p1y"]
-    assert [i["k"] for i in panel(pub, "summary")["items"]] == ["DAY %", "ROI", "XIRR /YR", "YTD TWR"]
+    assert [i["k"] for i in panel(pub, "summary")["items"]] == ["DAY %", "ROI", "XIRR /YR", "YTD", "YTD TWR"]
     private = set()
     for q in p["panels"]:
         private.update(y["gain"] for y in q.get("years", []) if isinstance(y.get("gain"), float))
@@ -294,8 +294,8 @@ def test_posval_draws_a_bonus_as_a_buy(frozen, tmp_path):
 
 
 def test_summary_has_both_ytds_and_a_year_table(frozen, tmp_path):
-    """YTD: how much the value grew this year (money added included); YTD TWR: the time-weighted return.
-    The year table: first-day and last-day value, their change, the time-weighted return, the euro gain."""
+    """YTD: this year's growth, money-weighted — the gain over the money at work, payments never growth;
+    YTD TWR: the time-weighted return. The year table: first- and last-day value, growth, time-weighted, gain."""
     from monitor.portfolio import snapshot
     p = build(tmp_path)
     s = panel(p, "summary")
@@ -303,25 +303,25 @@ def test_summary_has_both_ytds_and_a_year_table(frozen, tmp_path):
     assert keys.index("YTD TWR") == keys.index("YTD") + 1
     years = s["years"]
     assert [y["label"] for y in years] == ["2026", "2025"]                  # newest first
-    assert all(y["fmt"] == "pct+" and y["vis"] == "public" and {"v", "first", "end", "chg", "gain"} <= set(y)
+    assert all(y["fmt"] == "pct+" and y["vis"] == "public" and {"v", "v2", "first", "end", "gain"} <= set(y)
                for y in years)
-    assert kpi(p, "summary", "YTD") == years[0]["chg"] and kpi(p, "summary", "YTD TWR") == years[0]["v"]
+    assert kpi(p, "summary", "YTD") == years[0]["v"] and kpi(p, "summary", "YTD TWR") == years[0]["v2"]
     # 2025: from the close of the first day held (6 Jan) to 31 Dec; 2026: from 31 Dec to the live value
     hold = snapshot.daily_tier(snapshot.load_book(FIX), buffer_dir=tmp_path / "buffer")["hold"]
     first, end = float(hold.loc["2025-01-06"]), float(hold.loc[:"2025-12-31"].iloc[-1])
     assert (years[1]["first"], years[1]["end"]) == (pytest.approx(first), pytest.approx(end))
-    assert years[1]["chg"] == pytest.approx((end / first - 1) * 100)
+    assert 0 < years[1]["v"] < years[1]["gain"] / first * 100        # money added later dilutes, never adds
     assert years[0]["first"] == pytest.approx(end) and years[0]["end"] == pytest.approx(kpi(p, "summary", "VALUE"))
     assert years[1]["gain"] == pytest.approx(end + 560 - 3350)               # bought 3350, sold 560
     assert years[0]["gain"] == pytest.approx(kpi(p, "summary", "VALUE") + 880 - end - 640)
 
 
-def test_public_year_table_keeps_the_time_weighted_return_only(frozen, tmp_path):
-    """Public: the time-weighted % only. The value change would show, next to it, how much money was added."""
+def test_public_year_table_keeps_the_percentages_and_drops_euros(frozen, tmp_path):
+    """Public: growth and time-weighted %, like XIRR — no first- or last-day values, no euro gain."""
     p = build(tmp_path)
     pub = panel(public_view(p), "summary")
     assert [y["label"] for y in pub["years"]] == [y["label"] for y in panel(p, "summary")["years"]]
-    assert all(set(y) == {"label", "v", "fmt", "vis"} for y in pub["years"])
+    assert all(set(y) == {"label", "v", "v2", "fmt", "vis"} for y in pub["years"])
     assert "€" not in json.dumps(public_view(p))
 
 
