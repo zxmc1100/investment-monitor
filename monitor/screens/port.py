@@ -38,12 +38,12 @@ HELP = [
      "is gain. Interest on cash is not included. Cumulative; ignores timing."},
     {"h": "XIRR /YR", "vis": PUB, "body": "Money-weighted annual return on your dated cash flows "
      "(buys out; sells, dividends and today's value in). Rewards deploying early."},
-    {"h": "YTD", "vis": PUB, "body": "This calendar year, two ways. YTD is the spreadsheet method: "
-     "the gain this year (value now + sells + dividends - value on 1 Jan - buys) divided by the "
-     "value on 1 Jan plus the money added (buys - sells), so money added during the year dilutes it. "
-     "YTD TWR is time-weighted: each day's return with that day's deposits and withdrawals taken "
-     "out, chained, so only performance moves it (how funds report). Bonus shares count as gain; "
-     "interest on cash is not included. Alt+1 shows both for every year since the first trade."},
+    {"h": "YTD", "vis": PUB, "body": "This calendar year, two ways. YTD is how much the portfolio's "
+     "value grew: from the close before 1 Jan (in your first year: the close of your first day) to "
+     "now, money you added included. YTD TWR is time-weighted: each day's return with that day's "
+     "deposits and withdrawals taken out, chained, so only performance moves it (how funds report). "
+     "Bonus shares count as gain; interest on cash is not included. Alt+1 shows every year since the "
+     "first trade: the first and last day's value, the change, the time-weighted return and the gain."},
     {"h": "DAY", "vis": PUB, "body": "Last price vs previous close per position; the portfolio "
      "figure is the sum of shares x change over yesterday's value. Before the open it shows the "
      "last session."},
@@ -156,8 +156,9 @@ def _summary_context(q: dict) -> str:
 
 
 def _summary(q: dict, d: dict) -> dict:
-    """KPIs, plus `years` (shown when maximized): every calendar year since the first trade, the
-    spreadsheet method (v) and time-weighted (v2) — percentages public, the euro gain private."""
+    """KPIs, plus `years` (shown when maximized): every calendar year since the first trade — the value on
+    its first and last day and their change (money added included), the time-weighted return (v) and the
+    euro gain. Public: the time-weighted % only (the change next to it would show the money added)."""
     a = q["acct"]
     # sum of the displayed (cent-rounded) position values, so the KPI equals the table total
     value = sum(p["position_value"] for p in q["positions"])
@@ -172,12 +173,12 @@ def _summary(q: dict, d: dict) -> dict:
                       _kpi("TOTAL P&L", a["total_pnl"], "eur+"),
                       _kpi("ROI", a["simple_roi"], "pct+", PUB),
                       _kpi("XIRR /YR", a["mwr"] * 100 if a["mwr"] is not None else None, "pct+", PUB),
-                      _kpi("YTD", cur.get("simple"), "pct+", PUB),
+                      _kpi("YTD", cur.get("change"), "pct+"),
                       _kpi("YTD TWR", cur.get("twr"), "pct+", PUB),
                       _kpi("REALIZED", a["realized"], "eur+"),
                       _kpi("UNREALIZED", a["unrealized"], "eur+")],
-            "years": [{"label": str(y["year"]), "v": _num(y["simple"]), "v2": _num(y["twr"]),
-                       "gain": _num(y["gain"]), "fmt": "pct+", "vis": PUB} for y in years]}
+            "years": [{"label": str(y["year"]), "v": _num(y["twr"]), "first": _num(y["first"]), "end": _num(y["end"]),
+                       "chg": _num(y["change"]), "gain": _num(y["gain"]), "fmt": "pct+", "vis": PUB} for y in years]}
 
 
 def _risk(d: dict) -> dict:

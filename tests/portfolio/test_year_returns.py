@@ -62,6 +62,23 @@ def test_simple_is_the_spreadsheet_formula():
     assert y["twr"] == pytest.approx((1720 / 1700) * (1800 / 1400) * 100 - 100)
 
 
+def test_change_is_how_much_the_value_grew_from_the_first_day_to_the_last():
+    """The plain growth of the holdings' value over each year, money added included: from the last close
+    before the year (the first year: the close of the first day anything was held) to its last close, or
+    to the live value in the current year."""
+    y = by_year(year_returns(HOLD, TXNS, DIVS, today=date(2026, 6, 30)))
+    assert (y[2025]["first"], y[2025]["change"]) == (1000.0, pytest.approx(20.0))       # 1000 → 1200
+    assert (y[2026]["first"], y[2026]["change"]) == (1200.0, pytest.approx(50.0))       # 1200 → 1800
+    live = by_year(year_returns(HOLD, TXNS, DIVS, live_value=1890.0, today=date(2026, 6, 30)))
+    assert live[2026]["change"] == pytest.approx(1890 / 1200 * 100 - 100)
+
+
+def test_no_value_on_the_first_day_gives_no_change():
+    idx = pd.bdate_range("2026-01-05", "2026-01-09")
+    rows = year_returns(pd.Series(0.0, index=idx), [tx("2026-01-05", "buy", 0.0)], [], today=date(2026, 1, 9))
+    assert rows[0]["change"] is None
+
+
 def test_first_year_starts_at_zero():
     y = by_year(year_returns(HOLD, TXNS, DIVS, today=date(2026, 6, 30)))[2025]
     assert y["start"] == 0.0 and y["end"] == pytest.approx(1200.0) and y["buys"] == pytest.approx(1000.0)
