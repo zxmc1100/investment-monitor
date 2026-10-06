@@ -137,6 +137,20 @@ def test_history_ttl_expired_refetches(bufdir):
     assert fetch.calls == 2
 
 
+def test_a_file_stamped_a_moment_ahead_of_the_clock_is_not_fresh_for_a_zero_ttl(tmp_path):
+    """Windows' coarse clock (Python 3.11) can read a moment BEFORE a file just written: its age was
+    negative, under a TTL of 0, so 'fresh' — and an expired history was never refetched (CI flake)."""
+    import os
+    import time
+    from monitor.data import buffer
+    f = tmp_path / "x.json"
+    f.write_text("{}", encoding="utf-8")
+    ahead = time.time() + 0.5
+    os.utime(f, (ahead, ahead))
+    assert not buffer._fresh(f, 0)
+    assert buffer._fresh(f, 12)                    # a real TTL still holds a just-written file
+
+
 def test_market_caps_keep_last_good_on_partial_fetch(bufdir):
     full = Counter({"JPM": 5e11, "BAC": 3e11})
     cached_market_caps(["JPM", "BAC"], buffer_dir=bufdir, _fetch=full)

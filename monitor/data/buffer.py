@@ -26,7 +26,9 @@ BUFFER_DIR = config.BUFFER_DIR
 
 
 def _fresh(path: Path, ttl_hours: float) -> bool:
-    return path.exists() and (time.time() - path.stat().st_mtime) < ttl_hours * 3600
+    """Written less than ttl_hours ago. A TTL of 0 is never fresh — even when a coarse clock (Windows,
+    Python 3.11) reads a moment before the file's own stamp, making its age negative."""
+    return ttl_hours > 0 and path.exists() and (time.time() - path.stat().st_mtime) < ttl_hours * 3600
 
 
 def _dir(buffer_dir: Path | None) -> Path:
