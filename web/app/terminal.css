@@ -90,6 +90,7 @@ tr.tot td { border-top: 1px solid var(--line); color: var(--amber); }
 .spark { display: block; } .spark polyline { fill: none; stroke-width: 1; }
 .spark.up polyline { stroke: var(--up); } .spark.dn polyline { stroke: var(--dn); }
 .ledger td.op { color: var(--dim); width: 2ch; } .ledger tr.strong td { color: var(--amber); }
+.ledger td:not(.op):not(.r) { white-space: normal; }   /* a narrow panel wraps a long label, never an amount */
 .ledger tr.sep td { height: 3px; border-bottom: 1px solid var(--line); }
 .bars td.bar { width: 45%; } .bars td.bar i { display: block; height: 7px; background: var(--amber); }
 
