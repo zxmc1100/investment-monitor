@@ -2,7 +2,7 @@
 only, no process while idle — and starts the terminal on the first visit; it stops by itself when idle."""
 import socket
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -11,7 +11,8 @@ from monitor.server import service
 
 
 def test_the_service_listens_on_loopback_only_on_its_own_port_and_starts_on_demand():
-    p = service.plist(Path("/r/.venv/bin/python"), Path("/r"), port=47800, idle_min=15)
+    # macOS paths whatever the test machine (the service is macOS-only; Windows would print \r\.venv)
+    p = service.plist(PurePosixPath("/r/.venv/bin/python"), PurePosixPath("/r"), port=47800, idle_min=15)
     assert p["Label"] == service.LABEL
     assert p["ProgramArguments"] == ["/r/.venv/bin/python", "-m", "monitor", "serve", "--launchd"]
     assert p["WorkingDirectory"] == "/r"
@@ -74,7 +75,7 @@ def test_a_free_port_is_free_and_a_taken_one_is_not():
 def test_serve_lifts_the_open_file_limit_launchd_leaves_at_256(monkeypatch):
     """launchd starts the service with 256 open files; MKT's ~280-ticker fetch ran out, the page went OFFLINE and
     reads failed. serve raises its own soft limit (to the hard one, at most 65536), never lowers it."""
-    import resource
+    resource = pytest.importorskip("resource")                         # POSIX only
     from monitor.server import run
     lim = {"v": (256, resource.RLIM_INFINITY)}
     monkeypatch.setattr(resource, "getrlimit", lambda which: lim["v"])
@@ -87,3 +88,10 @@ def test_serve_lifts_the_open_file_limit_launchd_leaves_at_256(monkeypatch):
     lim["v"] = (1048576, resource.RLIM_INFINITY)
     run._lift_open_files()
     assert lim["v"] == (1048576, resource.RLIM_INFINITY)                 # never lowered
+
+
+def test_without_an_open_file_limit_lifting_it_is_a_no_op(monkeypatch):
+    """Windows has no resource module: serve starts all the same."""
+    from monitor.server import run
+    monkeypatch.setitem(sys.modules, "resource", None)                  # `import resource` raises ImportError
+    run._lift_open_files()
