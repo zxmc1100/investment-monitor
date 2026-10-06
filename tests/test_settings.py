@@ -41,7 +41,7 @@ def test_missing_file_gives_the_defaults(tmp_path):
     s, err = load_settings(tmp_path / "nope.toml")
     assert err is None
     assert s == {"order_fee_eur": 1.0, "savings_plan_tickers": (), "dividend_tax": 0.26375,
-                 "tickers": {}, "names": {}, "sectors": {}, "countries": {}}
+                 "tickers": {}, "isins": {}, "names": {}, "sectors": {}, "countries": {}}
 
 
 def test_every_key_is_read(tmp_path):

@@ -121,3 +121,61 @@ def test_by_isin_is_an_exact_match_of_a_live_name_or_none():
     assert lookup.by_isin("DE0007030009") == "RHM.DE" and lookup.by_isin(" de0007030009 ") == "RHM.DE"
     assert lookup.by_isin("US0000000001") is None                 # Deadco: delisted
     assert lookup.by_isin("DE0007030") is None and lookup.by_isin("") is None
+
+
+# ── an ISIN from a broker export → the ticker you already hold, by name ─────────────────────────────────
+# (fictional companies, and the example portfolio's own lines)
+
+def test_a_broker_name_matches_the_ledger_ticker_of_the_same_company():
+    held = {"SIE.DE": "Siemens Aktiengesellschaft", "NSM.F": "Northwind Semiconductor Manufacturing Company Limited",
+            "IWDA.AS": "iShares Core MSCI World UCITS ETF", "BEX.MI": "Banca Esempio S.p.A.", "ALV.DE": "Allianz SE"}
+    assert lookup.match_name("Siemens", held) == "SIE.DE"
+    assert lookup.match_name("Northwind Semiconductor Manufacturing", held) == "NSM.F"
+    assert lookup.match_name("iShares Core MSCI World USD (Acc)", held) == "IWDA.AS"
+    assert lookup.match_name("BANCA ESEMPIO", held) == "BEX.MI"
+    assert lookup.match_name("Contoso A", held) is None                   # not held: no guess
+    assert lookup.match_name("", held) is None
+
+
+def test_an_isin_resolves_by_setting_then_your_held_line_then_the_universe_then_a_eur_listing(tmp_path):
+    asked = []
+
+    def search(name, isin):
+        asked.append(isin)
+        return {"US0000000002": "NEWX.F"}.get(isin)
+    kw = {"buffer_dir": tmp_path, "_search": search}
+    held = {"SIE.DE": "Siemens AG"}
+    assert lookup.resolve_isin("DE0007236101", "Siemens", held, overrides={"DE0007236101": "SIE.F"}, **kw) == "SIE.F"
+    assert lookup.resolve_isin("DE0007236101", "Siemens", held, **kw) == "SIE.DE"         # your ticker, by name
+    assert lookup.resolve_isin(" de0007030009 ", "Rheinmetall", {}, **kw) == "RHM.DE"      # universe, EUR-quoted
+    assert lookup.resolve_isin("US0000000002", "Newco", {}, **kw) == "NEWX.F"              # Yahoo, then cached:
+    assert lookup.resolve_isin("US0000000002", "Newco", {}, **kw) == "NEWX.F" and asked.count("US0000000002") == 1
+    assert lookup.resolve_isin("US0000000003", "Nobody", {}, **kw) is None
+
+
+def test_a_one_word_name_matches_only_that_same_word_and_an_abbreviation_by_prefixes():
+    held = {"ASML.AS": "ASML Holding N.V.", "BAC": "Bank of America", "IFX.DE": "Infineon Technologies AG",
+            "ALV.DE": "Allianz SE"}
+    assert lookup.match_name("ASML", held) == "ASML.AS" and lookup.match_name("Allianz", held) == "ALV.DE"
+    assert lookup.match_name("Bank", held) is None                         # one word of a longer name: no guess
+    held = {"NSM.F": "Northwind Semiconductor Manufacturing Company Limited"}
+    assert lookup.match_name("NSMC (ADR)", held) is None                   # an acronym: no guess …
+    assert lookup.match_name("NORTHWIND SEMICOND.MANUF.ADR", held, loose=True) == "NSM.F"   # … its spelled-out alias
+    assert lookup.match_name("NORTHWIND SEMICOND.MANUF.ADR", held) is None  # prefixes only when asked
+
+
+def test_bracketed_extras_and_a_descriptions_currency_codes_are_not_the_name():
+    held = {"CTA.F": "Contoso Inc. (Contoso Search)", "NSM.F": "Northwind Semiconductor (NSMC)"}
+    assert lookup.match_name("Contoso (A)", held) == "CTA.F"
+    assert lookup.match_name("CONTOSO INC.CL.A DL-,001", held, loose=True) is None      # one word: never loose
+    assert lookup.match_name("NORTHWIND SEMICOND.MANUF.ADR", held, loose=True) == "NSM.F"   # your shorter name
+
+
+def test_the_alias_places_an_isin_the_name_cannot(tmp_path):
+    held = {"NSM.F": "Northwind Semiconductor Manufacturing Company Limited"}
+    assert lookup.resolve_isin("US0000000011", "NSMC (ADR)", held, alias="NORTHWIND SEMICOND.MANUF.ADR",
+                               buffer_dir=tmp_path, _search=lambda n, i: None) == "NSM.F"
+
+
+def test_two_held_lines_of_one_name_are_not_guessed_between():
+    assert lookup.match_name("Contoso", {"CTA.F": "Contoso Inc. Class A", "CTC.F": "Contoso Inc. Class C"}) is None

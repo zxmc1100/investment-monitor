@@ -45,6 +45,31 @@ def fetch_price_history(tr_tickers: list[str], start: str | None = None,
     return pd.DataFrame(cols).sort_index()
 
 
+# EUR exchanges as Yahoo names them, and the ones an ISIN's country lists on first (others: Frankfurt, Xetra)
+_EUR = {"MIL": ".MI", "GER": ".DE", "FRA": ".F", "PAR": ".PA", "AMS": ".AS", "MCE": ".MC", "BRU": ".BR",
+        "VIE": ".VI", "LIS": ".LS", "HEL": ".HE", "ISE": ".IR", "STU": ".SG", "DUS": ".DU", "MUN": ".MU",
+        "BER": ".BE", "HAM": ".HM"}
+_HOME = {"IT": ("MIL",), "DE": ("GER", "FRA"), "FR": ("PAR",), "NL": ("AMS",), "ES": ("MCE",), "BE": ("BRU",),
+         "AT": ("VIE",), "PT": ("LIS",), "FI": ("HEL",), "IE": ("AMS", "GER", "MIL"), "LU": ("GER", "AMS", "MIL")}
+
+
+def eur_listing(name: str, isin: str) -> str | None:
+    """A EUR-quoted Yahoo listing of the company or fund called `name` (a broker export's name for `isin`):
+    Yahoo's search, its listings on EUR exchanges only, the ISIN country's own exchange first (IT → Milan),
+    else Frankfurt / Xetra. None when it finds none — Yahoo searches by ISIN return the home (often USD)
+    line only. Network."""
+    if not (name or "").strip():
+        return None
+    quotes = yf.Search(name, max_results=20, news_count=0).quotes or []
+    found = [(q.get("symbol"), q.get("exchange")) for q in quotes if q.get("exchange") in _EUR and q.get("symbol")]
+    order = list(_HOME.get(str(isin)[:2].upper(), ())) + ["FRA", "GER"]
+    for ex in order:
+        for sym, at in found:
+            if at == ex:
+                return sym
+    return found[0][0] if found else None
+
+
 def fetch_dividends(tr_tickers: list[str]) -> dict[str, pd.Series]:
     """Per-share cash dividends by ex-date for the tickers in your CSV (mapped through TICKER_MAP), in the
     listing's currency — EUR for every line in the book. A ticker whose lookup fails or that
@@ -179,7 +204,7 @@ def fetch_quotes(tr_tickers: list[str]) -> dict[str, dict | None]:
     closes supplies FX rates, the fallback for any ticker whose live quote fails (its own last
     valid bar), and the previous close: the official close of the last session before the live
     quote's date. Yahoo's live "previous close" is only the fallback — for Milan lines it is not
-    the official close (Intesa 2026-10-02: 6.41 vs 6.378), which skewed DAY %. None = no usable
+    the official close (one Milan line once: 6.41 vs 6.378), which skewed DAY %. None = no usable
     price — callers keep their last-good value and flag it stale, never substitute cost.
     """
     if not tr_tickers:

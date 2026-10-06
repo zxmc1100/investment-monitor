@@ -494,3 +494,30 @@ def test_undo_of_the_very_first_write_removes_the_file_again(tmp_path):
     assert not b.csv.exists() and b.read()["etag"] == "absent"
     b.undo("absent")
     assert len(b.read()["rows"]) == 1
+
+
+def test_a_trade_republic_export_writes_its_dividends_and_interest_beside_the_trades(tmp_path):
+    """The export's trades go into portfolio.csv as any import; its dividends into dividends.csv (pay date, net,
+    tax) and its interest into interest.csv — appended once (an import twice adds nothing), the files before
+    kept in input/backups."""
+    from monitor.portfolio.ledger import load_interest, load_paid_dividends
+    from tests.portfolio.test_broker_tr import EXPORT, resolve
+    csv = tmp_path / "input" / "portfolio.csv"
+    csv.parent.mkdir()
+    csv.write_text(HEAD + "\n", encoding="utf-8")
+    (csv.parent / "interest.csv").write_text("Date,Amount\n2025-03-01,1.50\n", encoding="utf-8")
+    (csv.parent / "dividends.csv").write_text("PayDate,Ticker,Shares,Gross,Tax,Net\n2026-10-08,AAA.F,,,,\n",
+                                              encoding="utf-8")       # an announced payment, no amounts
+    b = TradeBook(csv, today=lambda: TODAY, isin=resolve)
+    pre = b.preview(EXPORT, "append")
+    assert pre["broker"] == "TRADE REPUBLIC" and pre["ok"] == 5
+    res = b.import_text(b.read()["etag"], EXPORT, "append")
+    assert (res["added"], res["dividends"], res["interest"]) == (5, 1, 1)
+    assert load_paid_dividends(csv.parent / "dividends.csv") == [
+        {"pay": "2025-04-10", "ticker": "AAA.F", "shares": 6.0, "gross": 12.0, "tax": 3.16, "net": 8.84},
+        {"pay": "2026-10-08", "ticker": "AAA.F", "shares": None, "gross": None, "tax": None, "net": None}]   # kept
+    assert [r["eur"] for r in load_interest(csv.parent / "interest.csv")] == [1.5, 3.21]
+    assert any(p.name.startswith("interest-") for p in (csv.parent / "backups").iterdir())
+    again = b.import_text(res["etag"], EXPORT, "append")
+    assert (again["dividends"], again["interest"]) == (0, 0)
+    assert len(load_paid_dividends(csv.parent / "dividends.csv")) == 2

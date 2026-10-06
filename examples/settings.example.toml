@@ -23,6 +23,12 @@ dividend_tax = 0.26375
 [tickers]
 # "EUNL.F" = "IWDA.AS"
 
+# ISIN -> ticker, for a Trade Republic export (TRADES → IMPORT CSV FILE…) naming a security the terminal
+# cannot place itself. Usually not needed: a security you already hold is found by its name, a new one
+# on a euro exchange. The preview shows every ticker before anything is added.
+[isins]
+# "DE0007236101" = "SIE.DE"
+
 # Display name, sector and issuer country per ticker. Usually not needed: a ticker nobody knows is
 # looked up in the Trade Republic universe, then on Yahoo. Use these to correct or complete that.
 # Sector names: Information Technology, Financials, Healthcare, Consumer Discretionary,

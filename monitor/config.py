@@ -51,6 +51,7 @@ _SETTINGS = {
     "savings_plan_tickers": ((), _tickers),
     "dividend_tax": (0.26375, _number(0, 1, "must be a fraction between 0 and 1, e.g. 0.26375")),
     "tickers": ({}, _table),
+    "isins": ({}, _table),                  # ISIN -> ticker, for a broker export the terminal cannot place
     "names": ({}, _table),
     "sectors": ({}, _table),
     "countries": ({}, _table),

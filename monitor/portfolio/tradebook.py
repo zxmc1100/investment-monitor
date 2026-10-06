@@ -32,7 +32,8 @@ from typing import Callable
 
 from monitor.data.files import write_bytes_durable
 from monitor.portfolio import trades as T
-from monitor.portfolio.ledger import COLUMNS, CSVError, parse_portfolio_text, read_table
+from monitor.portfolio.ledger import (COLUMNS, DIVIDEND_COLUMNS, CSVError, load_interest, load_paid_dividends,
+                                      parse_portfolio_text, read_table)
 
 KEEP = 20              # the ring of ordinary backups (pinned copies are never pruned)
 FIELDS = ("date", "ticker", "action", "shares", "price", "pps")
@@ -138,6 +139,27 @@ class TradeBook:
         same = [p for p in self.backups.glob("*.csv") if p.stat().st_size == len(data) and p.read_bytes() == data]
         return min(same, key=lambda p: (bool(_RING.fullmatch(p.name.removeprefix(f"{self.csv.stem}-"))), p.name),
                    default=None)
+
+    def _merge_side(self, name: str, columns: tuple[str, ...], have: list[dict], new: list[dict], key, cells,
+                    mode: str) -> int:
+        """An export's rows that are not trades (dividends.csv, interest.csv): appended once — a row whose key is
+        already there is not added again — or, with REPLACE, the export's alone. The file before is kept as
+        <name>-<time>.csv in input/backups. Returns how many rows went in."""
+        seen, add = ({key(r) for r in have} if mode == "append" else set()), []
+        for r in new:
+            if key(r) not in seen:
+                seen.add(key(r))
+                add.append(r)
+        path = self.csv.with_name(name)
+        if not add and (mode == "append" or not path.exists()):
+            return 0
+        if path.exists():
+            self.backups.mkdir(parents=True, exist_ok=True)
+            write_bytes_durable(self.backups / f"{path.stem}-{datetime.now():%Y%m%d-%H%M%S}.csv", path.read_bytes())
+        rows = sorted((have if mode == "append" else []) + add, key=key)
+        text = ",".join(columns) + "\n" + "".join(",".join(cells(r)) + "\n" for r in rows)
+        write_bytes_durable(path, text.encode("utf-8"))
+        return len(add)
 
     def _keep_backup(self, data: bytes, pin: str | None) -> dict:
         """Keep the file about to be replaced, and say where for the undo record. Never two copies of the same bytes
@@ -368,16 +390,28 @@ class TradeBook:
             base = f["rows"] if mode == "append" else []
             T.review(base, bulk, mode)
             good = [r for r in bulk["rows"] if r["trade"] and not r["error"]]
-            if not good:
+            if not good and not (bulk["dividends"] or bulk["interest"]):
                 raise Invalid("NOTHING TO ADD — EVERY ROW HAS AN ERROR")
-            new = T.merge(base, [r["trade"] for r in good], mode)
-            n = len(f["rows"]) if not f["error"] else f["lines"]
-            what = (f"ADD {len(good)} PASTED TRADE{'S' * (len(good) != 1)}" if mode == "append"
-                    else f"REPLACE {n} TRADE{'S' * (n != 1)} WITH {len(good)}")
-            out = self._write({**f, "rows": base}, new, what, None if mode == "append" else REPLACE)
+            out = etag
+            if good:
+                new = T.merge(base, [r["trade"] for r in good], mode)
+                n = len(f["rows"]) if not f["error"] else f["lines"]
+                what = (f"ADD {len(good)} PASTED TRADE{'S' * (len(good) != 1)}" if mode == "append"
+                        else f"REPLACE {n} TRADE{'S' * (n != 1)} WITH {len(good)}")
+                out = self._write({**f, "rows": base}, new, what, None if mode == "append" else REPLACE)
+            # a broker export also carries dividends and interest: into their own files beside the trades
+            # (a row you wrote with a pay date alone — announced — has no amounts: blank cells, kept as written)
+            divs = self._merge_side("dividends.csv", DIVIDEND_COLUMNS, load_paid_dividends(self.csv.with_name("dividends.csv")),
+                                    bulk["dividends"], lambda d: (d["pay"], d["ticker"], -1.0 if d["net"] is None
+                                                                  else round(d["net"], 2)),
+                                    lambda d: [d["pay"], d["ticker"], *("" if d[k] is None else f"{d[k]:{f}}" for k, f in
+                                               (("shares", "g"), ("gross", ".2f"), ("tax", ".2f"), ("net", ".2f")))], mode)
+            paid = self._merge_side("interest.csv", ("Date", "Amount"), load_interest(self.csv.with_name("interest.csv")),
+                                    bulk["interest"], lambda i: (i["date"], round(i["eur"], 2)),
+                                    lambda i: [i["date"], f"{i['eur']:.2f}"], mode)
         skipped = [r["line"] for r in bulk["rows"] if not (r["trade"] and not r["error"])]
         return {"etag": out, "mode": mode, "added": len(good), "skipped": len(skipped), "lines": skipped,
-                "header": bulk["header"], "left": T.left_text(bulk, skipped)}
+                "header": bulk["header"], "left": T.left_text(bulk, skipped), "dividends": divs, "interest": paid}
 
     def reset(self, etag: str) -> dict:
         """Start fresh: the header alone (your extra columns kept); the file before is kept until you delete it (as

@@ -17,7 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from monitor import config
 from monitor.alerts import watchlist
 from monitor.data.buffer import cached_quotes
-from monitor.portfolio.ledger import CSVError
+from monitor.portfolio.ledger import CSVError, parse_portfolio
+from monitor.screens.identity import identify
 from monitor.portfolio.tradebook import Blocked, Conflict, Invalid, Missing, TradeBook
 from monitor.server.alerting import AlertLoop, AlertService
 from monitor.server.engine import Engine
@@ -79,10 +80,29 @@ def quote_check(ticker: str, buffer_dir: Path | None = None) -> dict | None:
 
 
 def terminal_book(engine: Engine) -> TradeBook:
-    """The terminal's TradeBook over the engine's input/portfolio.csv: Yahoo for new tickers, the universe for
-    ISINs."""
-    return TradeBook(engine.ctx.portfolio_csv, example=config.EXAMPLES_DIR / "portfolio.example.csv",
-                     quote=lambda t: quote_check(t, engine.ctx.buffer_dir), isin=lookup.by_isin)
+    """The terminal's TradeBook over the engine's input/portfolio.csv: Yahoo for new tickers; an ISIN (a broker
+    export's) by lookup.resolve_isin — settings [isins], then the held line of the same name, …"""
+    csv, memo = engine.ctx.portfolio_csv, {}
+
+    def held() -> dict[str, str]:
+        """{ticker: name} of every line in your file — names as the terminal already knows them, no network; read
+        once per version of the file (an export asks for every row)."""
+        try:
+            stamp = csv.stat().st_mtime_ns
+            if stamp not in memo:
+                tickers = {t["ticker"] for t in parse_portfolio(csv)["transactions"]}
+                memo.clear()
+                memo[stamp] = {t: r["name"] for t, r in identify(tickers, buffer_dir=engine.ctx.buffer_dir,
+                                                                   max_asks=0).items()}
+            return memo[stamp]
+        except Exception:
+            return {}
+
+    def isin(code: str, name: str = "", alias: str = "") -> str | None:
+        return lookup.resolve_isin(code, name, held(), alias=alias, overrides=config.SETTINGS["isins"],
+                                   buffer_dir=engine.ctx.buffer_dir)
+    return TradeBook(csv, example=config.EXAMPLES_DIR / "portfolio.example.csv",
+                     quote=lambda t: quote_check(t, engine.ctx.buffer_dir), isin=isin)
 
 
 class _Revalidated(StaticFiles):

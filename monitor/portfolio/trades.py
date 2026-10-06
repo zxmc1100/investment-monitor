@@ -28,6 +28,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Callable
 
+from monitor.portfolio import broker_tr
 from monitor.portfolio.ledger import COLUMNS, DUST, CSVError, _date, _number, parse_portfolio
 
 ACTIONS = ("buy", "sell", "bonus")
@@ -472,7 +473,8 @@ def parse_bulk(text: str, today: date, *, isin: Callable[[str], str | None] | No
     text = (text or "").removeprefix("\ufeff")
     lines = _BREAK.split(text)
     first = next((ln for ln in lines if ln.strip(" \t,;\"")), None)
-    out = {"rows": [], "error": None, "notes": [], "delimiter": ",", "decimal": "point", "header": False, "head": ""}
+    out = {"rows": [], "error": None, "notes": [], "delimiter": ",", "decimal": "point", "header": False, "head": "",
+           "broker": None, "dividends": [], "interest": []}
     if first is None:
         return {**out, "error": "NOTHING TO READ — PASTE ROWS OR PICK A CSV FILE"}
     sep = "\t" if "\t" in first else ";" if first.count(";") > first.count(",") else ","
@@ -484,6 +486,10 @@ def parse_bulk(text: str, today: date, *, isin: Callable[[str], str | None] | No
         if any(cells):
             records.append((start, done, cells))
     _, head_end, head = records[0]
+    if broker_tr.is_export(head):                       # Trade Republic's own export: its rows read as it books them
+        got = broker_tr.read(records[1:], head, lines, isin)
+        return {**out, **got, "broker": broker_tr.NAME, "delimiter": sep, "header": True,
+                "head": "\n".join(lines[:head_end]).strip("\n")}
     header = not any(_is_date(c) for c in head) and any(_fold(c) in _FIELD or _fold(c) == "pricepershare" for c in head)
     cols, names, project, notes = _mapping(head) if header else ({}, {}, False, [])
     out.update(delimiter=sep, header=header, notes=notes, head="\n".join(lines[:head_end]).strip("\n") if header else "")

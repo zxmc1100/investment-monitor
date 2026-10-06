@@ -6,7 +6,7 @@ comes from monitor.portfolio.snapshot. NaN never leaves this module (_num → No
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -60,6 +60,14 @@ HELP = [
      "it. Each day's buys, sells and dividends are taken out of that day, so adding money never reads "
      "as a gain or a loss. Benchmarks are then their own total return in EUR less the order fees; your "
      "line is your holdings, as YTD TWR (over a calendar year it is YTD TWR at the last close)."},
+    {"h": "DIVIDENDS", "vis": PRIV, "body": "Each dividend with its ex date (who gets it: the shares you held "
+     "before that day), its pay date (when the money arrives) and the net after {tax} % tax. NEXT: the next ex "
+     "date from Yahoo's calendar, per share its last. DUE: the ex date has passed, the money is not in yet. PAID: "
+     "the last 12 months. Exact dates and amounts come from your broker: TRADES → IMPORT CSV FILE… with a Trade "
+     "Republic export writes them to input/dividends.csv (you can add an announced payment there too, with its "
+     "date: due until then). Otherwise Yahoo's per-share amount less tax, and a pay date marked ~ estimated from "
+     "how long this line's past dividends took to arrive (or your other lines'). A dividend is cash - in ROI, "
+     "YTD and ACCOUNTING - from its pay date; ACCOUNTING lists the due ones apart."},
     {"h": "RISK", "vis": PUB, "body": "Vol, Sharpe, Sortino, drawdowns and VaR from the daily "
      "portfolio ROI series since the first trade; beta and alpha vs the cash-flow-matched S&P 500."},
     {"h": "ALLOCATION", "vis": PUB, "body": "Sector and country weights of the whole book. The MSCI "
@@ -322,7 +330,7 @@ def _accounting(a: dict) -> dict:
     def line(label, v, fmt="eur", op="", strong=False):
         return {"label": label, "v": _num(v), "fmt": fmt, "op": op, "strong": strong, "vis": PRIV}
     sep = {"sep": True, "vis": PRIV}
-    return {"id": "accounting", "n": 6, "title": "ACCOUNTING", "type": "ledger", "span": 4, "vis": PRIV,
+    return {"id": "accounting", "n": 6, "title": "ACCOUNTING", "type": "ledger", "span": 3, "vis": PRIV,
             "lines": [line("Gross deposits", a["gross_deposits"]),
                       line("Cash returned", a["cash_returned"], op="−"),
                       line("Net invested", a["net_invested"], op="=", strong=True), sep,
@@ -334,7 +342,45 @@ def _accounting(a: dict) -> dict:
                       line("Bonus", a["bonus"], "eur+", "+"),
                       line("Unrealized", a["unrealized"], "eur+", "+"),
                       line("Total P&L", a["total_pnl"], "eur+", "=", True), sep,
+                      line("Dividends due (not yet paid)", a.get("dividends_due", 0.0), "eur+"),
                       line("Interest on cash (not in ROI)", a["interest"], "eur+")]}
+
+
+_STATUS = {"UPCOMING": "NEXT", "DUE": "DUE", "PAID": "PAID"}
+
+
+def _dividends(q: dict) -> dict:
+    """Your dividends with ex date, pay date and net (portfolio.dividends): the next ones (Yahoo's calendar), the
+    due ones (ex date passed, money not yet in — highlighted) and those paid in the last 12 months. A pay date
+    estimated from the line's past gaps reads ~DD MON YY. Private: euro amounts."""
+    recs = q.get("dividend_records") or []
+    year_ago = (date.today() - timedelta(days=365)).isoformat()
+    nxt = sorted((r for r in recs if r["status"] == "UPCOMING"), key=lambda r: r["ex"])
+    due = sorted((r for r in recs if r["status"] == "DUE"), key=lambda r: r["date"])
+    paid = sorted((r for r in recs if r["status"] == "PAID" and r["date"] >= year_ago), key=lambda r: r["date"],
+                  reverse=True)
+
+    def pay(r):
+        if not r["pay"]:
+            return "—"
+        return ("~" if r["pay_est"] else "") + date.fromisoformat(r["pay"]).strftime("%d %b %y").upper()
+
+    rows = [{"i": i, "k": f"{r['ticker']}|{r['ex']}|{r['pay']}|{r['status']}", "tkr": r["ticker"], "ex": r["ex"],
+             "pay": pay(r), "shrs": _num(r["shares"]), "ps": _num(r["per_share"]), "net": _num(round(r["net"], 2)),
+             "status": _STATUS[r["status"]], **({"_hot": True} if r["status"] == "DUE" else {})}
+            for i, r in enumerate(nxt + due + paid)]
+    got = sum(r["net"] for r in paid)
+    owed = sum(r["net"] for r in due)
+    cols = [{"k": "tkr", "label": "TKR", "fmt": "tkr", "vis": PRIV},
+            {"k": "ex", "label": "EX", "fmt": "date", "vis": PRIV},
+            {"k": "pay", "label": "PAY", "fmt": "text", "vis": PRIV},
+            {"k": "shrs", "label": "SHRS", "fmt": "num:4", "vis": PRIV, "align": "r", "lo": True},
+            {"k": "ps", "label": "/SH", "fmt": "num:4", "vis": PRIV, "align": "r", "lo": True},
+            {"k": "net", "label": "NET €", "fmt": "eur+", "vis": PRIV, "align": "r"},
+            {"k": "status", "label": "", "fmt": "text", "vis": PRIV}]
+    return {"id": "dividends", "n": 9, "title": "DIVIDENDS", "type": "table", "span": 3, "vis": PRIV,
+            "key": "k", "sort": ["i", "asc"], "cols": cols, "rows": rows, "empty": "NO DIVIDENDS YET",
+            "context": {"text": f"12M €{got:,.2f}" + (f" · DUE €{owed:,.2f}" if due else ""), "vis": PRIV}}
 
 
 def _parts_text(parts) -> str:
@@ -360,7 +406,7 @@ def _allocation(q: dict) -> dict:
         return [{"label": r["label"], "v": _num(r["w"] * 100), "fmt": "pct", "text": _parts_text(r["parts"]),
                  "vis": PUB} for r in breakdown]
 
-    return {"id": "allocation", "n": 7, "title": "ALLOCATION", "type": "bars", "span": 4, "vis": PUB,
+    return {"id": "allocation", "n": 7, "title": "ALLOCATION", "type": "bars", "span": 3, "vis": PUB,
             "context": {"text": "SECTOR · ETF LOOK-THROUGH · ALT+7 DETAIL", "vis": PUB}, "items": items,
             "sectors": rows(sectors), "countries": rows(countries),
             "regions": [{"label": r["label"], "v": _num(r["w"] * 100), "fmt": "pct", "vis": PUB}
@@ -369,7 +415,7 @@ def _allocation(q: dict) -> dict:
 
 def _activity(q: dict) -> dict:
     tx = sorted(q["txns"], key=lambda t: t["date"], reverse=True)[:10]
-    return {"id": "activity", "n": 8, "title": "ACTIVITY", "type": "table", "span": 4, "vis": PRIV,
+    return {"id": "activity", "n": 8, "title": "ACTIVITY", "type": "table", "span": 3, "vis": PRIV,
             "key": "i", "sort": ["date", "desc"], "context": {"text": "LAST 10 TRADES", "vis": PRIV},
             "cols": [{"k": "date", "label": "DATE", "fmt": "date", "vis": PRIV},
                      {"k": "side", "label": "SIDE", "fmt": "side", "vis": PRIV},
@@ -393,7 +439,7 @@ def assemble(parts: dict, meta: dict) -> dict:
             "meta": {**meta, "as_of": q["as_of"], "stale": stale, "warn": q.get("warn") or []},
             "help": help_entries(),
             "panels": [_summary(q, d), _risk(d), _positions(q, d), _roi(d), _posval(q, d),
-                       _accounting(q["acct"]), _allocation(q), _activity(q)]}
+                       _accounting(q["acct"]), _allocation(q), _activity(q), _dividends(q)]}
 
 
 SCREEN = Screen(id="PORT", title="Portfolio Monitor", fkey=1, status="live", public=True,

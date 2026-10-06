@@ -17,29 +17,34 @@ from pathlib import Path
 
 import pandas as pd
 
-from monitor.data.buffer import (cached_dividends, cached_market_caps, cached_ohlc, cached_price_history,
+from monitor import config
+from monitor.data.buffer import (cached_dividends, cached_events, cached_market_caps, cached_ohlc, cached_price_history,
                                  cached_quotes, never_quoted)
 from monitor.data.instruments import BENCHMARKS
 from monitor.portfolio import equity_log
 from monitor.portfolio.analytics import build_roi_timeseries, compute_quant_metrics, twr_index, xirr
-from monitor.portfolio.ledger import compute_portfolio_summary, dividend_cash, load_interest, parse_portfolio
+from monitor.portfolio.dividends import cash, combine
+from monitor.portfolio.ledger import compute_portfolio_summary, load_interest, load_paid_dividends, parse_portfolio
 
 log = logging.getLogger(__name__)
 
 
 def load_book(csv_path: str | Path) -> dict:
     """The trade ledger: holdings, realized detail, transactions (see parse_portfolio), plus
-    `interest` — cash interest from `interest.csv` next to the CSV (see ledger.load_interest)."""
+    `interest` — cash interest from `interest.csv` next to the CSV (see ledger.load_interest) — and
+    `paid_dividends` — what your broker paid, from `dividends.csv` (see ledger.load_paid_dividends)."""
     book = parse_portfolio(csv_path)
     book["interest"] = load_interest(Path(csv_path).with_name("interest.csv"))
+    book["paid_dividends"] = load_paid_dividends(Path(csv_path).with_name("dividends.csv"))
     return book
 
 
-def accounting(txns: list[dict], totals: dict, today: date | None = None, dividends=(), interest=()) -> dict:
-    """Transparent accounting — every line reconciles to the next; dividends are cash received
-    (net of tax). Bonus shares are not deposits but sit in the cost basis at their booked value, so
-    their value counts as gain: total P&L = value + sells + dividends − deposits. Interest on cash
-    is reported only — never in total P&L, ROI or XIRR."""
+def accounting(txns: list[dict], totals: dict, today: date | None = None, dividends=(), interest=(),
+               due: float = 0.0) -> dict:
+    """Transparent accounting — every line reconciles to the next; dividends are cash received (net of tax,
+    on their pay date). Bonus shares are not deposits but sit in the cost basis at their booked value, so
+    their value counts as gain: total P&L = value + sells + dividends − deposits. Interest on cash and
+    dividends `due` (ex date passed, not yet paid) are reported only — never in total P&L, ROI or XIRR."""
     today = today or date.today()
     gross_deposits = sum(t["price"] for t in txns if t["action"] == "buy")
     bonus = sum((t["price"] for t in txns if t["action"] == "bonus"), 0.0)
@@ -68,7 +73,7 @@ def accounting(txns: list[dict], totals: dict, today: date | None = None, divide
                 current_value=current_value, unrealized=unrealized, total_pnl=total_pnl,
                 net_invested=net_invested, simple_roi=simple_roi, mwr=mwr,
                 mwr_cumulative=mwr_cumulative, hold_years=hold_years, dividends=dividends_eur,
-                bonus=bonus, interest=sum((i["eur"] for i in interest), 0.0))
+                bonus=bonus, interest=sum((i["eur"] for i in interest), 0.0), dividends_due=due)
 
 
 def log_equity(path: str | Path, acct: dict, today: date | None = None) -> None:
@@ -87,11 +92,24 @@ def old_bars(quotes: dict, today: date | None = None) -> dict[str, str]:
             if q and q.get("date") and date.fromisoformat(q["date"]) < cutoff}
 
 
-def dividends(book: dict, *, force: bool = False, buffer_dir: Path | None = None) -> list[dict]:
-    """Dividend cash for every ticker ever traded (buffered 24 h; see ledger.dividend_cash)."""
+def dividend_records(book: dict, *, force: bool = False, buffer_dir: Path | None = None) -> list[dict]:
+    """Every dividend — PAID, DUE, UPCOMING — with ex date, pay date and net (see portfolio.dividends): your
+    broker's dividends.csv, Yahoo's per-share history for every ticker ever traded (buffered 24 h) and its
+    calendar for the lines you hold (the next ex date; buffered 24 h)."""
     tickers = sorted({t["ticker"] for t in book["transactions"]})
-    return dividend_cash(book["transactions"],
-                         cached_dividends(tickers, force=force, buffer_dir=buffer_dir)) if tickers else []
+    if not tickers:
+        return []
+    held = sorted(book["holdings"])
+    events = cached_events(held, buffer_dir=buffer_dir) if held else {}
+    calendar = {t: {"ex": e["date"], "pay": e.get("pay"), "amount": e.get("amount")}
+                for t, evs in events.items() for e in evs if e["kind"] == "EX-DIV"}
+    return combine(book["transactions"], cached_dividends(tickers, force=force, buffer_dir=buffer_dir),
+                   book.get("paid_dividends", []), calendar, tax=config.DIVIDEND_TAX)
+
+
+def dividends(book: dict, *, force: bool = False, buffer_dir: Path | None = None) -> list[dict]:
+    """The dividends that are cash — paid, on their pay date (see dividend_records, portfolio.dividends.cash)."""
+    return cash(dividend_records(book, force=force, buffer_dir=buffer_dir))
 
 
 def marked(book: dict, quotes: dict) -> dict:
@@ -127,14 +145,16 @@ def quote_tier(book: dict, *, force: bool = False, buffer_dir: Path | None = Non
     quotes, stale, as_of = cached_quotes(list(holdings), force=force, buffer_dir=buffer_dir, _fetch=_fetch)
     stale = {**old_bars(quotes), **stale}        # a failed live fetch keeps its last-good ts
     m = marked(book, quotes)
-    divs = dividends(book, buffer_dir=buffer_dir)      # never forced: the 24 h cache refetches itself
+    records = dividend_records(book, buffer_dir=buffer_dir)   # never forced: the 24 h caches refetch themselves
+    divs = cash(records)
     return dict(quotes=quotes, prices=m["prices"], stale=stale, as_of=as_of, warn=ccy_warn(quotes),
                 missing=sorted(t for t, q in quotes.items() if q is None),
                 summary=m["summary"], positions=m["positions"],
                 acct=accounting(book["transactions"], m["summary"]["totals"], dividends=divs,
-                                interest=book.get("interest", [])),
+                                interest=book.get("interest", []),
+                                due=sum(r["net"] for r in records if r["status"] == "DUE")),
                 day_pnl=m["day_pnl"], day_pct=m["day_pct"],
-                txns=book["transactions"], realized=book["realized"], dividends=divs)
+                txns=book["transactions"], realized=book["realized"], dividends=divs, dividend_records=records)
 
 
 def holdings_value(asset_values: dict) -> pd.Series:

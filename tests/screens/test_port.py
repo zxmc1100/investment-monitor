@@ -39,8 +39,8 @@ def kpi(p, pid, k):
 def test_panel_order_and_numbering(frozen, tmp_path):
     p = build(tmp_path)
     assert [q["id"] for q in p["panels"]] == ["summary", "risk", "positions", "roi", "posval",
-                                              "accounting", "allocation", "activity"]
-    assert [q["n"] for q in p["panels"]] == list(range(1, 9))
+                                              "accounting", "allocation", "activity", "dividends"]
+    assert [q["n"] for q in p["panels"]] == list(range(1, 10))
 
 
 def test_value_weights_and_roi_reconcile(frozen, tmp_path):
@@ -248,13 +248,37 @@ def test_day_column_is_plain_on_a_trading_day(frozen, tmp_path):
 
 # ── bonus shares, interest on cash, YTD two ways + per-year table ───────────────────────────
 
-def _with(tmp_path, *rows, interest=None):
+def _with(tmp_path, *rows, interest=None, dividends=None):
     csv = tmp_path / "book" / "portfolio.csv"
     csv.parent.mkdir(exist_ok=True)
     csv.write_text(FIX.read_text(encoding="utf-8").rstrip("\n") + "\n" + "".join(r + "\n" for r in rows), encoding="utf-8")
     if interest is not None:
         (csv.parent / "interest.csv").write_text("Date,Amount\n" + "".join(f"{d},{a}\n" for d, a in interest), encoding="utf-8")
+    if dividends is not None:
+        (csv.parent / "dividends.csv").write_text("PayDate,Ticker,Shares,Gross,Tax,Net\n" + "".join(
+            ",".join(map(str, d)) + "\n" for d in dividends), encoding="utf-8")
     return csv
+
+
+def test_the_dividends_panel_lists_upcoming_due_and_paid_with_ex_and_pay_dates(frozen, tmp_path, monkeypatch):
+    """AAA.F: paid 20 Mar (the broker's file) for its 2 Mar ex date — 18 days; the 15 Jun one is due ~3 Jul by
+    that gap; the calendar's next: ex 10 Sep, pays 28 Sep. Only the paid one is in ACCOUNTING's dividends."""
+    import datetime as dt
+    import pandas as pd
+    monkeypatch.setattr(fakes_yf, "DIVIDENDS", {"AAA.F": pd.Series([1.0, 1.0], index=pd.to_datetime(["2026-03-02",
+                                                                                                         "2026-06-15"]))})
+    monkeypatch.setattr(fakes_yf, "CALENDARS", {"AAA.F": {"Ex-Dividend Date": dt.date(2026, 9, 10),
+                                                          "Dividend Date": dt.date(2026, 9, 28)}})
+    p = build(tmp_path, _with(tmp_path, dividends=[("2026-03-20", "AAA.F", 10, 10.0, 2.64, 7.36)]))
+    div = panel(p, "dividends")
+    assert div["vis"] == "private" and [c["k"] for c in div["cols"]] == ["tkr", "ex", "pay", "shrs", "ps", "net", "status"]
+    rows = [(r["status"], r["ex"], r["pay"]) for r in div["rows"]]
+    assert rows == [("NEXT", "2026-09-10", "28 SEP 26"), ("DUE", "2026-06-15", "~03 JUL 26"),
+                    ("PAID", "2026-03-02", "20 MAR 26")]
+    acct = panel(p, "accounting")["lines"]
+    assert _line(acct, "Dividends (net)")["v"] == pytest.approx(7.36)
+    assert _line(acct, "Dividends due (not yet paid)")["v"] > 0
+    assert "dividends" not in [q["id"] for q in public_view(p)["panels"]]
 
 
 def _line(lines, label):
@@ -272,8 +296,8 @@ def test_accounting_shows_bonus_and_interest_and_still_reconciles(frozen, tmp_pa
     assert v("Realized") + v("Dividends (net)") + v("Bonus") + v("Unrealized") == pytest.approx(v("Total P&L"))
     labels = [l.get("label") for l in lines]
     t = labels.index("Total P&L")
-    assert lines[t + 1].get("sep") and labels[t + 2] == "Interest on cash (not in ROI)"
-    interest = lines[t + 2]
+    assert lines[t + 1].get("sep") and labels[t + 2:t + 4] == ["Dividends due (not yet paid)", "Interest on cash (not in ROI)"]
+    interest = lines[t + 3]
     assert interest["v"] == pytest.approx(8.05) and interest["fmt"] == "eur+" and interest.get("vis") != "public"
 
 

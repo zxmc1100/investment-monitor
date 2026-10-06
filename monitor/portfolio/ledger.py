@@ -245,27 +245,37 @@ def _signed_shares(t: dict) -> float:
     return t["shares"] if t["action"] in ADDS else -t["shares"] if t["action"] == "sell" else 0.0
 
 
-def dividend_cash(transactions: list[dict], dividends: dict[str, list], today=None) -> list[dict]:
-    """Cash dividends you were entitled to: on each ex-date, the shares you held after every trade
-    dated strictly before it (a buy ON the ex-date misses it, a sale ON the ex-date keeps it) x the
-    per-share amount. `dividends` is cached_dividends' {ticker: [[ex_date_iso, amount], ...]}.
-    Ex-dates after `today` (default: now) are not yet cash and are skipped.
-    `gross` = shares x per-share; `eur` = what lands in the account, after config.DIVIDEND_TAX.
-    Returns [{date, ticker, shares, per_share, gross, eur}] sorted by date, then ticker."""
-    horizon = (today or date.today()).isoformat()
-    net = 1.0 - config.DIVIDEND_TAX
+DIVIDEND_COLUMNS = ("PayDate", "Ticker", "Shares", "Gross", "Tax", "Net")
+
+
+def load_paid_dividends(path: str | Path) -> list[dict]:
+    """Dividends your broker paid: `dividends.csv` (PayDate,Ticker,Shares,Gross,Tax,Net — EUR, the day the money
+    arrived), written by TRADES' import of a Trade Republic export, or by hand. They replace Yahoo's estimate
+    of the same dividend (portfolio.dividends). A row may give only PayDate and Ticker — a payment announced in the
+    broker's app, its amounts left to Yahoo's estimate (None here). Read like interest.csv: a missing file means
+    none, a bad row is skipped with a warning naming it. Returns [{pay, ticker, shares, gross, tax, net}] sorted
+    by pay date."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        rows, comma = _read_csv(path, DIVIDEND_COLUMNS)
+    except CSVError as e:
+        log.warning("dividends file skipped: %s", e)
+        return []
     out = []
-    for tk, rows in dividends.items():
-        trades = [t for t in transactions if t["ticker"] == tk]
-        for ex, amount in rows:
-            if ex > horizon:
-                continue
-            held = sum(_signed_shares(t) for t in trades if t["date"] < ex)
-            if held > DUST and amount > 0:
-                gross = held * float(amount)
-                out.append({"date": ex, "ticker": tk, "shares": held, "per_share": float(amount),
-                            "gross": gross, "eur": gross * net})
-    return sorted(out, key=lambda d: (d["date"], d["ticker"]))
+    for n, row, problem in rows:
+        try:
+            if problem:
+                raise CSVError(f"{path.name} row {n}: {problem}")
+            num = {c: (None if not (row.get(c) or "").strip() else
+                       _cell(path.name, n, row, c, lambda text: _number(text, comma))) for c in DIVIDEND_COLUMNS[2:]}
+            out.append({"pay": _cell(path.name, n, row, "PayDate", _date),
+                        "ticker": _cell(path.name, n, row, "Ticker", _text).upper(),
+                        "shares": num["Shares"], "gross": num["Gross"], "tax": num["Tax"], "net": num["Net"]})
+        except CSVError as e:
+            log.warning("dividend row skipped: %s", e)
+    return sorted(out, key=lambda r: (r["pay"], r["ticker"]))
 
 
 def load_interest(path: str | Path) -> list[dict]:

@@ -62,6 +62,13 @@ def test_calendar_single_date_and_upcoming_ex_div():
     assert [e["kind"] for e in M.events_from_calendar(cal, TODAY)] == ["EARNINGS", "EX-DIV"]
 
 
+def test_an_ex_div_keeps_the_calendars_pay_date_when_it_is_that_dividends():
+    cal = {"Ex-Dividend Date": date(2026, 10, 6), "Dividend Date": date(2026, 10, 29)}
+    assert M.events_from_calendar(cal, TODAY)[0]["pay"] == "2026-10-29"
+    stale = {"Ex-Dividend Date": date(2026, 10, 6), "Dividend Date": date(2026, 7, 9)}   # the last one's
+    assert M.events_from_calendar(stale, TODAY)[0]["pay"] is None
+
+
 @pytest.mark.parametrize("cal", [{}, None, [], {"Earnings Date": []}, {"Earnings Date": "garbage"}])
 def test_empty_or_odd_calendar_has_no_events(cal):
     assert M.events_from_calendar(cal, TODAY) == []
@@ -81,7 +88,7 @@ def test_fetch_events_amount_and_failures(monkeypatch):
     monkeypatch.setattr("yfinance.Ticker", lambda t: Broken(t) if t == "BAD.DE" else real(t))
     out = M.fetch_events(["RHM.DE", "BAD.DE", "AAPL"], today=TODAY)
     assert out["RHM.DE"] == [{"date": "2026-11-05", "kind": "EARNINGS", "amount": None},
-                             {"date": "2026-10-06", "kind": "EX-DIV", "amount": 8.1}]
+                             {"date": "2026-10-06", "kind": "EX-DIV", "amount": 8.1, "pay": None}]
     assert "BAD.DE" not in out and out["AAPL"] == []
 
 
@@ -113,4 +120,4 @@ def test_dividends_failure_keeps_the_earnings_event(monkeypatch):
     monkeypatch.setattr("yfinance.Ticker", lambda t: NoDivs(t))
     assert M.fetch_events(["RHM.DE"], today=TODAY)["RHM.DE"] == [
         {"date": "2026-11-05", "kind": "EARNINGS", "amount": None},
-        {"date": "2026-10-06", "kind": "EX-DIV", "amount": None}]
+        {"date": "2026-10-06", "kind": "EX-DIV", "amount": None, "pay": None}]

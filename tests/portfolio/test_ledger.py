@@ -3,8 +3,15 @@ from datetime import date
 
 import pytest
 
-from monitor.portfolio.ledger import compute_portfolio_summary, dividend_cash, parse_portfolio
+from monitor import config
+from monitor.portfolio import dividends as D
+from monitor.portfolio.ledger import compute_portfolio_summary, parse_portfolio
 from monitor.portfolio.snapshot import accounting
+
+
+def dividend_cash(tx, per_share, today=None):
+    """Yahoo's dividends alone (no broker file, no calendar): the ex-date rule and the tax, as cash."""
+    return D.cash(D.combine(tx, per_share, [], {}, today=today, tax=config.DIVIDEND_TAX))
 
 HEAD = "Date,Ticker,Action,Shares,Price,PricePerShare\n"
 
@@ -230,3 +237,13 @@ def test_interest_is_reported_but_never_in_pnl_roi_or_xirr(tmp_path):
     assert a0["interest"] == 0.0 and a["interest"] == pytest.approx(7.5)
     for k in ("total_pnl", "simple_roi", "mwr", "mwr_cumulative", "net_cost_basis"):
         assert a[k] == pytest.approx(a0[k]), k
+
+
+def test_a_paid_dividends_row_may_name_only_its_pay_date_and_ticker(tmp_path):
+    from monitor.portfolio.ledger import load_paid_dividends
+    f = tmp_path / "dividends.csv"
+    f.write_text("PayDate,Ticker,Shares,Gross,Tax,Net\n2026-10-08,AAA.F,,,,\n2026-07-09,AAA.F,3,2.92,0.77,2.15\n",
+                 encoding="utf-8")
+    assert load_paid_dividends(f) == [
+        {"pay": "2026-07-09", "ticker": "AAA.F", "shares": 3.0, "gross": 2.92, "tax": 0.77, "net": 2.15},
+        {"pay": "2026-10-08", "ticker": "AAA.F", "shares": None, "gross": None, "tax": None, "net": None}]

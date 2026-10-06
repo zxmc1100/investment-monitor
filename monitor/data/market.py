@@ -104,7 +104,9 @@ def events_from_calendar(cal, today: date) -> list[dict]:
         out.append({"date": upcoming[0].isoformat(), "kind": "EARNINGS", "amount": None})
     ex = _as_date(cal.get("Ex-Dividend Date"))
     if ex is not None and ex >= today:
-        out.append({"date": ex.isoformat(), "kind": "EX-DIV", "amount": None})
+        pay = _as_date(cal.get("Dividend Date"))             # the pay date, when Yahoo has it (home listings)
+        out.append({"date": ex.isoformat(), "kind": "EX-DIV", "amount": None,
+                    "pay": pay.isoformat() if pay is not None and pay >= ex else None})
     return out
 
 

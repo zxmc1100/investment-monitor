@@ -12,6 +12,7 @@ is picked up without a restart); every query is pure over it.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import unicodedata
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from monitor import config
+from monitor.data import buffer
 
 log = logging.getLogger(__name__)
 COLS = ["isin", "ticker", "name", "country", "sector", "med_turnover", "live", "fold"]
@@ -138,6 +140,69 @@ def by_isin(code: str, root: Path | None = None) -> str | None:
     df = load_universe(root)
     hit = df[(df["isin"] == str(code or "").strip().upper()) & df["live"]]
     return str(hit["ticker"].iloc[0]) if len(hit) else None
+
+
+# words that name a company's form or a fund's share class, not the company: "Siemens" is "Siemens AG"
+_FORM = frozenset("""inc incorporated corp corporation co company companies ag se sa spa nv plc ltd limited group
+holding holdings the class adr ads reg registered shares share aktie aktien namens inhaber vz ord ordinary ucits
+etf acc accumulating dist distributing usd eur gbp chf of and de
+aktiengesellschaft gmbh kgaa societa per azioni societe anonyme naamloze vennootschap oyj asa ab publ""".split())
+
+
+_BRACKETS = re.compile(r"\([^)]*\)")
+# a broker description's currency of the nominal value: "COCA-COLA CO. DL-,25" (dollar), "ASML HOLDING EO -,09"
+_CURRENCY = frozenset("dl eo ls hd sf jy ck nk sk cl".split())
+
+
+def name_key(name: str) -> tuple[str, ...]:
+    """The words that tell a company apart, in order: folded; anything in brackets ("(Google)", "(ADR)"), numbers,
+    single letters, company-form words and a description's currency codes dropped."""
+    words = "".join(c if c.isalnum() else " " for c in _BRACKETS.sub(" ", fold(name).lower())).split()
+    return tuple(dict.fromkeys(w for w in words if len(w) > 1 and not w.isdigit() and w not in _FORM
+                               and w not in _CURRENCY))
+
+
+def _same(a: tuple[str, ...], b: tuple[str, ...], loose: bool) -> bool:
+    """One name's words within the other's. A one-word name matches only that same one word ("ASML" is
+    "ASML Holding N.V.", "Bank" is not "Bank of America"). loose — a broker's abbreviation: every word of the
+    shorter name (two at least) and some word of the other begin one another ("TECH." and "Technologies")."""
+    if not a or not b:
+        return False
+    small, big = sorted((a, b), key=len)
+    if loose:
+        return len(small) >= 2 and all(any(w.startswith(x) or x.startswith(w) for w in big if min(len(w), len(x)) >= 3)
+                                       for x in small)
+    return (set(small) <= set(big)) and (len(small) > 1 or len(big) == 1)
+
+
+def match_name(name: str, held: dict[str, str], loose: bool = False) -> str | None:
+    """The one held ticker whose name is the same company as `name` (a broker export's), else None. Never a
+    guess: two held lines that both match give None (see _same for what matches)."""
+    key = name_key(name)
+    hits = [t for t, other in held.items() if _same(key, name_key(other), loose)]
+    return hits[0] if len(hits) == 1 else None
+
+
+_EUR_SUFFIX = (".DE", ".F", ".MI", ".PA", ".AS", ".MC", ".BR", ".VI", ".LS", ".HE", ".IR", ".SG", ".DU", ".MU",
+               ".BE", ".HM")
+
+
+def resolve_isin(code: str, name: str = "", held: dict[str, str] | None = None, *, alias: str = "",
+                 overrides: dict[str, str] | None = None, buffer_dir: Path | None = None, _search=None,
+                 root: Path | None = None) -> str | None:
+    """A broker export's ISIN (its name for it, and `alias`, the name as its description spells it) → the
+    ticker the terminal books it under: your settings.toml [isins]; else the held line of the same company
+    (`held` {ticker: name}, by name, then by the alias's word prefixes — an import never splits a holding you
+    keep under its Frankfurt or Milan ticker); else the universe's line when EUR-quoted; else a EUR listing
+    from Yahoo's search (kept in the buffer); else None."""
+    code = str(code or "").strip().upper()
+    if t := {k.strip().upper(): v for k, v in (overrides or {}).items()}.get(code):
+        return t
+    if held and (t := match_name(name, held) or match_name(alias, held, loose=True)):
+        return t
+    if (t := by_isin(code, root)) and t.upper().endswith(_EUR_SUFFIX):
+        return t
+    return buffer.cached_eur_listing(code, name, buffer_dir=buffer_dir, _search=_search)
 
 
 def is_tradeable(ticker: str, root: Path | None = None) -> bool:

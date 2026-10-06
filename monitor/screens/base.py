@@ -92,13 +92,13 @@ def code_version(deps: tuple[str, ...]) -> str:
 
 
 def input_fingerprint(ctx: Ctx) -> str:
-    """Hash of what you put in input/: portfolio.csv and interest.csv (bytes) and the settings in
+    """Hash of what you put in input/: portfolio.csv, interest.csv and dividends.csv (bytes) and the settings in
     effect — re-read first if settings.toml changed. Folded into a stored part's version (see
     Screen.version), so editing any of them makes the tiers of the screens that read them due."""
     config.refresh_settings()
     h = hashlib.sha1()
     csv = Path(ctx.portfolio_csv)
-    for f in (csv, csv.with_name("interest.csv")):
+    for f in (csv, csv.with_name("interest.csv"), csv.with_name("dividends.csv")):
         try:
             h.update(f.read_bytes())
         except OSError:

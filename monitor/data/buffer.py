@@ -348,6 +348,23 @@ def cached_movers(tickers, ttl_min: float = 15, buffer_dir: Path | None = None, 
     return rows, at, at != tried
 
 
+def cached_eur_listing(isin: str, name: str, buffer_dir: Path | None = None, _search=None) -> str | None:
+    """yahoo.eur_listing, kept in isins.json: a listing once found is kept; none found is asked again after a
+    day (a search that failed too)."""
+    _search = _search or Y.eur_listing
+    path = _dir(buffer_dir) / "isins.json"
+    buf = _read_json(path)
+    hit = buf.get(isin) if isinstance(buf.get(isin), dict) else {}
+    if hit.get("ticker") or age_s(hit.get("at"), datetime.now()) < 24 * 3600:
+        return hit.get("ticker")
+    try:
+        ticker = _search(name, isin)
+    except Exception:
+        ticker = None
+    _write_json_atomic(path, {**buf, isin: {"ticker": ticker, "at": datetime.now().isoformat(timespec="seconds")}})
+    return ticker
+
+
 def cached_events(tickers, ttl_hours: float = 24, buffer_dir: Path | None = None, _fetch=None,
                   today: date | None = None) -> dict[str, list[dict]]:
     """Upcoming events {ticker: [{date, kind, amount}]}, each ticker re-asked once per `ttl_hours`
