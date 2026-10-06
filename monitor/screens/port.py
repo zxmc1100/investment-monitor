@@ -213,6 +213,11 @@ def _labels(q: dict, kind: str) -> dict[str, str]:
     return {t: r[kind] for t, r in (q.get("ident") or {}).items()}
 
 
+def _splits(q: dict, key: str) -> dict[str, dict[str, float]]:
+    """A fund's look-through weights by "sectors" or "countries" (identity), for the lines that have them."""
+    return {t: r[key] for t, r in (q.get("ident") or {}).items() if r.get(key)}
+
+
 def _positions(q: dict, d: dict) -> dict:
     quotes, positions = q["quotes"], q["positions"]
     value_sum = sum(p["position_value"] for p in positions)
@@ -394,8 +399,8 @@ def _allocation(q: dict) -> dict:
     pos = q["positions"]
     total = sum(p["position_value"] for p in pos)
     weights = {p["ticker"]: p["position_value"] / total for p in pos} if total > 0 else {}
-    sectors = exposure_breakdown(weights, "sector", _labels(q, "sector")) if weights else []
-    countries = exposure_breakdown(weights, "country", _labels(q, "country")) if weights else []
+    sectors = exposure_breakdown(weights, "sector", _labels(q, "sector"), _splits(q, "sectors")) if weights else []
+    countries = exposure_breakdown(weights, "country", _labels(q, "country"), _splits(q, "countries")) if weights else []
     held = [r for r in sectors if r["w"] > 0]
     items = [{"label": r["label"], "v": _num(r["w"] * 100), "fmt": "pct", "vis": PUB} for r in held[:6]]
     if held[6:]:

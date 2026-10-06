@@ -68,6 +68,59 @@ _MSCI_WORLD_COUNTRIES = {   # iShares MSCI World — approximate country weights
 }
 ETF_COUNTRY_WEIGHTS = {"IWDA.AS": _MSCI_WORLD_COUNTRIES, "EUNL.F": _MSCI_WORLD_COUNTRIES}
 
+# Any other index fund: its countries from the index its name tracks — approximate index weights, like MSCI
+# World's above (a fund's own sector weights come from Yahoo: monitor.screens.identity).
+_MSCI_EM_COUNTRIES = {
+    "China": 0.270, "Taiwan": 0.200, "India": 0.180, "South Korea": 0.110, "Brazil": 0.040,
+    "Saudi Arabia": 0.030, "South Africa": 0.030, "Mexico": 0.020, "United Arab Emirates": 0.013,
+    "Indonesia": 0.015, "Thailand": 0.012, "Malaysia": 0.012, "Other emerging": 0.058,
+}
+_EUROPE_COUNTRIES = {
+    "United Kingdom": 0.220, "France": 0.160, "Switzerland": 0.140, "Germany": 0.130, "Netherlands": 0.080,
+    "Sweden": 0.050, "Denmark": 0.050, "Italy": 0.050, "Spain": 0.050, "Finland": 0.020, "Belgium": 0.020,
+    "Norway": 0.010, "Ireland": 0.010, "Other developed": 0.010,
+}
+_EURO_STOXX_50 = {"France": 0.360, "Germany": 0.300, "Netherlands": 0.150, "Spain": 0.080, "Italy": 0.070,
+                  "Belgium": 0.020, "Finland": 0.020}
+
+
+def _mix(*parts: tuple[float, dict[str, float]]) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for share, w in parts:
+        for c, x in w.items():
+            out[c] = out.get(c, 0.0) + share * x
+    return out
+
+
+_ALL_WORLD = _mix((0.89, _MSCI_WORLD_COUNTRIES), (0.11, _MSCI_EM_COUNTRIES))
+# (words in a fund's name, its countries) — the first match wins: the narrower index before the broader
+INDEX_COUNTRIES: tuple[tuple[tuple[str, ...], dict[str, float]], ...] = (
+    (("euro stoxx",), _EURO_STOXX_50),
+    (("s&p 500", "s&p500"), {"United States": 1.0}),
+    (("nasdaq",), {"United States": 0.97, "Other developed": 0.03}),
+    (("all-world", "all world", "acwi"), _ALL_WORLD),
+    (("emerging", "msci em", " em imi", " em "), _MSCI_EM_COUNTRIES),
+    (("msci world", "ftse developed"), _MSCI_WORLD_COUNTRIES),
+    (("china",), {"China": 1.0}),
+    (("india",), {"India": 1.0}),
+    (("japan", "nikkei", "topix"), {"Japan": 1.0}),
+    (("dax",), {"Germany": 1.0}),
+    (("ftse mib", "italy"), {"Italy": 1.0}),
+    (("cac 40",), {"France": 1.0}),
+    (("europe", "stoxx 600", "stoxx europe"), _EUROPE_COUNTRIES),
+    (("usa", "united states", "us equity", "russell"), {"United States": 1.0}),
+)
+
+
+def index_countries(name: str) -> dict[str, float] | None:
+    """The countries of the index a fund's name tracks (approximate weights, summing to 1), else None."""
+    n = f" {str(name or '').lower()} "
+    for words, weights in INDEX_COUNTRIES:
+        if any(w in n for w in words):
+            tot = sum(weights.values())
+            return {c: x / tot for c, x in weights.items()}
+    return None
+
 REGION_OF = {
     "United States": "North America", "Canada": "North America",
     "Japan": "Asia-Pacific", "Australia": "Asia-Pacific", "Hong Kong": "Asia-Pacific",
@@ -77,9 +130,12 @@ REGION_OF = {
     "Spain": "Europe", "Finland": "Europe", "Belgium": "Europe", "Norway": "Europe",
     "Ireland": "Europe", "Austria": "Europe", "Portugal": "Europe",
     "Taiwan": "Emerging", "China": "Emerging", "South Korea": "Emerging", "India": "Emerging",
-    "Brazil": "Emerging",
+    "Brazil": "Emerging", "Saudi Arabia": "Emerging", "South Africa": "Emerging", "Mexico": "Emerging",
+    "United Arab Emirates": "Emerging", "Indonesia": "Emerging", "Thailand": "Emerging", "Malaysia": "Emerging",
+    "Other emerging": "Emerging",
     "Israel": "Middle East", "Other developed": "Other", "Unknown": "Unknown",
     "Poland": "Europe", "Luxembourg": "Europe",
+    "Crypto": "Crypto", "Commodities": "Commodities",      # not countries: their own buckets
 }
 
 # ── one vocabulary for lines no map knows (monitor.screens.identity) ──────────
@@ -131,30 +187,34 @@ def _merge_settings() -> None:
 _merge_settings()
 
 
-def _split(ticker: str, kind: str, labels: dict[str, str] | None = None) -> tuple[dict[str, float], bool]:
+def _split(ticker: str, kind: str, labels: dict[str, str] | None = None,
+           splits: dict[str, dict[str, float]] | None = None) -> tuple[dict[str, float], bool]:
     """One line's exposure by sector or country (fractions summing to 1) and whether it is an
-    ETF look-through."""
+    ETF look-through: the built-in look-through (MSCI World), else your settings' label, else `splits` (a
+    fund's own weights, from monitor.screens.identity), else the line's one label."""
+    names = PORTFOLIO_SECTOR_MAP if kind == "sector" else PORTFOLIO_COUNTRY_MAP
     etfs = ETF_SECTOR_WEIGHTS if kind == "sector" else ETF_COUNTRY_WEIGHTS
-    if ticker in etfs:
-        w = etfs[ticker]
+    w = etfs.get(ticker) or (None if ticker in names else (splits or {}).get(ticker))
+    if w:
         tot = sum(w.values()) or 1.0
         return {k: v / tot for k, v in w.items()}, True
-    names = PORTFOLIO_SECTOR_MAP if kind == "sector" else PORTFOLIO_COUNTRY_MAP
     return {(labels or {}).get(ticker) or names.get(ticker, "Unknown"): 1.0}, False
 
 
-def exposure_breakdown(weights: dict[str, float], kind: str, labels: dict[str, str] | None = None) -> list[dict]:
+def exposure_breakdown(weights: dict[str, float], kind: str, labels: dict[str, str] | None = None,
+                       splits: dict[str, dict[str, float]] | None = None) -> list[dict]:
     """Look-through allocation of a book by "sector" or "country".
 
     weights: {ticker: fraction of the book}. labels: {ticker: sector or country} as resolved by the
     caller (monitor.screens.identity) for lines the built-in maps do not know; absent → the maps.
+    splits: {ticker: {label: weight}} — a fund's own sector or country weights (identity), looked through.
     Returns [{label, w, parts}] sorted by weight (largest first, then label), where parts =
     [(ticker, fraction of the book, via_etf)] largest first. Sector output lists all ALL_SECTORS
     (zeros included); countries list those with exposure.
     """
     out: dict[str, dict] = {}
     for tk, w in weights.items():
-        split, via_etf = _split(tk, kind, labels)
+        split, via_etf = _split(tk, kind, labels, splits)
         for label, f in split.items():
             row = out.setdefault(label, {"label": label, "w": 0.0, "parts": []})
             row["w"] += w * f

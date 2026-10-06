@@ -391,6 +391,9 @@ def cached_events(tickers, ttl_hours: float = 24, buffer_dir: Path | None = None
     return {t: [e for e in data[t] if e.get("date", "") >= iso] for t in tickers if t in data}
 
 
+INFO_VERSION = 2       # profiles since funds, crypto and metal ETCs are told apart (yahoo.fetch_info `kind`)
+
+
 def cached_info(tickers, *, buffer_dir: Path | None = None, _fetch=None, ttl_days: float = 30,
                 fail_ttl_days: float = 1, max_asks: int | None = None) -> dict[str, dict | None]:
     """Yahoo identity {ticker: {name, sector, country} | None} (yahoo.fetch_info), one ticker at a
@@ -408,7 +411,9 @@ def cached_info(tickers, *, buffer_dir: Path | None = None, _fetch=None, ttl_day
 
     def due(t) -> bool:
         rec = asked.get(t)
-        at, ok = rec if isinstance(rec, list) and len(rec) == 2 else (None, False)   # unreadable = due
+        at, ok, v = (list(rec) + [1])[:3] if isinstance(rec, list) and len(rec) in (2, 3) else (None, False, 1)
+        if ok and v < INFO_VERSION:
+            return True              # kept before funds / crypto / ETCs were told apart: ask once more
         return age_s(at, now) >= (ttl_days if ok else fail_ttl_days) * 86400
 
     todo = [t for t in tickers if due(t)][:max_asks]
@@ -419,7 +424,7 @@ def cached_info(tickers, *, buffer_dir: Path | None = None, _fetch=None, ttl_day
             got = None
         if got:
             data[t] = got
-        asked[t] = [now.isoformat(timespec="seconds"), bool(got)]
+        asked[t] = [now.isoformat(timespec="seconds"), bool(got), INFO_VERSION]
     if todo:
         _write_json_atomic(path, {"data": data, "asked": asked})
     return {t: data.get(t) for t in tickers}

@@ -432,3 +432,20 @@ def test_info_fetch_exception_counts_as_a_failure(bufdir):
         raise RuntimeError("down")
     assert BUF.cached_info(["X.F"], buffer_dir=bufdir, _fetch=boom) == {"X.F": None}
     assert BUF.cached_info([], buffer_dir=bufdir, _fetch=boom) == {}
+
+
+def test_a_profile_kept_before_funds_and_crypto_were_told_apart_is_asked_again(bufdir):
+    """info.json from before `kind` existed: an ETF / crypto line was 'Unknown' there — ask again, once."""
+    import json
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    bufdir.mkdir(parents=True, exist_ok=True)
+    (bufdir / "info.json").write_text(json.dumps({"data": {"CSPX.AS": {"name": "S&P 500 ETF", "sector": None,
+                                                                       "country": None}},
+                                                  "asked": {"CSPX.AS": [now, True]}}), encoding="utf-8")
+    calls = []
+    fresh = {"name": "S&P 500 ETF", "sector": None, "country": None, "kind": "FUND", "sectors": {"Financials": 1.0}}
+    got = BUF.cached_info(["CSPX.AS"], buffer_dir=bufdir, _fetch=lambda t: calls.append(t) or fresh)
+    assert calls == ["CSPX.AS"] and got["CSPX.AS"]["kind"] == "FUND"
+    BUF.cached_info(["CSPX.AS"], buffer_dir=bufdir, _fetch=lambda t: calls.append(t) or fresh)
+    assert calls == ["CSPX.AS"]                                            # kept 30 days from now

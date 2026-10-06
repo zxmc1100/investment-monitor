@@ -13,8 +13,8 @@ from pathlib import Path
 
 from monitor.data.buffer import cached_info
 from monitor.data.instruments import COMPANY_NAMES, TICKER_MAP
-from monitor.portfolio.meta import (ETF_SECTOR_WEIGHTS, PORTFOLIO_COUNTRY_MAP, PORTFOLIO_SECTOR_MAP,
-                                    country_name, sector_name)
+from monitor.portfolio.meta import (ETF_SECTOR_WEIGHTS, PORTFOLIO_COUNTRY_MAP, PORTFOLIO_SECTOR_MAP, country_name,
+                                    index_countries, sector_name)
 from monitor.universe import lookup
 
 UNKNOWN = "Unknown"
@@ -30,8 +30,9 @@ def _fill(rec: dict, name, sector, country) -> None:
 
 def identify(tickers, *, buffer_dir: Path | None = None, names: dict[str, str] | None = None,
              need: tuple[str, ...] = FIELDS, max_asks: int = MAX_ASKS) -> dict[str, dict]:
-    """{ticker: {"name", "sector", "country"}} — never empty fields. `names`: extra display names
-    (your watchlist's) tried right after the built-in map. Yahoo is asked only for a ticker still
+    """{ticker: {"name", "sector", "country"[, "sectors", "countries"]}} — never empty fields; a fund adds its
+    look-through: `sectors` its own weights (Yahoo), `countries` its index's (meta.index_countries). `names`:
+    extra display names (your watchlist's) tried right after the built-in map. Yahoo is asked only for a ticker still
     missing one of the `need` fields (a look-through ETF never), and at most `max_asks` times per call —
     the others show the ticker / "Unknown" until a later run (every quote tier) asks them. max_asks=0:
     no network at all, only what earlier asks cached."""
@@ -49,6 +50,11 @@ def identify(tickers, *, buffer_dir: Path | None = None, names: dict[str, str] |
     for t, info in (cached_info(ask, buffer_dir=buffer_dir, max_asks=max_asks) if ask else {}).items():
         if info:
             _fill(out[t], info.get("name"), info.get("sector"), info.get("country"))
+            if info.get("kind") == "FUND":         # looked through: its own sectors, its index's countries
+                if info.get("sectors"):
+                    out[t]["sectors"] = dict(info["sectors"])
+                if countries := index_countries(info.get("name") or ""):
+                    out[t]["countries"] = countries
     for t, r in out.items():
         r.update(name=r["name"] or t, sector=r["sector"] or UNKNOWN, country=r["country"] or UNKNOWN)
     return out

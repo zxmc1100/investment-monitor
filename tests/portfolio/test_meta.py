@@ -58,3 +58,38 @@ def test_regions_sum_the_countries():
 def test_a_mapped_line_lands_in_its_sector():
     s = by_label(M.exposure_breakdown({"BBB.F": 1.0}, "sector"))
     assert s["Financials"]["w"] == pytest.approx(1.0)
+
+
+# ── any fund looked through: countries by the index its name tracks ────────────────────────────────
+
+@pytest.mark.parametrize("name, top", [
+    ("iShares Core S&P 500 UCITS ETF USD (Acc)", "United States"),
+    ("Invesco EQQQ Nasdaq-100 UCITS ETF", "United States"),
+    ("Amundi Index Solutions - Amundi MSCI Emerging Markets", "China"),
+    ("iShares Core MSCI EM IMI UCITS ETF USD (Acc)", "China"),
+    ("Franklin FTSE China UCITS ETF", "China"),
+    ("Vanguard FTSE All-World UCITS ETF", "United States"),
+    ("iShares Core EURO STOXX 50 UCITS ETF", "France"),
+    ("Xtrackers MSCI Europe UCITS ETF", "United Kingdom"),
+    ("iShares Core DAX UCITS ETF (DE)", "Germany"),
+])
+def test_an_index_funds_countries_come_from_the_index_it_tracks(name, top):
+    w = M.index_countries(name)
+    assert sum(w.values()) == pytest.approx(1.0) and max(w, key=w.get) == top
+    assert all(c in M.REGION_OF for c in w)
+
+
+def test_a_fund_whose_index_is_not_known_has_no_countries():
+    assert M.index_countries("Some Thematic Robotics ETF") is None
+
+
+def test_a_looked_through_line_spreads_by_its_weights_and_says_so():
+    split = {"CSPX.AS": {"Information Technology": 0.6, "Financials": 0.4}}
+    s = by_label(M.exposure_breakdown({"CSPX.AS": 0.5, "BBB.F": 0.5}, "sector", splits=split))
+    assert s["Information Technology"]["w"] == pytest.approx(0.3)
+    assert s["Financials"]["w"] == pytest.approx(0.2 + 0.5)
+    assert ("CSPX.AS", pytest.approx(0.3), True) in s["Information Technology"]["parts"]
+
+
+def test_crypto_and_commodities_have_regions_of_their_own():
+    assert M.REGION_OF["Crypto"] == "Crypto" and M.REGION_OF["Commodities"] == "Commodities"

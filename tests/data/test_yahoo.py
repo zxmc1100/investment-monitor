@@ -218,7 +218,15 @@ def _info_ticker(monkeypatch, infos):
             v = infos[self.t]
             if isinstance(v, Exception):
                 raise v
-            return v
+            return {k: x for k, x in v.items() if k != "_sectors"}
+
+        @property
+        def funds_data(self):                    # a fund's own sector weights (Yahoo's keys), when the test gives them
+            v = infos[self.t]
+            if not isinstance(v, dict) or "_sectors" not in v:
+                raise RuntimeError("no fund data")
+            from types import SimpleNamespace
+            return SimpleNamespace(sector_weightings=v["_sectors"])
     monkeypatch.setattr(Y.yf, "Ticker", T)
     return seen
 
@@ -228,14 +236,35 @@ def test_fetch_info_reads_name_sector_country_through_the_ticker_map(monkeypatch
     seen = _info_ticker(monkeypatch, {"ZZZ.DE": {"quoteType": "EQUITY", "shortName": "ZED AG NA O.N.",
                                                  "longName": "Zed AG", "sector": "Technology",
                                                  "country": "Germany"}})
-    assert real_fetch_info("ZZZ.F") == {"name": "Zed AG", "sector": "Technology", "country": "Germany"}
+    assert real_fetch_info("ZZZ.F") == {"name": "Zed AG", "sector": "Technology", "country": "Germany",
+                                        "kind": "EQUITY", "sectors": None}
     assert seen == ["ZZZ.DE"]
 
 
 def test_fetch_info_an_etf_has_a_name_but_no_sector_or_country(monkeypatch):
     _info_ticker(monkeypatch, {"VWCE.DE": {"quoteType": "ETF", "shortName": "Vanguard FTSE All-World",
                                            "country": "Ireland"}})
-    assert real_fetch_info("VWCE.DE") == {"name": "Vanguard FTSE All-World", "sector": None, "country": None}
+    assert real_fetch_info("VWCE.DE") == {"name": "Vanguard FTSE All-World", "sector": None, "country": None,
+                                          "kind": "FUND", "sectors": None}
+
+
+def test_fetch_info_a_fund_brings_its_own_sector_weights_in_the_books_names(monkeypatch):
+    _info_ticker(monkeypatch, {"CSPX.AS": {"quoteType": "ETF", "longName": "iShares Core S&P 500 UCITS ETF",
+                                           "_sectors": {"technology": 0.3, "financial_services": 0.1,
+                                                        "realestate": 0.0}}})
+    got = real_fetch_info("CSPX.AS")
+    assert got["kind"] == "FUND" and got["sectors"] == {"Information Technology": 0.75, "Financials": 0.25}
+
+
+def test_fetch_info_crypto_and_a_metal_etc_have_buckets_of_their_own(monkeypatch):
+    _info_ticker(monkeypatch, {"BTC-EUR": {"quoteType": "CRYPTOCURRENCY", "shortName": "Bitcoin EUR"},
+                               "PPFB.DE": {"quoteType": "EQUITY", "longName": "iShares Physical Gold ETC"},
+                               "XAD5.DE": {"quoteType": "EQUITY", "longName": "Xtrackers Physical Silver EUR Hedged ETC"}})
+    assert real_fetch_info("BTC-EUR") == {"name": "Bitcoin EUR", "sector": "Crypto", "country": "Crypto",
+                                          "kind": "CRYPTO", "sectors": None}
+    for t in ("PPFB.DE", "XAD5.DE"):
+        got = real_fetch_info(t)
+        assert (got["sector"], got["country"], got["kind"]) == ("Commodities", "Commodities", "COMMODITY"), t
 
 
 def test_fetch_info_failure_or_empty_is_none(monkeypatch):

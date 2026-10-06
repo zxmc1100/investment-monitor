@@ -317,7 +317,8 @@ def _my_sectors(q: dict, d: dict) -> dict:
     days = {t: _day(q["mine"].get(t)) for t in weights}
     rows = []
     labels = {t: r["sector"] for t, r in (q.get("ident") or {}).items()}
-    for r in exposure_breakdown(weights, "sector", labels) if weights else []:
+    splits = {t: r["sectors"] for t, r in (q.get("ident") or {}).items() if r.get("sectors")}
+    for r in exposure_breakdown(weights, "sector", labels, splits) if weights else []:
         if r["w"] <= 0:
             continue
         etf = SECTOR_PROXIES.get(r["label"], (None, None))[0]

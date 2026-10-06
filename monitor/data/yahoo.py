@@ -2,6 +2,7 @@
 for prices, caps and quotes. Pure of caching; see monitor.data.buffer for that."""
 
 import math
+import re
 import warnings
 from datetime import datetime
 
@@ -120,14 +121,38 @@ def fetch_market_caps(tr_tickers: list[str]) -> dict[str, float]:
 FUND_TYPES = ("ETF", "MUTUALFUND", "INDEX")
 
 
+# a fund's sector keys as Yahoo's funds_data names them → the book's GICS names
+_FUND_SECTORS = {"technology": "Information Technology", "financial_services": "Financials",
+                 "healthcare": "Healthcare", "industrials": "Industrials", "consumer_cyclical": "Consumer Discretionary",
+                 "communication_services": "Communication Services", "consumer_defensive": "Consumer Staples",
+                 "energy": "Energy", "basic_materials": "Materials", "realestate": "Real Estate",
+                 "utilities": "Utilities"}
+_METAL = re.compile(r"\b(physical|etc)\b.*\b(gold|silver|platinum|palladium|precious metals?)\b|"
+                    r"\b(gold|silver|platinum|palladium|precious metals?)\b.*\b(physical|etc)\b", re.IGNORECASE)
+
+
+def _fund_sectors(tk) -> dict[str, float] | None:
+    """A fund's own sector weights (Yahoo funds_data), in the book's names, summing to 1; None without them."""
+    try:
+        raw = tk.funds_data.sector_weightings or {}
+    except Exception:
+        return None
+    w = {_FUND_SECTORS[k]: float(v) for k, v in raw.items() if k in _FUND_SECTORS and float(v or 0) > 0}
+    tot = sum(w.values())
+    return {k: round(v / tot, 4) for k, v in w.items()} if tot > 0 else None
+
+
 def fetch_info(ticker: str) -> dict | None:
     """Who a ticker in your CSV is, from Yahoo's quote profile (mapped through TICKER_MAP):
-    {name, sector, country} — sector in Yahoo's naming ("Technology"), country spelled out. A fund
-    gets its name only: its domicile is not where its money is. None on failure or no profile."""
+    {name, sector, country, kind, sectors} — sector in Yahoo's naming ("Technology"), country spelled out.
+    kind: FUND (its domicile is not where its money is: no country; `sectors` its own sector weights, when
+    Yahoo has them), CRYPTO and COMMODITY (a physical-metal ETC) — buckets of their own, as sector and
+    country — or EQUITY. None on failure or no profile."""
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            info = yf.Ticker(TICKER_MAP.get(ticker, ticker)).info
+            tk = yf.Ticker(TICKER_MAP.get(ticker, ticker))
+            info = tk.info
     except Exception:
         return None
     if not isinstance(info, dict):
@@ -135,9 +160,17 @@ def fetch_info(ticker: str) -> dict | None:
     name = str(info.get("longName") or info.get("shortName") or "").strip()
     if not name:
         return None
-    fund = info.get("quoteType") in FUND_TYPES
-    sector, country = (info.get("sector") or None, info.get("country") or None) if not fund else (None, None)
-    return {"name": name, "sector": sector, "country": country}
+    if info.get("quoteType") == "CRYPTOCURRENCY":
+        return {"name": name, "sector": "Crypto", "country": "Crypto", "kind": "CRYPTO", "sectors": None}
+    if _METAL.search(name):
+        return {"name": name, "sector": "Commodities", "country": "Commodities", "kind": "COMMODITY", "sectors": None}
+    if info.get("quoteType") in FUND_TYPES:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sectors = _fund_sectors(tk)
+        return {"name": name, "sector": None, "country": None, "kind": "FUND", "sectors": sectors}
+    return {"name": name, "sector": info.get("sector") or None, "country": info.get("country") or None,
+            "kind": "EQUITY", "sectors": None}
 
 
 def _close_frame(raw: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:

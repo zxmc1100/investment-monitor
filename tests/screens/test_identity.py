@@ -130,3 +130,24 @@ def test_max_asks_0_reads_what_was_asked_before_and_never_asks(yahoo, tmp_path):
     assert asked == []
     identify(["ZZZ.F"], buffer_dir=tmp_path)
     assert identify(["ZZZ.F"], buffer_dir=tmp_path, max_asks=0)["ZZZ.F"]["name"] == "Zed Corp" and asked == ["ZZZ.F"]
+
+
+def test_a_fund_is_looked_through_its_own_sector_weights_and_its_indexs_countries(yahoo, tmp_path):
+    asked, profiles = yahoo
+    profiles["SPX.AS"] = {"name": "Example Core S&P 500 UCITS ETF", "sector": None, "country": None, "kind": "FUND",
+                          "sectors": {"Information Technology": 0.6, "Financials": 0.4}}
+    profiles["THM.DE"] = {"name": "Example Robotics Theme ETF", "sector": None, "country": None, "kind": "FUND",
+                          "sectors": None}
+    got = identify(["SPX.AS", "THM.DE"], buffer_dir=tmp_path)
+    assert got["SPX.AS"]["sectors"] == {"Information Technology": 0.6, "Financials": 0.4}
+    assert got["SPX.AS"]["countries"] == {"United States": 1.0}
+    assert "sectors" not in got["THM.DE"] and "countries" not in got["THM.DE"]      # nothing known: Unknown
+    assert got["THM.DE"]["sector"] == "Unknown"
+
+
+def test_crypto_and_metal_etcs_are_their_own_sector_and_country(yahoo, tmp_path):
+    asked, profiles = yahoo
+    profiles["BTC-EUR"] = {"name": "Bitcoin EUR", "sector": "Crypto", "country": "Crypto", "kind": "CRYPTO",
+                           "sectors": None}
+    r = identify(["BTC-EUR"], buffer_dir=tmp_path)["BTC-EUR"]
+    assert (r["sector"], r["country"]) == ("Crypto", "Crypto")
