@@ -6,13 +6,18 @@ Sources, best first:
   dividends.csv   what your broker paid (TRADES' import of a Trade Republic export): exact pay date and net
   Yahoo           per-share amounts by ex date, for every line; its calendar: the next ex date (and, for some
                   lines, the pay date)
+  US listing      the company's ex and pay dates on its US line (Nasdaq's dividend history, the line's Yahoo
+                  profile; data.buffer.cached_pay_dates) — real for a US company, within days for another's
+                  (an ADR) — and every line's home country
 
 A Yahoo dividend that a paid one matches (same ticker, paid from 3 days before to 90 days after its ex date)
 takes the paid one's pay date, gross, tax and net — a payment written with a date still ahead (announced, copied
 from the broker's app) is due until then. One not matched is estimated: shares x per-share, less the dividend
-tax; its pay date is the ex date plus the gap this line's past dividends took from ex date to pay (learned from
-the matched ones), else the gap your other lines' took, else unknown — then the ex date stands in, as before pay
-dates were known.
+tax; its pay date is a US company's real one (its ex date within 3 days), else Yahoo's calendar's, else
+estimated ("~"): another company's US-line date, else the ex date plus the gap this line's past dividends took
+(the broker's payments first, then the US line's dates), else its market's rule — two business days in Germany, France, Italy, Spain, Switzerland,
+Austria, Belgium, Portugal — else the gap your other lines' took, else unknown — then the ex date stands in, as
+before pay dates were known.
 
 Status: PAID (paid, or its pay date has come), DUE (ex date passed, pay date still ahead), UPCOMING (ex date
 ahead). Only PAID is cash (`cash`): ROI, XIRR, YTD and ACCOUNTING's dividends count it on its pay date."""
@@ -24,6 +29,10 @@ from statistics import median
 from monitor.portfolio.ledger import DUST, _signed_shares
 
 MATCH_BEFORE, MATCH_AFTER = 3, 90          # days around an ex date a paid dividend may land and still be it
+US = "United States"
+EX_NEAR = 3                                # days a home line's ex date may differ from this line's: the same dividend
+# homes whose market pays two business days after the ex date (record date the day after, payment the day after that)
+T2_HOMES = {"Germany", "France", "Italy", "Spain", "Switzerland", "Austria", "Belgium", "Portugal"}
 
 
 def _held(trades: list[dict], before: str) -> float:
@@ -34,12 +43,26 @@ def _plus(day: str, days: float) -> str:
     return (date.fromisoformat(day) + timedelta(days=round(days))).isoformat()
 
 
+def _business_days_after(day: str, n: int) -> str:
+    d = date.fromisoformat(day)
+    while n > 0:
+        d += timedelta(days=1)
+        n -= d.weekday() < 5
+    return d.isoformat()
+
+
+def _days(a: str, b: str) -> int:
+    return (date.fromisoformat(b) - date.fromisoformat(a)).days
+
+
 def combine(transactions: list[dict], per_share: dict[str, list], paid: list[dict], calendar: dict[str, dict],
-            *, today: date | None = None, tax: float) -> list[dict]:
+            *, today: date | None = None, tax: float, homes: dict[str, dict] | None = None) -> list[dict]:
     """Every dividend record: {ticker, ex, pay, pay_est, shares, per_share, gross, tax, net, status, source, date}.
     per_share: {ticker: [[ex_iso, amount], ...]} (Yahoo); paid: [{pay, ticker, shares, gross, tax, net}] (broker);
-    calendar: {ticker: {ex, pay, amount}} (Yahoo's next ex date); tax: the rate an estimate is taxed at.
-    `date` is the day it is cash: the pay date, or the ex date when no pay date is known."""
+    calendar: {ticker: {ex, pay, amount}} (Yahoo's next ex date); tax: the rate an estimate is taxed at;
+    homes: {ticker: {country, pairs: [[ex, pay], ...]}} — the company's home country and its home line's real
+    ex/pay dates (data.buffer.cached_pay_dates). `date` is the day it is cash: the pay date, or the ex date when no
+    pay date is known."""
     iso = (today or date.today()).isoformat()
     out = []
     by_ticker: dict[str, list[dict]] = {}
@@ -68,8 +91,27 @@ def combine(transactions: list[dict], per_share: dict[str, list], paid: list[dic
     usual = median(every) if every else None
 
     for tk, (trades, left, entitled, matched, gaps) in lines.items():
-        gap = median(gaps) if gaps else usual
+        home = (homes or {}).get(tk) or {}
+        pairs = [(e, p) for e, p in home.get("pairs") or [] if p >= e]
+        own = gaps or [_days(e, p) for e, p in pairs]
         cal = calendar.get(tk) or {}
+
+        def pay_of(ex: str, told: str | None = None) -> tuple[str | None, bool]:
+            """(pay date, estimated): told by you → a US company's real one → Yahoo's calendar → another company's
+            US line's (an ADR pays within days of its home: estimated) → this line's own gap → its market's rule
+            (two business days) → your lines' usual gap → unknown."""
+            near = sorted((abs(_days(e, ex)), p) for e, p in pairs if abs(_days(e, ex)) <= EX_NEAR)
+            if told or (near and home.get("country") == US):
+                return told or near[0][1], False
+            if cal.get("ex") == ex and cal.get("pay"):
+                return cal["pay"], False
+            if near:
+                return near[0][1], True
+            if own:
+                return _plus(ex, median(own)), True
+            if home.get("country") in T2_HOMES:
+                return _business_days_after(ex, 2), True
+            return (_plus(ex, usual), True) if usual is not None else (None, False)
 
         for ex, amount, held in entitled:
             status = lambda pay: "DUE" if pay and pay > iso else "PAID"     # noqa: E731 — dated ahead: still due
@@ -84,8 +126,7 @@ def combine(transactions: list[dict], per_share: dict[str, list], paid: list[dic
                             "per_share": amount, "gross": gross, "tax": gross * tax, "net": gross * (1 - tax),
                             "status": status(p["pay"]), "source": "ANNOUNCED"})
                 continue
-            pay, est = (cal["pay"], False) if cal.get("ex") == ex and cal.get("pay") else (
-                (_plus(ex, gap), True) if gap is not None else (None, False))
+            pay, est = pay_of(ex)
             gross = held * amount
             out.append({"ticker": tk, "ex": ex, "pay": pay, "pay_est": est, "shares": held, "per_share": amount,
                         "gross": gross, "tax": gross * tax, "net": gross * (1 - tax),
@@ -102,9 +143,7 @@ def combine(transactions: list[dict], per_share: dict[str, list], paid: list[dic
         if cal.get("ex") and cal["ex"] > iso and (now := _held(trades, _plus(iso, 1))) > DUST:
             amount = cal.get("amount") or (entitled[-1][1] if entitled else None)
             if amount:
-                told = next((p["pay"] for p in announced if p["pay"] >= cal["ex"]), None)
-                pay, est = (told or cal["pay"], False) if told or cal.get("pay") else (
-                    (_plus(cal["ex"], gap), True) if gap is not None else (None, False))
+                pay, est = pay_of(cal["ex"], next((p["pay"] for p in announced if p["pay"] >= cal["ex"]), None))
                 gross = now * amount
                 out.append({"ticker": tk, "ex": cal["ex"], "pay": pay, "pay_est": est, "shares": now,
                             "per_share": amount, "gross": gross, "tax": gross * tax, "net": gross * (1 - tax),

@@ -20,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from monitor.data import market as M
+from monitor.data import nasdaq
 from monitor.data import yahoo as Y
 
 BUFFER_DIR = config.BUFFER_DIR
@@ -389,6 +390,54 @@ def cached_events(tickers, ttl_hours: float = 24, buffer_dir: Path | None = None
         _write_json_atomic(path, {"asked": asked, "data": data})
     iso = (today or now.date()).isoformat()
     return {t: [e for e in data[t] if e.get("date", "") >= iso] for t in tickers if t in data}
+
+
+def cached_pay_dates(lines: dict[str, dict] | None, *, ask=None, max_asks: int | None = None, ttl_days: float = 7,
+                     fail_ttl_days: float = 1, buffer_dir: Path | None = None, _home=None, _history=None,
+                     _pair=None) -> dict[str, dict]:
+    """Dividend ex and pay dates of a company's US line {ticker: {"country", "pairs": [[ex, pay], ...]}}, from free
+    sources: the line is matched to the company's US listing by name (yahoo.us_listing) — Nasdaq's dividend history
+    (Nasdaq-listed) and the listing's latest Yahoo pair (NYSE too) give the dates. lines: {ticker: {"name",
+    "country"}}, every country kept (portfolio.dividends estimates by it); `ask`: the tickers searched (default:
+    the US companies'). Each is re-asked after `ttl_days` (one whose ask raised after `fail_ttl_days`), at most
+    `max_asks` per call (sorted order), and a pair once found is kept. lines=None: what is stored, no network."""
+    path = _dir(buffer_dir) / "pay_dates.json"
+    buf = _read_json(path)
+    data, homes, asked = buf.get("data") or {}, buf.get("home") or {}, buf.get("asked") or {}
+    if lines is None:
+        return {t: {"country": r.get("country"), "pairs": r.get("pairs") or []} for t, r in data.items()}
+    _home, _history, _pair = _home or Y.us_listing, _history or nasdaq.dividend_history, _pair or Y.dividend_pair
+    ask = set(ask) if ask is not None else {t for t, r in lines.items() if r.get("country") == "United States"}
+    now = datetime.now()
+    changed = False
+    for t, line in lines.items():
+        rec = data.setdefault(t, {"country": None, "pairs": []})
+        changed |= rec.get("country") != line.get("country")
+        rec["country"] = line.get("country")
+
+    def due(t) -> bool:
+        if not lines[t].get("name") or t not in ask:
+            return False
+        at, ok = (list(asked[t]) if isinstance(asked.get(t), list) and len(asked[t]) == 2 else [None, False])
+        return age_s(at, now) >= (ttl_days if ok else fail_ttl_days) * 86400
+
+    for t in [t for t in sorted(lines) if due(t)][:max_asks]:
+        try:
+            if not homes.get(t):
+                homes[t] = _home(lines[t]["name"])
+            found = list(_history(homes[t]) or []) if homes[t] else []
+            if homes[t] and (pair := _pair(homes[t])):
+                found.append(pair)
+            ok = True
+        except Exception:
+            found, ok = [], False
+        by_ex = {ex: pay for ex, pay in data[t].get("pairs") or []} | {ex: pay for ex, pay in found}
+        data[t]["pairs"] = [[ex, pay] for ex, pay in sorted(by_ex.items())]
+        asked[t] = [now.isoformat(timespec="seconds"), ok]
+        changed = True
+    if changed:
+        _write_json_atomic(path, {"data": data, "home": homes, "asked": asked})
+    return {t: {"country": data[t]["country"], "pairs": data[t]["pairs"]} for t in sorted(lines)}
 
 
 INFO_VERSION = 2       # profiles since funds, crypto and metal ETCs are told apart (yahoo.fetch_info `kind`)

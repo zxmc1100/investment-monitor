@@ -71,6 +71,52 @@ def eur_listing(name: str, isin: str) -> str | None:
     return found[0][0] if found else None
 
 
+_US = {"NMS", "NGM", "NCM", "NAS", "NYQ", "NYS", "ASE", "PCX", "BTS"}
+
+
+_FILLER = {"the", "inc", "corp", "corporation", "company", "co", "ltd", "limited", "plc", "holdings", "group"}
+
+
+def _words(name) -> list[str]:
+    """A company name's first two words that tell it apart — "The Coca-Cola Company" → [coca, cola]."""
+    words = "".join(c if c.isalnum() else " " for c in str(name or "").lower()).split()
+    return [w for w in words if w not in _FILLER][:2]
+
+
+def _same_company(a, b) -> bool:
+    wa, wb = _words(a), _words(b)
+    n = min(len(wa), len(wb))
+    return n > 0 and wa[:n] == wb[:n]
+
+
+def us_listing(name: str) -> str | None:
+    """The US line (a stock on a US exchange) of the company called `name` — a Frankfurt line's company → its
+    New York or Nasdaq listing — by Yahoo's search: the first US stock whose name starts with the same words
+    ("Western Express" is not "Western Tower"); else None. Network."""
+    if not _words(name):
+        return None
+    plain = " ".join(re.sub(r"\([^)]*\)", " ", str(name)).split())       # "Acme Inc. (Acme Labs)": no hits
+    for q in yf.Search(plain or name, max_results=10, news_count=0).quotes or []:
+        if (q.get("exchange") in _US and q.get("quoteType") == "EQUITY" and q.get("symbol")
+                and _same_company(name, q.get("longname") or q.get("shortname"))):
+            return q["symbol"]
+    return None
+
+
+def dividend_pair(symbol: str) -> list[str] | None:
+    """[ex, pay] of the latest dividend a line's Yahoo profile names (exDividendDate, dividendDate) — None when
+    either is missing or the pay date is the one before (earlier than the ex date). Network."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            info = yf.Ticker(symbol).info or {}
+    except Exception:
+        return None
+    day = lambda v: datetime.fromtimestamp(v).date().isoformat() if isinstance(v, (int, float)) else None  # noqa: E731
+    ex, pay = day(info.get("exDividendDate")), day(info.get("dividendDate"))
+    return [ex, pay] if ex and pay and pay >= ex else None
+
+
 def fetch_dividends(tr_tickers: list[str]) -> dict[str, pd.Series]:
     """Per-share cash dividends by ex-date for the tickers in your CSV (mapped through TICKER_MAP), in the
     listing's currency — EUR for every line in the book. A ticker whose lookup fails or that

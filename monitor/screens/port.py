@@ -11,8 +11,10 @@ from datetime import date, timedelta
 import pandas as pd
 
 from monitor import config
+from monitor.data.buffer import cached_pay_dates
 from monitor.portfolio import snapshot
 from monitor.portfolio.analytics import year_returns
+from monitor.portfolio.dividends import T2_HOMES
 from monitor.portfolio.ledger import ADDS
 from monitor.portfolio.meta import exposure_breakdown, region_totals
 from monitor.screens.base import Ctx, Screen
@@ -22,13 +24,14 @@ from monitor.screens.identity import identify
 MAX_POINTS = 1000          # chart thinning cap
 POSVAL_POINTS = 500        # per-ticker position-value chart cap (payload size)
 SPARK_POINTS = 52          # ~weekly over one year
+PAY_ASKS = 3               # US lines whose dividend pay dates are asked per quote run (~2 s each, weekly)
 BENCH = (("S&P 500", "SPX"), ("Nasdaq 100", "NDX"), ("MSCI World", "MSCI W"),
          ("FTSE All-World", "FTSE AW"), ("Euro Stoxx 50", "STOXX50"), ("Emerging Markets", "EM"),
          ("Gold", "GOLD"), ("Bitcoin", "BTC"), ("Fixed Income", "BONDS"))
 DEPS = ("monitor.config", "monitor.screens.port", "monitor.screens.common", "monitor.screens.base", "monitor.portfolio.snapshot",
         "monitor.portfolio.analytics", "monitor.portfolio.ledger", "monitor.portfolio.meta",
         "monitor.data.buffer", "monitor.data.yahoo", "monitor.data.instruments", "monitor.screens.identity",
-        "monitor.universe.lookup")
+        "monitor.universe.lookup", "monitor.portfolio.dividends", "monitor.data.nasdaq")
 
 # {tax} and {fee} are filled from the settings in effect when the payload assembles (help_entries)
 HELP = [
@@ -65,9 +68,12 @@ HELP = [
      "date from Yahoo's calendar, per share its last. DUE: the ex date has passed, the money is not in yet. PAID: "
      "the last 12 months. Exact dates and amounts come from your broker: TRADES → IMPORT CSV FILE… with a Trade "
      "Republic export writes them to input/dividends.csv (you can add an announced payment there too, with its "
-     "date: due until then). Otherwise Yahoo's per-share amount less tax, and a pay date marked ~ estimated from "
-     "how long this line's past dividends took to arrive (or your other lines'). A dividend is cash - in ROI, "
-     "YTD and ACCOUNTING - from its pay date; ACCOUNTING lists the due ones apart."},
+     "date: due until then). Otherwise Yahoo's per-share amount less tax, and the pay date of a US company's home "
+     "line (Nasdaq's dividend history, Yahoo's profile of the US line - found by the company's name). Marked ~ "
+     "when estimated: how long this line's past dividends took to arrive; else its market's rule (two business "
+     "days after the ex date in Germany, France, Italy, Spain, Switzerland, Austria, Belgium, Portugal); else "
+     "your other lines' gap. A dividend is cash - in ROI, YTD and ACCOUNTING - from its pay date; ACCOUNTING "
+     "lists the due ones apart."},
     {"h": "RISK", "vis": PUB, "body": "Vol, Sharpe, Sortino, drawdowns and VaR from the daily "
      "portfolio ROI series since the first trade; beta and alpha vs the cash-flow-matched S&P 500."},
     {"h": "ALLOCATION", "vis": PUB, "body": "Sector and country weights of the whole book. The MSCI "
@@ -111,11 +117,17 @@ def help_entries() -> list[dict]:
 def compute(tier: str, ctx: Ctx) -> dict:
     book = snapshot.load_book(ctx.portfolio_csv)
     if tier == "quote":
+        # name / sector / country of every line ever traded — a new holding needs no code edit
+        ident = identify({t["ticker"] for t in book["transactions"]}, buffer_dir=ctx.buffer_dir)
+        # every line's home country, and the dividend dates of its company's US listing — a few asks per run, never
+        # for a market whose rule is known (T2_HOMES) — read back by every tier's dividends (dividend_records)
+        cached_pay_dates({t: {"name": r["name"], "country": r["country"]} for t, r in ident.items()},
+                         ask={t for t, r in ident.items() if r["country"] not in T2_HOMES | {"Unknown"}},
+                         max_asks=PAY_ASKS, buffer_dir=ctx.buffer_dir)
         q = snapshot.quote_tier(book, force=ctx.force, buffer_dir=ctx.buffer_dir)
         if ctx.equity_log is not None:
             snapshot.log_equity(ctx.equity_log, q["acct"])
-        # name / sector / country of every line ever traded — a new holding needs no code edit
-        q["ident"] = identify({t["ticker"] for t in book["transactions"]}, buffer_dir=ctx.buffer_dir)
+        q["ident"] = ident
         return q
     if tier == "daily":
         return snapshot.daily_tier(book, force=ctx.force, buffer_dir=ctx.buffer_dir)
@@ -378,7 +390,8 @@ def _dividends(q: dict) -> dict:
     owed = sum(r["net"] for r in due)
     cols = [{"k": "tkr", "label": "TKR", "fmt": "tkr", "vis": PRIV},
             {"k": "ex", "label": "EX", "fmt": "date", "vis": PRIV},
-            {"k": "pay", "label": "PAY", "fmt": "text", "vis": PRIV},
+            {"k": "pay", "label": "PAY", "fmt": "tkr", "vis": PRIV},        # its full width, like a date:
+            # STATUS stays the one free-text column and takes the width the others leave
             {"k": "shrs", "label": "SHRS", "fmt": "num:4", "vis": PRIV, "align": "r", "lo": True},
             {"k": "ps", "label": "/SH", "fmt": "num:4", "vis": PRIV, "align": "r", "lo": True},
             {"k": "net", "label": "NET €", "fmt": "eur+", "vis": PRIV, "align": "r"},

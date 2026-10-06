@@ -30,8 +30,12 @@ def _fixture_universe(monkeypatch):
 def _no_yahoo_profiles(monkeypatch):
     """Who-is lookups for a ticker no map knows (monitor.screens.identity) never reach Yahoo in a
     test: the profile fetch answers "unknown" unless a test scripts it."""
-    from monitor.data import yahoo
+    from monitor.data import nasdaq, yahoo
     monkeypatch.setattr(yahoo, "fetch_info", lambda ticker: None)
+    # nor do dividend pay dates (monitor.data.buffer.cached_pay_dates): no US home line is ever found
+    monkeypatch.setattr(yahoo, "us_listing", lambda name: None)
+    monkeypatch.setattr(yahoo, "dividend_pair", lambda symbol: None)
+    monkeypatch.setattr(nasdaq, "dividend_history", lambda symbol, timeout=15: [])
 
 
 @pytest.fixture

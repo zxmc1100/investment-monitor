@@ -103,3 +103,53 @@ def test_without_broker_dividends_everything_is_yahoos_estimate_counted_from_the
     recs = run(paid=[], cal={})
     assert all(r["source"] == "YAHOO" and r["status"] == "PAID" and r["pay"] is None for r in recs)
     assert [d["date"] for d in cash(recs)] == ["2025-03-18", "2025-05-19", "2025-06-12", "2025-09-16"]
+
+
+# ── real pay dates of the home line, and the market's rule ──────────────────────────────────────────────────────
+
+US, ITALY = "United States", "Italy"
+
+
+def with_homes(homes, paid=PAID, per_share=PER_SHARE, cal=CAL):
+    return combine(TX, per_share, paid, cal, today=TODAY, tax=0.26375, homes=homes)
+
+
+def test_a_home_lines_real_pay_date_wins_over_any_estimate():
+    """AAA's US home paid its September dividend (ex a day earlier there) on 3 Oct: that exact day, not ~9 Oct."""
+    r = by(with_homes({"AAA.F": {"country": US, "pairs": [["2025-09-15", "2025-10-03"]]}}), "AAA.F", "2025-09-16")
+    assert (r["status"], r["pay"], r["pay_est"]) == ("DUE", "2025-10-03", False)
+
+
+def test_another_companys_us_line_dates_are_an_estimate():
+    """A Dutch company's New York shares (an ADR may pay a day or so after its home): ~3 Oct, not exact."""
+    homes = {"AAA.F": {"country": "Netherlands", "pairs": [["2025-09-15", "2025-10-03"]]}}
+    r = by(with_homes(homes), "AAA.F", "2025-09-16")
+    assert (r["status"], r["pay"], r["pay_est"]) == ("DUE", "2025-10-03", True)
+
+
+def test_a_lines_own_pairs_teach_its_gap_after_the_brokers_payments():
+    homes = {"AAA.F": {"country": US, "pairs": [["2025-03-18", "2025-04-08"], ["2025-06-12", "2025-07-03"]]}}
+    assert by(with_homes(homes, paid=[]), "AAA.F", "2025-09-16")["pay"] == "2025-10-07"   # its own 21 days
+    assert by(with_homes(homes), "AAA.F", "2025-09-16")["pay"] == "2025-10-09"            # the broker's 22, 24 first
+
+
+def test_an_eu_home_pays_two_business_days_after_the_ex_date():
+    """Milan (like Frankfurt, Paris, Madrid, Zurich): ex Monday 19 May, paid Wednesday 21 — ahead of your other
+    lines' gap; an ex date on Thursday 22 May is paid Monday 26."""
+    homes = {"BBB.MI": {"country": ITALY, "pairs": []}}
+    r = by(with_homes(homes), "BBB.MI", "2025-05-19")
+    assert (r["pay"], r["pay_est"]) == ("2025-05-21", True)
+    r = by(with_homes(homes, paid=[], per_share={"BBB.MI": [["2025-05-22", 0.20]]}, cal={}), "BBB.MI", "2025-05-22")
+    assert r["pay"] == "2025-05-26"
+
+
+def test_other_homes_keep_your_lines_usual_gap():
+    r = by(with_homes({"BBB.MI": {"country": "United Kingdom", "pairs": []}}), "BBB.MI", "2025-05-19")
+    assert (r["pay"], r["pay_est"]) == ("2025-06-11", True)
+
+
+def test_the_next_dividend_takes_the_home_lines_announced_pay_date():
+    cal = {"AAA.F": {"ex": "2025-12-10", "pay": None, "amount": 0.70}}
+    r = by(with_homes({"AAA.F": {"country": US, "pairs": [["2025-12-10", "2026-01-02"]]}}, cal=cal),
+           "AAA.F", "2025-12-10")
+    assert (r["status"], r["pay"], r["pay_est"]) == ("UPCOMING", "2026-01-02", False)

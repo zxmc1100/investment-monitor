@@ -18,8 +18,8 @@ from pathlib import Path
 import pandas as pd
 
 from monitor import config
-from monitor.data.buffer import (cached_dividends, cached_events, cached_market_caps, cached_ohlc, cached_price_history,
-                                 cached_quotes, never_quoted)
+from monitor.data.buffer import (cached_dividends, cached_events, cached_market_caps, cached_ohlc, cached_pay_dates,
+                                 cached_price_history, cached_quotes, never_quoted)
 from monitor.data.instruments import BENCHMARKS
 from monitor.portfolio import equity_log
 from monitor.portfolio.analytics import build_roi_timeseries, compute_quant_metrics, twr_index, xirr
@@ -94,8 +94,9 @@ def old_bars(quotes: dict, today: date | None = None) -> dict[str, str]:
 
 def dividend_records(book: dict, *, force: bool = False, buffer_dir: Path | None = None) -> list[dict]:
     """Every dividend — PAID, DUE, UPCOMING — with ex date, pay date and net (see portfolio.dividends): your
-    broker's dividends.csv, Yahoo's per-share history for every ticker ever traded (buffered 24 h) and its
-    calendar for the lines you hold (the next ex date; buffered 24 h)."""
+    broker's dividends.csv, Yahoo's per-share history for every ticker ever traded (buffered 24 h), its
+    calendar for the lines you hold (the next ex date; buffered 24 h) and the home lines' real pay dates as PORT
+    last gathered them (data.buffer.cached_pay_dates — read here, never asked: every tier sees the same dates)."""
     tickers = sorted({t["ticker"] for t in book["transactions"]})
     if not tickers:
         return []
@@ -104,7 +105,8 @@ def dividend_records(book: dict, *, force: bool = False, buffer_dir: Path | None
     calendar = {t: {"ex": e["date"], "pay": e.get("pay"), "amount": e.get("amount")}
                 for t, evs in events.items() for e in evs if e["kind"] == "EX-DIV"}
     return combine(book["transactions"], cached_dividends(tickers, force=force, buffer_dir=buffer_dir),
-                   book.get("paid_dividends", []), calendar, tax=config.DIVIDEND_TAX)
+                   book.get("paid_dividends", []), calendar, tax=config.DIVIDEND_TAX,
+                   homes=cached_pay_dates(None, buffer_dir=buffer_dir))
 
 
 def dividends(book: dict, *, force: bool = False, buffer_dir: Path | None = None) -> list[dict]:
