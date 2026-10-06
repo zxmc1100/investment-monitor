@@ -40,6 +40,17 @@ def test_index_and_static_assets_served(env):
     assert c.get("/app/app.js").text == "export {};"
 
 
+def test_the_page_code_is_revalidated_every_load(env):
+    """No Cache-Control let Chrome guess a lifetime and keep running old scripts after an update (Option+N
+    'not working' after a pull). Scripts and styles: no-cache — asked every time, 304 when unchanged."""
+    c, _, _ = env
+    r = c.get("/app/app.js")
+    assert r.headers["cache-control"] == "no-cache"
+    again = c.get("/app/app.js", headers={"If-None-Match": r.headers["etag"]})
+    assert again.status_code == 304 and again.headers["cache-control"] == "no-cache"
+    assert c.get("/").headers["cache-control"] == "no-store"
+
+
 def test_foreign_host_header_is_rejected(env):
     assert env[0].get("/api/screens", headers={"Host": "attacker.example:8000"}).status_code == 400
 

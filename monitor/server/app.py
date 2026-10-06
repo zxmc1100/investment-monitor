@@ -85,6 +85,16 @@ def terminal_book(engine: Engine) -> TradeBook:
                      quote=lambda t: quote_check(t, engine.ctx.buffer_dir), isin=lookup.by_isin)
 
 
+class _Revalidated(StaticFiles):
+    """The page's scripts and styles: the browser asks every load (a cheap 304 while unchanged). Without a
+    Cache-Control Chrome guesses a lifetime and kept running old scripts after an update."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class _Touch:
     """Every request restarts the idle watch's minutes."""
 
@@ -399,7 +409,7 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     if (web_dir / "app").is_dir():
-        app.mount("/app", StaticFiles(directory=web_dir / "app"), name="app")
+        app.mount("/app", _Revalidated(directory=web_dir / "app"), name="app")
 
     @app.get("/")
     def index():
