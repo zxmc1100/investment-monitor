@@ -7,7 +7,8 @@ Rule ids (A1, A2, …) and entry ids (E1, E2, …) come from counters that never
 A missing file means the default rules. A corrupt file means the defaults plus a logged warning
 (the bad file is kept as alerts.json.bad); a hand-edited file keeps every rule that still parses
 and drops the rest, and a log entry whose ts is not an ISO string keeps the entry with ts None.
-Never raises on read. path None = in-memory defaults, nothing saved.
+Raises only when the file is there but cannot be read now (OSError) — never defaults saved over it.
+path None = in-memory defaults, nothing saved.
 Every helper except load/save is pure and returns new dicts.
 """
 from __future__ import annotations
@@ -70,8 +71,11 @@ def load(path: Path | None) -> dict:
     if path is None or not Path(path).exists():
         return defaults()
     path = Path(path)
+    # A file there but unreadable right now (out of file handles, permissions) raises: the defaults read in
+    # its place would be saved over your rules at the next check. Only a corrupt one reads as the defaults.
+    text = path.read_text(encoding="utf-8")
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"), parse_constant=_no_constant)
+        raw = json.loads(text, parse_constant=_no_constant)
         if not isinstance(raw, dict) or not isinstance(raw.get("rules"), list):
             raise ValueError("not an alerts file")
     except Exception as e:

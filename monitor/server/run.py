@@ -15,6 +15,23 @@ from monitor.server import service
 APP = "monitor.server.app:create_app"
 
 
+OPEN_FILES = 65536
+
+
+def _lift_open_files() -> None:
+    """Raise this process's open-file limit (soft) to its hard limit, at most OPEN_FILES — never lower it.
+    launchd starts the service with 256: MKT's ~280-ticker fetch ran out, the server could not accept the page
+    (OFFLINE) and file reads failed. No-op where there is no such limit (Windows)."""
+    try:
+        import resource
+    except ImportError:
+        return
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = OPEN_FILES if hard == resource.RLIM_INFINITY else min(hard, OPEN_FILES)
+    if soft != resource.RLIM_INFINITY and soft < want:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+
+
 def _reload_dirs() -> list[str]:
     return [str(config.REPO_ROOT / "monitor"), *plugins.reload_dirs()]
 
@@ -26,6 +43,7 @@ def serve(argv=None) -> int:
     ap.add_argument("--no-open", action="store_true", help="don't open a browser tab")
     ap.add_argument("--launchd", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
+    _lift_open_files()                                   # inherited by uvicorn's worker and any BUILD child
     if args.launchd:
         return _serve_launchd(reload=not args.no_reload)
     if args.port is None and service.installed_here():

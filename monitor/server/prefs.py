@@ -1,5 +1,5 @@
 """User preferences: a tiny JSON file under local/buffer with atomic writes.
-Anything missing, unreadable or invalid falls back to the defaults — never an error."""
+Anything missing or invalid falls back to the defaults; a file there but unreadable right now (OSError) raises."""
 import json
 import logging
 import os
@@ -16,8 +16,9 @@ def load(path: Path | None) -> dict:
     prefs = dict(DEFAULTS)
     if path is None or not Path(path).exists():
         return prefs
+    text = Path(path).read_text(encoding="utf-8")       # unreadable now (OSError): raised, never saved over
     try:
-        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        raw = json.loads(text)
     except Exception as e:
         log.warning("unreadable prefs %s (%s) — using defaults", path, e)
         return prefs

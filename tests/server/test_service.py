@@ -69,3 +69,21 @@ def test_a_free_port_is_free_and_a_taken_one_is_not():
         assert not service.port_free(s.getsockname()[1])
     finally:
         s.close()
+
+
+def test_serve_lifts_the_open_file_limit_launchd_leaves_at_256(monkeypatch):
+    """launchd starts the service with 256 open files; MKT's ~280-ticker fetch ran out, the page went OFFLINE and
+    reads failed. serve raises its own soft limit (to the hard one, at most 65536), never lowers it."""
+    import resource
+    from monitor.server import run
+    lim = {"v": (256, resource.RLIM_INFINITY)}
+    monkeypatch.setattr(resource, "getrlimit", lambda which: lim["v"])
+    monkeypatch.setattr(resource, "setrlimit", lambda which, v: lim.update(v=v))
+    run._lift_open_files()
+    assert lim["v"] == (65536, resource.RLIM_INFINITY)
+    lim["v"] = (256, 10240)
+    run._lift_open_files()
+    assert lim["v"] == (10240, 10240)
+    lim["v"] = (1048576, resource.RLIM_INFINITY)
+    run._lift_open_files()
+    assert lim["v"] == (1048576, resource.RLIM_INFINITY)                 # never lowered

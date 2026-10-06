@@ -1,6 +1,7 @@
 """Watchlist: [{ticker, name, added}] in local/buffer/watchlist.json.
 
-A missing, corrupt or hand-mangled file reads as [] (bad entries are skipped) — never an error.
+A missing, corrupt or hand-mangled file reads as [] (bad entries are skipped); a file there but unreadable
+right now (OSError: out of file handles, permissions) raises, so an add or remove never saves over it.
 path None means "no watchlist" (tests, the public export): it loads [] and saves nothing.
 Lives in the alerts layer, not server/, because MKT and SEC (screens) read it.
 """
@@ -19,8 +20,9 @@ _LOCK = threading.Lock()               # API add/remove run on threadpool thread
 def load(path: Path | None) -> list[dict]:
     if path is None or not Path(path).exists():
         return []
+    text = Path(path).read_text(encoding="utf-8")       # unreadable now (OSError): raised, never saved over
     try:
-        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        raw = json.loads(text)
     except Exception as e:
         log.warning("unreadable watchlist %s (%s) — treating as empty", path, e)
         return []
