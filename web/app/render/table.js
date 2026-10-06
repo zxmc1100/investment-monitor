@@ -83,6 +83,15 @@ export function table(body, p, ui) {
   body.querySelectorAll("th").forEach((th) => th.addEventListener("click", () => ui.sortBy(p.id, th.dataset.col)));
   body.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => ui.setCursor(p.id, tr.dataset.key)));
   body.querySelector('[data-act="closed"]')?.addEventListener("click", () => ui.toggleClosed(p.id));
+  // A table wider than its panel goes .tight: columns flagged lo give way and cells pad less — measured, so a mid-width
+  // window drops SHRS / AVG instead of scrolling the table sideways.
+  const t = body.querySelector("table.grid-table");
+  if (t) {
+    const fit = () => { t.classList.remove("tight"); if (t.scrollWidth > body.clientWidth + 1) t.classList.add("tight"); };
+    const ro = new ResizeObserver(fit);
+    ro.observe(body);
+    ui.onDispose(() => ro.disconnect());
+  }
   if (st.reveal) {                                   // only when the cursor moved, not on every refresh
     st.reveal = false;
     requestAnimationFrame(() => body.querySelector("tr.cur")?.scrollIntoView({ block: "nearest" }));

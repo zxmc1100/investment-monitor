@@ -301,3 +301,8 @@ def test_without_any_universe_the_movers_panels_say_so(ctx, tmp_path, monkeypatc
         q = panel(p, pid)
         assert q["rows"] == [] and q["empty"] == mkt.NO_UNIVERSE and q["context"]["text"] == mkt.NO_UNIVERSE
     assert "\n" not in mkt.NO_UNIVERSE and "data/universe" in mkt.NO_UNIVERSE
+
+
+def test_market_boards_give_up_the_row_number_and_1w_before_scrolling_sideways():
+    from monitor.screens.mkt import BOARD_COLS
+    assert {c["k"] for c in BOARD_COLS if c.get("lo")} == {"n", "w1", "spark"}

@@ -10,7 +10,8 @@
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); }
 body {
   font: 11px/1.38 var(--mono); font-variant-numeric: tabular-nums;
-  display: grid; grid-template-rows: auto auto 1fr auto; overflow: hidden;
+  /* minmax(0, 1fr): the one column is the window's width — a long strip or status line never widens it */
+  display: grid; grid-template-rows: auto auto 1fr auto; grid-template-columns: minmax(0, 1fr); overflow: hidden;
 }
 .dim, .na { color: var(--dim); } .am { color: var(--amber); } .up { color: var(--up); } .dn { color: var(--dn); }
 .r { text-align: right; }
@@ -27,8 +28,11 @@ body {
 #ac div.on { background: var(--amber); color: #000; }
 #ac .foot { color: var(--dim); border-top: 1px solid var(--line); cursor: default; }
 #title { color: var(--dim); white-space: nowrap; } #title b { color: var(--amber); font-weight: 400; margin-right: 8px; }
-#notice { color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } #notice.err { color: var(--dn); }
-#status { margin-left: auto; display: flex; gap: 12px; white-space: nowrap; }
+#notice { color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+#notice.err { color: var(--dn); }
+/* the status line takes the room left and hides whole items it cannot fit (app.fitStatus) */
+#status { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; justify-content: flex-end; gap: 12px; white-space: nowrap; }
+#status > * { flex-shrink: 0; }
 #status .err { cursor: pointer; text-decoration: underline; }
 .pulse { animation: pulse 1s steps(1) infinite; } @keyframes pulse { 50% { opacity: .35; } }
 
@@ -67,9 +71,12 @@ th { color: var(--amber); font-weight: 400; text-align: left; border-bottom: 1px
    the year table keep their own layout. */
 td.tx, th.tx { max-width: 0; min-width: 6ch; overflow: hidden; text-overflow: ellipsis; }
 .grid-table td:not(.tx), .grid-table th:not(.tx) { width: 1%; }
-/* a column flagged lo (lowest value) gives way before the table would scroll sideways */
+/* a column flagged lo (lowest value) gives way before the table would scroll sideways: in a narrow panel,
+   and whenever the table is wider than its panel (render/table.js sets .tight) */
 .panel { container-type: inline-size; }
 @container (max-width: 420px) { td.lo, th.lo { display: none; } }
+table.tight td.lo, table.tight th.lo { display: none; }
+table.tight td, table.tight th { padding: 0 3px; }
 th.r { text-align: right; } th.sorted { color: var(--cmd); }
 .grid-table tbody tr { cursor: pointer; }
 .grid-table tbody tr:hover td { background: #111; }
@@ -122,7 +129,7 @@ tr.tot td { border-top: 1px solid var(--line); color: var(--amber); }
 
 @media (max-width: 900px) {
   .panel { grid-column: span 12; }
-  #status .dim, #strip .hint, #title { display: none; }
+  #strip .hint, #fkeys .hint, #title { display: none; }
   #cmd { width: 150px; } #ac { min-width: 90vw; }
 }
 

@@ -78,15 +78,15 @@ HELP = [
 POS_COLS = [
     {"k": "tkr", "label": "TKR", "fmt": "tkr", "vis": PUB},
     {"k": "name", "label": "NAME", "fmt": "text", "vis": PUB},
-    {"k": "shrs", "label": "SHRS", "fmt": "num:4", "vis": PRIV, "align": "r"},
-    {"k": "avg", "label": "AVG", "fmt": "num:2", "vis": PRIV, "align": "r"},
+    {"k": "shrs", "label": "SHRS", "fmt": "num:4", "vis": PRIV, "align": "r", "lo": True},   # lo: gives way first
+    {"k": "avg", "label": "AVG", "fmt": "num:2", "vis": PRIV, "align": "r", "lo": True},
     {"k": "last", "label": "LAST", "fmt": "num:2", "vis": PRIV, "align": "r"},
     {"k": "day", "label": "DAY%", "fmt": "pct+:2", "vis": PUB, "align": "r"},
     {"k": "value", "label": "VALUE", "fmt": "eur", "vis": PRIV, "align": "r"},
     {"k": "wt", "label": "WT%", "fmt": "pct", "vis": PUB, "align": "r"},
     {"k": "pnl", "label": "P&L €", "fmt": "eur+", "vis": PRIV, "align": "r"},
     {"k": "pnlp", "label": "P&L%", "fmt": "pct+", "vis": PUB, "align": "r"},
-    {"k": "p1y", "label": "1Y", "fmt": "spark", "vis": PUB},
+    {"k": "p1y", "label": "1Y", "fmt": "spark", "vis": PUB, "lo": True},
 ]
 
 

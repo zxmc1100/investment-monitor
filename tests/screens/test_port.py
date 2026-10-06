@@ -395,3 +395,9 @@ def test_a_line_quoted_in_another_currency_is_warned_about(frozen, tmp_path, mon
 
 def test_the_context_dates_the_first_trade_dd_mon_yy(frozen, tmp_path):
     assert build(tmp_path)["context"]["text"].endswith(" · EUR · SINCE 06 JAN 25")
+
+
+def test_positions_give_up_shares_and_average_cost_before_scrolling_sideways(frozen, tmp_path):
+    cols = {c["k"]: c for c in panel(build(tmp_path), "positions")["cols"]}
+    assert cols["shrs"].get("lo") and cols["avg"].get("lo")
+    assert not any(cols[k].get("lo") for k in ("tkr", "value", "wt", "pnl", "pnlp"))

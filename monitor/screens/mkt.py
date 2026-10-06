@@ -155,13 +155,13 @@ def _day(q: dict | None) -> float | None:
 
 # ── panels ───────────────────────────────────────────────────────────────────
 
-BOARD_COLS = [{"k": "n", "label": "#", "fmt": "int", "vis": PUB, "align": "r"},
+BOARD_COLS = [{"k": "n", "label": "#", "fmt": "int", "vis": PUB, "align": "r", "lo": True},
               {"k": "name", "label": "NAME", "fmt": "text", "vis": PUB},
               {"k": "lvl", "label": "LAST", "fmt": "num:2", "vis": PUB, "align": "r"},
               {"k": "day", "label": "DAY", "fmt": "pct+:2", "vis": PUB, "align": "r"},
-              {"k": "w1", "label": "1W", "fmt": "pct+", "vis": PUB, "align": "r"},
+              {"k": "w1", "label": "1W", "fmt": "pct+", "vis": PUB, "align": "r", "lo": True},
               {"k": "ytd", "label": "YTD", "fmt": "pct+", "vis": PUB, "align": "r"},
-              {"k": "spark", "label": "1Y", "fmt": "spark", "vis": PUB, "lo": True}]   # lo: hidden in a narrow panel
+              {"k": "spark", "label": "1Y", "fmt": "spark", "vis": PUB, "lo": True}]   # lo: give way in a narrow panel
 
 
 def _board(pid: str, title: str, n: int, span: int, rows_def, q: dict, d: dict) -> dict:
@@ -331,7 +331,7 @@ def _my_sectors(q: dict, d: dict) -> dict:
             {"k": "wt", "label": "WT", "fmt": "pct", "vis": PUB, "align": "r"},
             {"k": "etf", "label": "ETF", "fmt": "tkr", "vis": PUB, "lo": True},
             {"k": "eday", "label": "DAY", "fmt": "pct+", "vis": PUB, "align": "r"},
-            {"k": "e1m", "label": "1M", "fmt": "pct+", "vis": PUB, "align": "r"},
+            {"k": "e1m", "label": "1M", "fmt": "pct+", "vis": PUB, "align": "r", "lo": True},
             {"k": "eytd", "label": "YTD", "fmt": "pct+", "vis": PUB, "align": "r"},
             {"k": "myday", "label": "MY DAY", "fmt": "pct+", "vis": PUB, "align": "r"}]
     return {"id": "sectors", "n": 8, "title": "MY SECTORS", "type": "table", "span": 3, "vis": PUB,

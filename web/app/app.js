@@ -12,7 +12,7 @@ import { canNorm } from "./ranges.js";
 import { followsLater } from "./render/table.js";
 import { renderPanel } from "./render/index.js";
 import { changesHash, hashOf, keyOf, popBack, pushBack, routeOf } from "./route.js";
-import { metaBadges } from "./status.js";
+import { fitHidden, metaBadges } from "./status.js";
 import { nextSortCol } from "./tablesort.js";
 import { freshText, removable, replaceText, rowLine, stands, undoText } from "./ask.js";
 import { describe, editValues, fmtQty, todayIso, tradeFrom } from "./trades.js";
@@ -58,6 +58,7 @@ async function boot() {
   try { S.reg = await registry(); } catch (e) { notice(`REGISTRY FAILED: ${api.why(e)}`, true); return; }
   if (S.reg.settings_error) notice(S.reg.settings_error, true);
   renderFkeys();
+  new ResizeObserver(() => fitStatus()).observe($("#status"));      // window resized, a notice came or went
   api.subscribe(onEvent);
   syncAlerts();
   syncBuilds();
@@ -499,28 +500,43 @@ function tickClock() {
   if (el) el.textContent = fmtClock(new Date());
 }
 
+// What the status line drops first when the window is narrow (status.fitHidden): the clock, then the tier
+// times, … — the alert badge and LIVE / OFFLINE stay.
+const PRIO = { clock: 10, tier: 20, code: 30, meta: 50, build: 60, err: 80, alert: 90, live: 100 };
+
 function renderStatus() {
   const meta = S.payload?.meta ?? {}, live = S.live ?? {}, out = [];
+  const item = (p, attrs, text) => out.push(`<span data-p="${PRIO[p]}" ${attrs}>${text}</span>`);
   const b = badge(S.alerts.active, S.alerts.down);
-  if (b) out.push(`<span class="badge ${b.cls}" data-act="alerts" title="click: ALRT · ACK ALL clears">${esc(b.text)}</span>`);
-  if (S.alertErr && S.id !== "ALRT") out.push(`<span class="dn" title="${esc(S.alertErr)}">ERR ALRT</span>`);
-  for (const b of buildBadges(S.builds)) out.push(`<span class="${b.cls}">${esc(b.text)}</span>`);
-  if (S.reg.settings_error) out.push(`<span class="dn" title="${esc(S.reg.settings_error)}">SETTINGS ERR</span>`);
+  if (b) item("alert", `class="badge ${b.cls}" data-act="alerts" title="click: ALRT · ACK ALL clears"`, esc(b.text));
+  if (S.alertErr && S.id !== "ALRT") item("err", `class="dn" title="${esc(S.alertErr)}"`, "ERR ALRT");
+  for (const b of buildBadges(S.builds)) item("build", `class="${b.cls}"`, esc(b.text));
+  if (S.reg.settings_error) item("err", `class="dn" title="${esc(S.reg.settings_error)}"`, "SETTINGS ERR");
   for (const [t, at] of Object.entries(meta.tiers ?? {})) {
-    out.push(`<span class="dim" title="${esc(t.toUpperCase())} tier computed">${t[0].toUpperCase()} ${esc(fmtStamp(at))}</span>`);
+    item("tier", `class="dim" title="${esc(t.toUpperCase())} tier computed"`, `${t[0].toUpperCase()} ${esc(fmtStamp(at))}`);
   }
-  for (const m of metaBadges(meta)) out.push(`<span class="${m.cls}" title="${esc(m.title ?? "")}">${esc(m.text)}</span>`);
-  if (live.code_changed) out.push(`<span class="am">CODE CHANGED · RECOMPUTING</span>`);
-  if (live.error) out.push(`<span class="dn err" data-act="err" title="${esc(live.error.error ?? "")}">ERR ${esc(S.id ?? "")} ${esc((live.error.tier ?? "").toUpperCase())}</span>`);
-  if (api.isStatic) out.push(`<span class="dim">STATIC SNAPSHOT ${esc(fmtStamp(meta.computed_at))}</span>`);
-  else if (!S.conn) out.push(`<span class="dn">● OFFLINE</span>`);
-  else if (S.running.size) out.push(`<span class="am pulse">● UPDATING ${esc([...S.running].join("+").toUpperCase())}</span>`);
-  else out.push(`<span class="am">● LIVE</span>`);
-  out.push(`<span id="clock"></span>`);
+  for (const m of metaBadges(meta)) item("meta", `class="${m.cls}" title="${esc(m.title ?? "")}"`, esc(m.text));
+  if (live.code_changed) item("code", `class="am"`, "CODE CHANGED · RECOMPUTING");
+  if (live.error) item("err", `class="dn err" data-act="err" title="${esc(live.error.error ?? "")}"`, `ERR ${esc(S.id ?? "")} ${esc((live.error.tier ?? "").toUpperCase())}`);
+  if (api.isStatic) item("live", `class="dim"`, `STATIC SNAPSHOT ${esc(fmtStamp(meta.computed_at))}`);
+  else if (!S.conn) item("live", `class="dn"`, "● OFFLINE");
+  else if (S.running.size) item("live", `class="am pulse"`, `● UPDATING ${esc([...S.running].join("+").toUpperCase())}`);
+  else item("live", `class="am"`, "● LIVE");
+  item("clock", `id="clock"`, "");
   $("#status").innerHTML = out.join("");
   tickClock();
+  fitStatus();
   $("#status [data-act=err]")?.addEventListener("click", showError);
   $("#status [data-act=alerts]")?.addEventListener("click", () => run("ALERTS"));
+}
+
+// The status line never pushes the page sideways: whole items it has no room for are hidden.
+function fitStatus() {
+  const el = $("#status"), items = [...el.children];
+  for (const c of items) c.hidden = false;
+  const gap = parseFloat(getComputedStyle(el).columnGap) || 0;
+  const hide = fitHidden(items.map((c) => ({ p: Number(c.dataset.p ?? 0), w: c.getBoundingClientRect().width })), el.clientWidth, gap);
+  items.forEach((c, i) => { c.hidden = hide.has(i); });
 }
 
 function renderFkeys() {

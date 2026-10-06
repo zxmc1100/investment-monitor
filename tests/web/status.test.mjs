@@ -17,3 +17,14 @@ test("currency warnings: ready lines, or {ticker: currency} grouped per currency
   for (const none of [undefined, null, [], {}, "x", 3, [null, 2]]) assert.deepEqual(warnBadges(none), [], String(none));
   assert.deepEqual(metaBadges({ stale: { "SAP.DE": null }, warn: { AAPL: "USD" } }).map((b) => b.text), ["NO PRICE SAP.DE", "CCY USD: AAPL"]);
 });
+
+test("the status line fits its room by dropping whole items, least important first; the most important always stay", async () => {
+  const { fitHidden } = await import("../../web/app/status.js");
+  // ALERT(90) Q(20) D(20) CODE(30) LIVE(100) CLOCK(10), gap 12
+  const items = [{ p: 90, w: 60 }, { p: 20, w: 110 }, { p: 20, w: 110 }, { p: 30, w: 180 }, { p: 100, w: 50 }, { p: 10, w: 120 }];
+  const all = 60 + 110 + 110 + 180 + 50 + 120 + 5 * 12;
+  assert.deepEqual([...fitHidden(items, all, 12)], []);                        // fits: nothing hidden
+  assert.deepEqual([...fitHidden(items, all - 1, 12)].sort(), [5]);            // the clock goes first
+  assert.deepEqual([...fitHidden(items, 300, 12)].sort(), [2, 3, 5]);          // CODE CHANGED, D go; Q fits back
+  assert.deepEqual([...fitHidden(items, 10, 12)].sort(), [1, 2, 3, 5]);        // ALERT and LIVE never drop
+});
