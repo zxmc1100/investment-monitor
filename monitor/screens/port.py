@@ -33,10 +33,10 @@ DEPS = ("monitor.config", "monitor.screens.port", "monitor.screens.common", "mon
         "monitor.data.buffer", "monitor.data.yahoo", "monitor.data.instruments", "monitor.screens.identity",
         "monitor.universe.lookup", "monitor.portfolio.dividends", "monitor.data.nasdaq")
 
-# {tax} and {fee} are filled from the settings in effect when the payload assembles (help_entries)
+# {tax}, {taxed} and {fee} are filled from the settings in effect when the payload assembles (help_entries)
 HELP = [
     {"h": "ROI", "vis": PUB, "body": "Total P&L divided by every euro ever spent on buys. Sale "
-     "proceeds and dividends received (after {tax} % dividend tax) count as "
+     "proceeds and dividends received (after {taxed}) count as "
      "cash, so selling never reads as a loss. Bonus shares (Saveback) cost nothing, so their value "
      "is gain. Interest on cash is not included. Cumulative; ignores timing."},
     {"h": "XIRR /YR", "vis": PUB, "body": "Money-weighted annual return on your dated cash flows "
@@ -64,7 +64,7 @@ HELP = [
      "as a gain or a loss. Benchmarks are then their own total return in EUR less the order fees; your "
      "line is your holdings, as YTD TWR (over a calendar year it is YTD TWR at the last close)."},
     {"h": "DIVIDENDS", "vis": PRIV, "body": "Each dividend with its ex date (who gets it: the shares you held "
-     "before that day), its pay date (when the money arrives) and the net after {tax} % tax. NEXT: the next ex "
+     "before that day), its pay date (when the money arrives) and the net after {taxed}. NEXT: the next ex "
      "date from Yahoo's calendar, per share its last. DUE: the ex date has passed, the money is not in yet. PAID: "
      "the last 12 months. Exact dates and amounts come from your broker: TRADES → IMPORT CSV FILE… with a Trade "
      "Republic export writes them to input/dividends.csv (you can add an announced payment there too, with its "
@@ -108,7 +108,9 @@ POS_COLS = [
 
 def help_entries() -> list[dict]:
     """HELP with today's settings filled in (settings.toml can change while the server runs)."""
-    vals = {"tax": f"{config.DIVIDEND_TAX * 100:g}", "fee": f"{config.ORDER_FEE_EUR:g}"}
+    taxed = ("what the company's home country withholds (your tax-free allowance covers the German tax)"
+             if config.TAX_FREE_ALLOWANCE else f"{config.DIVIDEND_TAX * 100:g} % dividend tax")
+    vals = {"tax": f"{config.DIVIDEND_TAX * 100:g}", "taxed": taxed, "fee": f"{config.ORDER_FEE_EUR:g}"}
     return [{**h, "body": h["body"].format(**vals)} for h in HELP]
 
 

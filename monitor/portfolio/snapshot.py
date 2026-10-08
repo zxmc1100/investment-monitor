@@ -23,7 +23,7 @@ from monitor.data.buffer import (cached_dividends, cached_events, cached_market_
 from monitor.data.instruments import BENCHMARKS
 from monitor.portfolio import equity_log
 from monitor.portfolio.analytics import build_roi_timeseries, compute_quant_metrics, twr_index, xirr
-from monitor.portfolio.dividends import cash, combine
+from monitor.portfolio.dividends import cash, combine, withholding_rates
 from monitor.portfolio.ledger import compute_portfolio_summary, load_interest, load_paid_dividends, parse_portfolio
 
 log = logging.getLogger(__name__)
@@ -106,7 +106,8 @@ def dividend_records(book: dict, *, force: bool = False, buffer_dir: Path | None
                 for t, evs in events.items() for e in evs if e["kind"] == "EX-DIV"}
     return combine(book["transactions"], cached_dividends(tickers, force=force, buffer_dir=buffer_dir),
                    book.get("paid_dividends", []), calendar, tax=config.DIVIDEND_TAX,
-                   homes=cached_pay_dates(None, buffer_dir=buffer_dir))
+                   homes=cached_pay_dates(None, buffer_dir=buffer_dir),
+                   withholding=withholding_rates(config.WITHHOLDING) if config.TAX_FREE_ALLOWANCE else None)
 
 
 def dividends(book: dict, *, force: bool = False, buffer_dir: Path | None = None) -> list[dict]:

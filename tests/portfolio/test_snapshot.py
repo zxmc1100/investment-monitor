@@ -194,3 +194,21 @@ def test_daily_tier_fails_when_a_quoted_line_has_no_history(env, monkeypatch):
     _history_without(monkeypatch, "BBB.F")                   # a throttle that drops one line
     with pytest.raises(PriceHistoryError, match="BBB.F"):
         S.daily_tier(book, buffer_dir=env)
+
+
+def test_a_tax_free_allowance_taxes_each_estimate_at_its_homes_withholding(monkeypatch, tmp_path):
+    """settings tax_free_allowance → combine gets the home withholding (yours over the built-in table); without
+    it, none: every estimate keeps the flat dividend tax."""
+    from monitor import config
+    from monitor.portfolio import snapshot
+    seen = []
+    monkeypatch.setattr(snapshot, "combine", lambda *a, **k: seen.append(k) or [])
+    monkeypatch.setattr(snapshot, "cached_dividends", lambda *a, **k: {})
+    book = {"transactions": [{"date": "2026-01-05", "ticker": "AAA.F", "action": "buy", "shares": 1.0,
+                              "price": 10.0, "pps": 10.0}], "holdings": {}}
+    snapshot.dividend_records(book, buffer_dir=tmp_path)
+    monkeypatch.setattr(config, "TAX_FREE_ALLOWANCE", True)
+    monkeypatch.setattr(config, "WITHHOLDING", {"Taiwan": 0.2})
+    snapshot.dividend_records(book, buffer_dir=tmp_path)
+    assert seen[0]["withholding"] is None and seen[0]["tax"] == config.DIVIDEND_TAX
+    assert seen[1]["withholding"]["Taiwan"] == 0.2 and seen[1]["withholding"]["United States"] == 0.15

@@ -18,6 +18,16 @@ savings_plan_tickers = []
 # account. 0.26375 = German flat tax 25 % plus solidarity surcharge (no church tax).
 dividend_tax = 0.26375
 
+# Your tax-free allowance (Freistellungsauftrag) covers the German tax on your dividends: then only what
+# the company's home country withholds is taken — 15 % for a US or Dutch company, 21 % Taiwan, 26 % Italy,
+# none for a UK company or a fund, … A home the terminal has no rate for keeps dividend_tax. Your
+# broker's own dividend rows (TRADES import) are exact either way.
+tax_free_allowance = false
+
+# Your rates for a home country, when your statement shows another (they replace the built-in ones).
+[withholding]
+# "Taiwan" = 0.21
+
 # The ticker in your CSV -> Yahoo ticker, for a line Yahoo prices badly under its own symbol
 # (same ISIN on a better-quoted euro exchange; prices are taken as euros).
 [tickers]

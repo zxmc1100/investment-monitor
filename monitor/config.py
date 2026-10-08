@@ -39,6 +39,19 @@ def _tickers(v):
     return tuple(t.strip() for t in v)
 
 
+def _bool(v):
+    if not isinstance(v, bool):
+        raise ValueError("must be true or false")
+    return v
+
+
+def _rates(v):
+    if not isinstance(v, dict) or not all(isinstance(x, (int, float)) and not isinstance(x, bool) and 0 <= x < 1
+                                          for x in v.values()):
+        raise ValueError('must be a table of "Country" = fraction lines, e.g. "Taiwan" = 0.21')
+    return {str(k).strip(): float(x) for k, x in v.items()}
+
+
 def _table(v):
     if not isinstance(v, dict) or not all(isinstance(x, str) and x.strip() for x in v.values()):
         raise ValueError('must be a table of "TICKER" = "text" lines')
@@ -50,6 +63,8 @@ _SETTINGS = {
     "order_fee_eur": (1.0, _number(0, None, "must be a number >= 0")),
     "savings_plan_tickers": ((), _tickers),
     "dividend_tax": (0.26375, _number(0, 1, "must be a fraction between 0 and 1, e.g. 0.26375")),
+    "tax_free_allowance": (False, _bool),   # true: an estimate loses only its home's withholding
+    "withholding": ({}, _rates),            # country -> the rate its companies' dividends are withheld at
     "tickers": ({}, _table),
     "isins": ({}, _table),                  # ISIN -> ticker, for a broker export the terminal cannot place
     "names": ({}, _table),
@@ -91,7 +106,8 @@ def load_settings(path: Path, explicit: bool = False) -> tuple[dict, str | None]
 
 # module constant -> settings key; refresh_settings() re-binds them all
 _CONSTANTS = {"ORDER_FEE_EUR": "order_fee_eur", "SAVINGS_PLAN_TICKERS": "savings_plan_tickers",
-              "DIVIDEND_TAX": "dividend_tax"}
+              "DIVIDEND_TAX": "dividend_tax", "TAX_FREE_ALLOWANCE": "tax_free_allowance",
+              "WITHHOLDING": "withholding"}
 _on_settings: list = []                   # merge hooks (instruments / meta maps), run after each (re-)read
 _settings_stamp = None                    # (mtime_ns, size) of SETTINGS_FILE when last read
 
@@ -157,6 +173,10 @@ SAVINGS_PLAN_TICKERS: tuple = ()    # savings-plan executions carry no order fee
 # Default: German Abgeltungsteuer incl. Soli; foreign withholding is credited against it — what lands
 # in the account, approximately (settings: dividend_tax).
 DIVIDEND_TAX: float = 0.26375
+# Your tax-free allowance covers the German tax: an estimate loses only what the company's home country withholds
+# (portfolio.dividends.HOME_WITHHOLDING, overlaid with yours — settings: tax_free_allowance, [withholding]).
+TAX_FREE_ALLOWANCE: bool = False
+WITHHOLDING: dict = {}
 refresh_settings(force=True)
 
 # Optimizer

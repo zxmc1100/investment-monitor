@@ -72,7 +72,7 @@ Excel's `;` with a decimal comma works; a thousands separator (`1.234,56`) is re
 the row. Tickers are Yahoo's, of a **EUR listing** (`SAP.DE`, `ASML.AS`, `AIR.PA`, `ENEL.MI` …).
 
 Optional: `input/interest.csv` (`Date,Amount`, interest on cash — shown, never part of ROI) and
-`input/settings.toml` (order fee, savings-plan tickers, dividend tax, name/sector overrides — every key is
+`input/settings.toml` (order fee, savings-plan tickers, dividend tax or tax-free allowance, name/sector overrides — every key is
 documented in `examples/settings.example.toml`; edits apply without a restart). Names, sectors and
 countries of your holdings are looked up automatically. More in `examples/README.md`.
 

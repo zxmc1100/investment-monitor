@@ -41,6 +41,7 @@ def test_missing_file_gives_the_defaults(tmp_path):
     s, err = load_settings(tmp_path / "nope.toml")
     assert err is None
     assert s == {"order_fee_eur": 1.0, "savings_plan_tickers": (), "dividend_tax": 0.26375,
+                 "tax_free_allowance": False, "withholding": {},
                  "tickers": {}, "isins": {}, "names": {}, "sectors": {}, "countries": {}}
 
 
@@ -159,3 +160,14 @@ def test_sectors_and_countries_from_settings_speak_the_books_vocabulary(settings
 def test_the_example_header_tells_how_errors_fall_back():
     text = (REPO / "examples" / "settings.example.toml").read_text(encoding="utf-8")
     assert "syntax error" in text and "every key" in text and "falls back to its default alone" in text
+
+
+def test_a_tax_free_allowance_and_your_withholding_rates(tmp_path):
+    s, err = load_settings(_write(tmp_path, 'tax_free_allowance = true\n[withholding]\n"Taiwan" = 0.21\n"Brazil" = 0\n'))
+    assert err is None and s["tax_free_allowance"] is True and s["withholding"] == {"Taiwan": 0.21, "Brazil": 0.0}
+
+
+def test_a_bad_allowance_or_rate_falls_back_and_is_named(tmp_path):
+    s, err = load_settings(_write(tmp_path, 'tax_free_allowance = "yes"\n[withholding]\n"Taiwan" = 21\n'))
+    assert s["tax_free_allowance"] is False and s["withholding"] == {}
+    assert "tax_free_allowance" in err and "withholding" in err

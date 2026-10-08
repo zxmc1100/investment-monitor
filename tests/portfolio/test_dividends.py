@@ -153,3 +153,36 @@ def test_the_next_dividend_takes_the_home_lines_announced_pay_date():
     r = by(with_homes({"AAA.F": {"country": US, "pairs": [["2025-12-10", "2026-01-02"]]}}, cal=cal),
            "AAA.F", "2025-12-10")
     assert (r["status"], r["pay"], r["pay_est"]) == ("UPCOMING", "2026-01-02", False)
+
+
+# ── what is withheld: one flat rate, or the home country's withholding under a tax-free allowance ─────────────
+
+def test_without_rates_every_estimate_is_taxed_at_the_flat_rate():
+    r = by(with_homes({"AAA.F": {"country": US, "pairs": []}}, paid=[]), "AAA.F", "2025-09-16")
+    assert r["net"] == pytest.approx(r["gross"] * (1 - 0.26375)) and r["tax"] == pytest.approx(r["gross"] * 0.26375)
+
+
+def test_with_a_tax_free_allowance_an_estimate_loses_only_its_home_countrys_withholding():
+    """A German account whose allowance covers the German tax keeps all but what the company's home withheld:
+    15 % for a US company, 26 % for an Italian one — every estimate (paid, announced, upcoming), never a broker
+    row; the country is matched whatever its case; one in no table keeps the flat rate."""
+    homes = {"AAA.F": {"country": US, "pairs": []}, "BBB.MI": {"country": ITALY, "pairs": []}}
+    rates = {"united states": 0.15, "Italy": 0.26}
+    recs = combine(TX, PER_SHARE, PAID, CAL, today=TODAY, tax=0.26375, homes=homes, withholding=rates)
+    est = by(recs, "AAA.F", "2025-09-16")
+    assert est["net"] == pytest.approx(est["gross"] * 0.85)
+    assert by(recs, "AAA.F", "2025-03-18")["net"] == 4.42                     # the broker's own number stands
+    nxt = next(r for r in recs if r["ticker"] == "BBB.MI" and r["status"] == "UPCOMING")
+    assert nxt["net"] == pytest.approx(nxt["gross"] * 0.74)
+    other = combine(TX, PER_SHARE, [], {}, today=TODAY, tax=0.26375, withholding=rates,
+                    homes={"AAA.F": {"country": "Atlantis", "pairs": []}})
+    r = by(other, "AAA.F", "2025-09-16")
+    assert r["net"] == pytest.approx(r["gross"] * (1 - 0.26375))
+
+
+def test_the_built_in_withholding_knows_the_common_homes():
+    from monitor.portfolio.dividends import HOME_WITHHOLDING, withholding_rates
+    assert HOME_WITHHOLDING["Taiwan"] == 0.21 and HOME_WITHHOLDING["United Kingdom"] == 0.0
+    assert HOME_WITHHOLDING["Unknown"] == 0.0               # a fund: looked through, no single home; UCITS pay gross
+    mine = withholding_rates({"Taiwan": 0.2, "Brazil": 0.15})
+    assert mine["Taiwan"] == 0.2 and mine["Brazil"] == 0.15 and mine["United States"] == 0.15

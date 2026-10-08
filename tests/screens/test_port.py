@@ -507,3 +507,11 @@ def test_a_quote_part_from_yesterday_is_not_drawn_on_today(monkeypatch, tmp_path
         roi = panel(port.assemble(parts, dict(META)), "roi")
     assert dt.datetime.fromtimestamp(roi["x"][-1], dt.UTC).date() == dt.date(2026, 6, 29)
     assert roi["series"][0]["y"][-1] == pytest.approx(parts["quote"]["acct"]["simple_roi"])
+
+
+def test_help_says_how_dividends_are_taxed(monkeypatch):
+    from monitor import config
+    body = lambda h: next(e["body"] for e in port.help_entries() if e["h"].startswith(h))   # noqa: E731
+    assert "net after 26.375 % dividend tax" in body("DIVIDENDS")
+    monkeypatch.setattr(config, "TAX_FREE_ALLOWANCE", True)
+    assert "home country withholds" in body("DIVIDENDS") and "26.375" not in body("DIVIDENDS")

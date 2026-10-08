@@ -19,6 +19,10 @@ estimated ("~"): another company's US-line date, else the ex date plus the gap t
 Austria, Belgium, Portugal — else the gap your other lines' took, else unknown — then the ex date stands in, as
 before pay dates were known.
 
+Net: a broker's row is exact. An estimate loses the dividend tax (settings: dividend_tax) — or, when your
+tax-free allowance covers the German tax (tax_free_allowance), only what the company's home country withholds
+(HOME_WITHHOLDING, overlaid with your [withholding]); a home in neither keeps the dividend tax.
+
 Status: PAID (paid, or its pay date has come), DUE (ex date passed, pay date still ahead), UPCOMING (ex date
 ahead). Only PAID is cash (`cash`): ROI, XIRR, YTD and ACCOUNTING's dividends count it on its pay date."""
 from __future__ import annotations
@@ -33,6 +37,22 @@ US = "United States"
 EX_NEAR = 3                                # days a home line's ex date may differ from this line's: the same dividend
 # homes whose market pays two business days after the ex date (record date the day after, payment the day after that)
 T2_HOMES = {"Germany", "France", "Italy", "Spain", "Switzerland", "Austria", "Belgium", "Portugal"}
+# What a home country withholds from a dividend paid to a German-resident account at a broker that files the
+# usual forms (the US W-8BEN): the statutory rate for a foreign individual, or the treaty rate brokers apply.
+# Yours win (settings [withholding]) — your broker's statement is the reference.
+HOME_WITHHOLDING = {
+    "United States": 0.15, "Canada": 0.25, "United Kingdom": 0.0, "Ireland": 0.25, "Netherlands": 0.15,
+    "Germany": 0.0,                    # with the allowance no German tax is withheld at all
+    "France": 0.128, "Italy": 0.26, "Spain": 0.19, "Portugal": 0.25, "Belgium": 0.30, "Luxembourg": 0.15,
+    "Austria": 0.275, "Switzerland": 0.35, "Denmark": 0.27, "Sweden": 0.30, "Norway": 0.25, "Finland": 0.35,
+    "Japan": 0.15315, "South Korea": 0.22, "Taiwan": 0.21, "China": 0.10, "Hong Kong": 0.0, "Australia": 0.30,
+    "Unknown": 0.0,                    # a fund (looked through, no single home): UCITS funds pay out gross
+}
+
+
+def withholding_rates(yours: dict[str, float] | None = None) -> dict[str, float]:
+    """HOME_WITHHOLDING overlaid with your rates (settings [withholding])."""
+    return {**HOME_WITHHOLDING, **(yours or {})}
 
 
 def _held(trades: list[dict], before: str) -> float:
@@ -56,10 +76,13 @@ def _days(a: str, b: str) -> int:
 
 
 def combine(transactions: list[dict], per_share: dict[str, list], paid: list[dict], calendar: dict[str, dict],
-            *, today: date | None = None, tax: float, homes: dict[str, dict] | None = None) -> list[dict]:
+            *, today: date | None = None, tax: float, homes: dict[str, dict] | None = None,
+            withholding: dict[str, float] | None = None) -> list[dict]:
     """Every dividend record: {ticker, ex, pay, pay_est, shares, per_share, gross, tax, net, status, source, date}.
     per_share: {ticker: [[ex_iso, amount], ...]} (Yahoo); paid: [{pay, ticker, shares, gross, tax, net}] (broker);
-    calendar: {ticker: {ex, pay, amount}} (Yahoo's next ex date); tax: the rate an estimate is taxed at;
+    calendar: {ticker: {ex, pay, amount}} (Yahoo's next ex date); tax: the rate an estimate is taxed at — or,
+    with `withholding` ({country: rate}, any case; a tax-free allowance), the rate of its line's home country,
+    `tax` for a home not in it;
     homes: {ticker: {country, pairs: [[ex, pay], ...]}} — the company's home country and its home line's real
     ex/pay dates (data.buffer.cached_pay_dates). `date` is the day it is cash: the pay date, or the ex date when no
     pay date is known."""
@@ -89,9 +112,11 @@ def combine(transactions: list[dict], per_share: dict[str, list], paid: list[dic
     # a line paid before: its own gap from ex date to pay; one never paid: the gap your other lines' took
     every = [g for *_, gaps in lines.values() for g in gaps]
     usual = median(every) if every else None
+    rates = {str(k).lower(): v for k, v in (withholding or {}).items()}
 
     for tk, (trades, left, entitled, matched, gaps) in lines.items():
         home = (homes or {}).get(tk) or {}
+        tax_rate = tax if withholding is None else rates.get(str(home.get("country") or "").lower(), tax)
         pairs = [(e, p) for e, p in home.get("pairs") or [] if p >= e]
         own = gaps or [_days(e, p) for e, p in pairs]
         cal = calendar.get(tk) or {}
@@ -123,13 +148,13 @@ def combine(transactions: list[dict], per_share: dict[str, list], paid: list[dic
             if p is not None:                                  # announced: the day known, the amount Yahoo's
                 gross = held * amount
                 out.append({"ticker": tk, "ex": ex, "pay": p["pay"], "pay_est": False, "shares": held,
-                            "per_share": amount, "gross": gross, "tax": gross * tax, "net": gross * (1 - tax),
+                            "per_share": amount, "gross": gross, "tax": gross * tax_rate, "net": gross * (1 - tax_rate),
                             "status": status(p["pay"]), "source": "ANNOUNCED"})
                 continue
             pay, est = pay_of(ex)
             gross = held * amount
             out.append({"ticker": tk, "ex": ex, "pay": pay, "pay_est": est, "shares": held, "per_share": amount,
-                        "gross": gross, "tax": gross * tax, "net": gross * (1 - tax),
+                        "gross": gross, "tax": gross * tax_rate, "net": gross * (1 - tax_rate),
                         "status": "DUE" if pay and pay > iso else "PAID", "source": "YAHOO"})
         announced = [p for p in left if p["net"] is None]      # a day without an amount: the next one's, if any
         for p in left:                                     # paid, but Yahoo never listed it
@@ -146,7 +171,7 @@ def combine(transactions: list[dict], per_share: dict[str, list], paid: list[dic
                 pay, est = pay_of(cal["ex"], next((p["pay"] for p in announced if p["pay"] >= cal["ex"]), None))
                 gross = now * amount
                 out.append({"ticker": tk, "ex": cal["ex"], "pay": pay, "pay_est": est, "shares": now,
-                            "per_share": amount, "gross": gross, "tax": gross * tax, "net": gross * (1 - tax),
+                            "per_share": amount, "gross": gross, "tax": gross * tax_rate, "net": gross * (1 - tax_rate),
                             "status": "UPCOMING", "source": "CALENDAR"})
     for r in out:
         r["date"] = r["pay"] or r["ex"]
