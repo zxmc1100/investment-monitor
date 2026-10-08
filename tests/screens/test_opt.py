@@ -120,7 +120,8 @@ def test_infeasible_portfolio_ticket_says_so(parts):
 def test_ticket_choices_never_reach_the_public_view(parts):
     pub = public_view(opt.assemble(parts, dict(META)))
     assert "ticket" not in [q["id"] for q in pub["panels"]]
-    assert "rows_by_key" not in json.dumps(pub) and "€" not in json.dumps(pub)
+    # only REBALANCE? keeps its per-portfolio rows in public (public columns, no header); never a ticket, never €
+    assert [q["id"] for q in pub["panels"] if "rows_by_key" in q] == ["verdict"] and "€" not in json.dumps(pub)
 
 
 def test_weights_name_a_holding_from_the_tr_universe(tmp_path, monkeypatch):
@@ -216,3 +217,17 @@ def test_a_failed_what_if_keeps_the_last_good_one_marked_stale(tmp_path, monkeyp
     p = opt.assemble(parts, dict(META))
     assert panel(p, "path")["context"]["text"].startswith("STALE — LAST GOOD")
     assert panel(p, "verdict")["rows_by_key"]["HRP"]["rows"]
+
+
+
+def test_the_public_verdict_follows_the_public_cursor_and_carries_no_euros(parts):
+    """The public view keeps each portfolio's verdict rows (public columns only, no € header) and where the cursor
+    starts — else it showed the TARGET's verdict under whichever row the cursor started on."""
+    p = opt.assemble(parts, dict(META))
+    pub = public_view(p)
+    assert panel(pub, "portfolios")["cursor"] == "HRP"
+    v = panel(pub, "verdict")
+    assert set(v["rows_by_key"]) == {"NOW", *config.PORTFOLIOS}
+    rows = v["rows_by_key"]["MINVAR"]["rows"]
+    assert [r["h"] for r in rows] and all(set(r) <= {"h", "p", "be", "verdict", "risk"} for r in rows)
+    assert all(b["context"] == "" for b in v["rows_by_key"].values()) and "€" not in json.dumps(v)

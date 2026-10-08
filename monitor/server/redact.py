@@ -14,7 +14,7 @@ import copy
 PUBLIC = "public"
 _PANEL_KEYS = ("id", "n", "title", "type", "span", "rows_span", "key", "sort", "drives",
                "follows", "ranges", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels",
-               "horizons", "horizon", "today_idx")
+               "horizons", "horizon", "today_idx", "cursor")
 _NODE_KEYS = ("k", "label", "v", "v2", "fmt", "vis", "align", "op", "sep", "strong", "h", "body",
               "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide", "hi", "color", "dash", "nolegend", "at")
 _LISTS = {"kpi": "items", "ledger": "lines", "bars": "items", "scatter": "series"}
@@ -54,16 +54,12 @@ def _nodes(nodes) -> list[dict]:
     return out
 
 
-def _table(p: dict, out: dict) -> dict | None:
-    cols = _nodes(p.get("cols"))
-    # Only keep columns with str keys
-    keep = [c["k"] for c in cols if isinstance(c.get("k"), str)]
-    if p.get("key") not in keep:
-        return None
-    out["cols"] = [c for c in cols if isinstance(c.get("k"), str)]
-    rows = []
-    for r in p.get("rows", []):
-        if r.get("_closed"):
+def _rows(rows, keep: list[str]) -> list[dict]:
+    """`rows` with the public columns `keep` only (closed rows left out; a stale mark and per-row formats of public
+    columns kept)."""
+    out = []
+    for r in rows:
+        if not isinstance(r, dict) or r.get("_closed"):
             continue
         row = {}
         for k in keep:
@@ -79,8 +75,24 @@ def _table(p: dict, out: dict) -> dict | None:
             fmts = {k: v for k, v in fmts.items() if k in keep and isinstance(v, str)}
             if fmts:
                 row["_fmt"] = fmts
-        rows.append(row)
-    out["rows"] = rows
+        out.append(row)
+    return out
+
+
+def _table(p: dict, out: dict) -> dict | None:
+    cols = _nodes(p.get("cols"))
+    # Only keep columns with str keys
+    keep = [c["k"] for c in cols if isinstance(c.get("k"), str)]
+    if p.get("key") not in keep:
+        return None
+    out["cols"] = [c for c in cols if isinstance(c.get("k"), str)]
+    out["rows"] = _rows(p.get("rows", []), keep)
+    # a table following another's cursor (OPT's REBALANCE?): each key's rows, public columns only; their header
+    # strings may carry euros, so none travels
+    by_key = p.get("rows_by_key")
+    if p.get("follows") and isinstance(by_key, dict):
+        out["rows_by_key"] = {str(k): {"rows": _rows(v.get("rows", []), keep), "context": ""}
+                              for k, v in by_key.items() if isinstance(v, dict)}
     if p.get("total"):
         total = {}
         for k in keep:
@@ -155,7 +167,7 @@ def _panel(p: dict) -> dict | None:
         if k not in p:
             continue
         val = p[k]
-        if k in ("id", "title", "type", "key", "drives", "follows", "legend", "yfmt", "xfmt", "horizon"):
+        if k in ("id", "title", "type", "key", "drives", "follows", "legend", "yfmt", "xfmt", "horizon", "cursor"):
             if isinstance(val, str):
                 out[k] = val
         elif k in ("n", "span", "rows_span", "today_idx"):
