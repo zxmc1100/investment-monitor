@@ -154,3 +154,53 @@ def test_the_allowance_left_this_year_counts_gains_and_gross_dividends():
     divs = [{"date": "2026-05-01", "gross": 50.0, "eur": 40.0}, {"date": "2025-06-01", "gross": 70.0, "eur": 60.0}]
     assert W.allowance_left(sales, divs, year=2026, allowance=1000.0) == pytest.approx(650.0)
     assert W.allowance_left(sales * 5, divs, year=2026, allowance=1000.0) == 0.0          # never negative
+
+
+MU = np.array([0.08, 0.05])
+COV = np.array([[0.04, 0.01], [0.01, 0.02]])
+
+
+def test_the_simulation_is_seeded_and_every_portfolio_rides_the_same_paths():
+    a = W.simulate(MU, COV, {"NOW": np.array([600.0, 400.0]), "ALT": np.array([600.0, 400.0])}, paths=500)
+    b = W.simulate(MU, COV, {"NOW": np.array([600.0, 400.0])}, paths=500)
+    assert a["NOW"].shape == (500, 37) and (a["NOW"][:, 0] == 1000.0).all()
+    np.testing.assert_array_equal(a["NOW"], b["NOW"])                     # seeded
+    np.testing.assert_array_equal(a["NOW"], a["ALT"])                     # paired: same weights, same paths
+
+
+def test_zero_volatility_compounds_exactly():
+    v = W.simulate(MU, np.zeros((2, 2)), {"X": np.array([100.0, 0.0])}, paths=10)["X"]
+    assert v[:, 12] == pytest.approx(100 * np.exp(0.08))
+
+
+def test_a_singular_covariance_still_simulates():
+    v = W.simulate(MU, np.array([[0.04, 0.04], [0.04, 0.04]]), {"X": np.array([50.0, 50.0])}, paths=200)["X"]
+    assert np.isfinite(v).all()
+
+
+def test_the_verdict_against_now():
+    now = np.full((100, 13), 1000.0)
+    same = W.verdict(now, now.copy(), 12)
+    assert same["p_ahead"] == 0.0 and same["median_diff"] == 0.0 and same["label"] == "NOT WORTH IT"
+    alt = now.copy()
+    alt[:70, 1:] += 10.0
+    alt[70:, 1:] -= 5.0
+    v = W.verdict(now, alt, 12)
+    assert (v["p_ahead"], v["median_diff"], v["label"]) == (pytest.approx(0.7), 10.0, "WORTH IT")
+    alt[:55, 1:], alt[55:, 1:] = 1010.0, 995.0
+    assert W.verdict(now, alt, 12)["label"] == "MARGINAL"
+    alt[:45, 1:], alt[45:, 1:] = 1010.0, 995.0
+    assert W.verdict(now, alt, 12)["label"] == "NOT WORTH IT"
+
+
+def test_break_even_is_the_first_month_the_median_difference_turns_positive():
+    now = np.full((10, 7), 1000.0)
+    alt = now + np.array([0.0, -6.0, -4.0, -1.0, 2.0, 5.0, 8.0])           # costs paid, then ahead from month 4
+    assert W.verdict(now, alt, 6)["break_even"] == 4
+    assert W.verdict(now, now - 1.0, 6)["break_even"] is None
+
+
+def test_less_downside_is_a_risk_of_its_own():
+    now = np.linspace(800, 1200, 101)[:, None] * np.ones((1, 13))
+    alt = np.linspace(900, 1150, 101)[:, None] * np.ones((1, 13))
+    assert W.verdict(now, alt, 12)["risk"] == "LESS DOWNSIDE"

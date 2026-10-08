@@ -173,3 +173,42 @@ def switch_costs(trades: dict[str, float], prices: dict[str, float], lots: dict[
     tax = max(0.0, gain - max(0.0, allowance_left)) * tax_rate
     fees = fee * len(trades)
     return {"fees": fees, "tax": tax, "gain": gain, "total": fees + tax}
+
+
+MC_MONTHS, MC_PATHS, MC_SEED = 36, 4000, 20261008
+HORIZONS = {"6M": 6, "1Y": 12, "3Y": 36}
+WORTH_P, MARGINAL_P = 0.60, 0.50
+
+
+def simulate(mu: np.ndarray, cov: np.ndarray, starts: dict[str, np.ndarray], *, months: int = MC_MONTHS,
+             paths: int = MC_PATHS, seed: int = MC_SEED) -> dict[str, np.ndarray]:
+    """{name: (paths, months + 1) EUR values} of each buy-and-hold `starts[name]` (EUR per asset of `mu`'s
+    universe) on the SAME correlated log-normal paths: monthly log returns ~ N((μ − σ²/2)/12, Σ/12) — μ annual
+    arithmetic (BL), Σ annual; Σ's negative eigenvalues (numerical) clipped at 0. Column 0 is today. Seeded:
+    the same numbers every refresh."""
+    mu, cov = np.asarray(mu, float), np.asarray(cov, float)
+    dt = 1.0 / 12
+    vals, vecs = np.linalg.eigh(cov)
+    vals = np.clip(vals, 0.0, None)
+    root = vecs * np.sqrt(vals * dt)                                    # root @ root.T = Σ·dt
+    drift = (mu - 0.5 * (vecs ** 2 @ vals)) * dt                        # diag of the clipped Σ
+    z = np.random.default_rng(seed).standard_normal((paths, months, len(mu)))
+    logret = drift + z @ root.T
+    growth = np.exp(np.concatenate([np.zeros((paths, 1, len(mu))), np.cumsum(logret, axis=1)], axis=1))
+    return {k: growth @ np.asarray(v, float) for k, v in starts.items()}
+
+
+def verdict(now: np.ndarray, alt: np.ndarray, month: int) -> dict:
+    """`alt` vs `now` (paired paths, EUR) at `month`: p_ahead (share of paths it ends above), median_diff (EUR),
+    downside (its 5th percentile − now's: positive is a softer bad case), break_even (first month ≥ 1 whose median
+    difference is ≥ 0; None: not within the simulation), label (WORTH IT: p_ahead ≥ WORTH_P and median > 0; NOT
+    WORTH IT: p_ahead < MARGINAL_P or median ≤ 0; else MARGINAL) and risk (LESS / MORE / SAME DOWNSIDE)."""
+    d = alt[:, month] - now[:, month]
+    p, med = float((d > 0).mean()), float(np.median(d))
+    down = float(np.percentile(alt[:, month], 5) - np.percentile(now[:, month], 5))
+    meds = np.median(alt - now, axis=0)
+    be = next((m for m in range(1, alt.shape[1]) if meds[m] >= 0), None)
+    label = ("WORTH IT" if p >= WORTH_P and med > 0 else
+             "NOT WORTH IT" if p < MARGINAL_P or med <= 0 else "MARGINAL")
+    risk = "LESS DOWNSIDE" if down > 0 else "MORE DOWNSIDE" if down < 0 else "SAME DOWNSIDE"
+    return {"p_ahead": p, "median_diff": med, "downside": down, "break_even": be, "label": label, "risk": risk}
