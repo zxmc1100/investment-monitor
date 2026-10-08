@@ -41,7 +41,7 @@ def test_missing_file_gives_the_defaults(tmp_path):
     s, err = load_settings(tmp_path / "nope.toml")
     assert err is None
     assert s == {"order_fee_eur": 1.0, "savings_plan_tickers": (), "dividend_tax": 0.26375,
-                 "tax_free_allowance": False, "withholding": {},
+                 "tax_free_allowance": False, "withholding": {}, "allowance_eur": 1000.0,
                  "tickers": {}, "isins": {}, "names": {}, "sectors": {}, "countries": {}}
 
 
@@ -171,3 +171,10 @@ def test_a_bad_allowance_or_rate_falls_back_and_is_named(tmp_path):
     s, err = load_settings(_write(tmp_path, 'tax_free_allowance = "yes"\n[withholding]\n"Taiwan" = 21\n'))
     assert s["tax_free_allowance"] is False and s["withholding"] == {}
     assert "tax_free_allowance" in err and "withholding" in err
+
+
+def test_the_tax_free_allowance_amount(tmp_path):
+    s, err = load_settings(_write(tmp_path, "allowance_eur = 2000\n"))
+    assert err is None and s["allowance_eur"] == 2000.0
+    s, err = load_settings(_write(tmp_path, "allowance_eur = -5\n"))
+    assert s["allowance_eur"] == 1000.0 and "allowance_eur" in err

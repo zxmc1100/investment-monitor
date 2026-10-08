@@ -136,3 +136,40 @@ def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict
         if invested > 0:
             out[d] = (value(p) + cash_out) / invested * 100 - 100
     return pd.Series(out, dtype=float).reindex(days)
+
+
+FUND_EXEMPT = 0.30               # Teilfreistellung: 30 % of an equity fund's gain or loss is tax-free
+
+
+def allowance_left(sales: list[dict], dividends: list[dict], *, year: int, allowance: float) -> float:
+    """What is left this `year` of the tax-free `allowance` after this year's realized gains (book["sales"]) and
+    gross dividends paid (snapshot.dividends) — never below 0."""
+    y = str(year)
+    used = sum(s["pnl"] for s in sales if s["date"][:4] == y) + sum(d["gross"] for d in dividends if d["date"][:4] == y)
+    return max(0.0, allowance - used)
+
+
+def switch_costs(trades: dict[str, float], prices: dict[str, float], lots: dict[str, list], *, funds: set[str],
+                 allowance_left: float, tax_rate: float, fee: float) -> dict:
+    """{fees, tax, gain, total} in EUR: what moving into a portfolio costs today. `trades`: euros to buy (+) or
+    sell (−) per line (orders: |Δ| ≥ MIN_TRADE_EUR). Each order pays `fee`. A sale's gain is its proceeds less the
+    FIFO cost of the shares it takes (`lots`: open lots, oldest first; shares beyond them carry no gain); an equity
+    fund's gain or loss counts 70 %; losses offset gains; `allowance_left` absorbs the net gain first; the rest is
+    taxed at `tax_rate`."""
+    gain = 0.0
+    for t, d in trades.items():
+        price = prices.get(t)
+        if d >= 0 or not price:
+            continue
+        left, cost = -d / price, 0.0
+        for n, c in lots.get(t, []):
+            take = min(left, n)
+            cost += take * c
+            left -= take
+            if left <= 1e-12:
+                break
+        cost += max(0.0, left) * price
+        gain += (-d - cost) * ((1 - FUND_EXEMPT) if t in funds else 1.0)
+    tax = max(0.0, gain - max(0.0, allowance_left)) * tax_rate
+    fees = fee * len(trades)
+    return {"fees": fees, "tax": tax, "gain": gain, "total": fees + tax}

@@ -24,6 +24,10 @@ dividend_tax = 0.26375
 # broker's own dividend rows (TRADES import) are exact either way.
 tax_free_allowance = false
 
+# Your yearly tax-free allowance in euros (1000 single, 2000 joint): OPT's REBALANCE? counts what is left of it
+# this year (your realized gains and dividends so far) before it charges tax on a switch.
+allowance_eur = 1000
+
 # Your rates for a home country, when your statement shows another (they replace the built-in ones).
 [withholding]
 # "Taiwan" = 0.21
