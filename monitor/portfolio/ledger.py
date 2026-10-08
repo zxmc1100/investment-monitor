@@ -147,6 +147,8 @@ def parse_portfolio(csv_path: str | Path) -> dict:
                 avg_cost = remaining lots' cost / remaining shares
       realized: {ticker: {pnl_eur, shares_sold, proceeds}}  pnl_eur = proceeds - FIFO cost sold
       transactions: list of all rows
+      lots: {ticker: [[shares, EUR cost per share], ...]} open FIFO lots, oldest first
+      sales: [{date, ticker, pnl}] every sale's FIFO gain, in file order
     """
     path = Path(csv_path)
     return _book(path.name, *_read_csv(path, COLUMNS))
@@ -170,6 +172,7 @@ def _book(name: str, rows: list, comma: bool) -> dict:
     realized: dict[str, dict] = {}
     lots: dict[str, deque] = {}            # ticker -> deque of [shares, EUR cost per share]
     transactions = []
+    sales = []
 
     def num(text):
         return _number(text, comma)
@@ -223,6 +226,7 @@ def _book(name: str, rows: list, comma: bool) -> dict:
             r["pnl_eur"]     += price - cost_sold
             r["shares_sold"] += shares
             r["proceeds"]    += price
+            sales.append({"date": date, "ticker": ticker, "pnl": price - cost_sold})
 
             if ticker in holdings:
                 h = holdings[ticker]
@@ -238,6 +242,9 @@ def _book(name: str, rows: list, comma: bool) -> dict:
         "holdings": holdings,
         "realized": realized,
         "transactions": transactions,
+        # the open FIFO lots (oldest first) and every sale's gain — what switching to a portfolio would realize
+        "lots": {t: [list(lot) for lot in q] for t, q in lots.items() if q},
+        "sales": sales,
     }
 
 
