@@ -1,5 +1,5 @@
-"""Portfolio risk model: covariance, Black-Litterman prior, the five optimizer
-portfolios, frontier, risk contribution, correlation, concentration, beta and stress tests.
+"""Portfolio risk model: covariance, Black-Litterman prior, the optimizer
+portfolios (and the equal-weight baseline), frontier, risk contribution, correlation, concentration, beta and stress tests.
 
 Pure: callers pass buffered prices in (see snapshot.risk_inputs / long_history); nothing here
 touches the network. The portfolio recipe is pinned by a frozen parity test
@@ -20,7 +20,7 @@ from monitor.portfolio.optimizer import (annualize, black_litterman, capped_retu
                                          risk_parity, to_returns)
 
 LABELS = {"MINVAR": "Min-Var", "RP": "Risk Parity", "HRP": "HRP",
-          "BLSHARPE": "BL Max-Sharpe", "BLSAME": "BL Same-Risk"}
+          "BLSHARPE": "BL Max-Sharpe", "BLSAME": "BL Same-Risk", "EQUAL": "Equal-Weight"}
 CLOUD_POINTS = 600
 BETA_MIN_OBS = 20
 
@@ -87,6 +87,34 @@ def beta_of(prices: pd.Series, mkt_prices: pd.Series | None, days: int = 365) ->
     return _beta(a, m)
 
 
+def bl_mean(cov: pd.DataFrame, caps: dict[str, float]) -> tuple[np.ndarray, pd.Series]:
+    """(market-cap weights, Black-Litterman expected returns RF + Π) over `cov`'s lines. ETFs / missing caps get
+    the median cap (never crushed to ~0, never dominant)."""
+    universe = list(cov.index)
+    avail = [caps[t] for t in universe if t in caps]
+    fallback = float(np.median(avail)) if avail else 1.0
+    cap_vec = np.array([caps.get(t, fallback) for t in universe])
+    mkt_w = cap_vec / cap_vec.sum()
+    pi = black_litterman(cov, mkt_w, delta=config.BL_DELTA, tau=config.BL_TAU, views=config.BL_VIEWS)
+    return mkt_w, config.RF + pi
+
+
+def portfolio_weights(mean_ann: pd.Series, cov: pd.DataFrame, mean_bl: pd.Series,
+                      cur_vol: float) -> dict[str, np.ndarray | None]:
+    """Every config.PORTFOLIOS weight vector (None: infeasible) for one estimate — OPT's portfolios and the what-if
+    backtest's month-by-month ones (portfolio.whatif) come from here, so the two never differ in method. EQUAL
+    (1/N) ignores MAX_W: it is the baseline, not an optimisation."""
+    kw = dict(long_only=config.LONG_ONLY, max_w=config.MAX_W)
+    n = len(cov)
+    raw = {"MINVAR": optimize(mean_ann, cov, objective="min_var", rf=config.RF, **kw),
+           "RP": risk_parity(cov, max_w=config.MAX_W),
+           "HRP": hrp(cov),
+           "BLSHARPE": optimize(mean_bl, cov, objective="sharpe", rf=config.RF, **kw),
+           "BLSAME": max_return_at_vol(mean_bl, cov, cur_vol, **kw),
+           "EQUAL": np.full(n, 1.0 / n)}
+    return {k: raw[k] for k in config.PORTFOLIOS}
+
+
 def build_model(values: dict[str, float], history: pd.DataFrame, caps: dict[str, float],
                 *, spx: pd.Series | None) -> RiskModel:
     tickers = list(values)
@@ -100,13 +128,7 @@ def build_model(values: dict[str, float], history: pd.DataFrame, caps: dict[str,
     tot = sum(values[t] for t in universe) or 1.0
     cur_w = np.array([values[t] / tot for t in universe])
 
-    # Market-cap prior; ETFs/missing caps get the median cap (never crushed to ~0, never dominant).
-    avail = [caps[t] for t in universe if t in caps]
-    fallback = float(np.median(avail)) if avail else 1.0
-    cap_vec = np.array([caps.get(t, fallback) for t in universe])
-    mkt_w = cap_vec / cap_vec.sum()
-    pi = black_litterman(cov, mkt_w, delta=config.BL_DELTA, tau=config.BL_TAU, views=config.BL_VIEWS)
-    mean_bl = config.RF + pi
+    mkt_w, mean_bl = bl_mean(cov, caps)          # market-cap prior (see bl_mean)
     mu_bl, sig = mean_bl.values, cov.values
 
     def perf(w) -> Portfolio:
@@ -115,11 +137,7 @@ def build_model(values: dict[str, float], history: pd.DataFrame, caps: dict[str,
 
     cur = perf(cur_w)
     kw = dict(long_only=config.LONG_ONLY, max_w=config.MAX_W)
-    raw = {"MINVAR": optimize(mean_ann, cov, objective="min_var", rf=config.RF, **kw),
-           "RP": risk_parity(cov, max_w=config.MAX_W),
-           "HRP": hrp(cov),
-           "BLSHARPE": optimize(mean_bl, cov, objective="sharpe", rf=config.RF, **kw),
-           "BLSAME": max_return_at_vol(mean_bl, cov, cur.vol, **kw)}
+    raw = portfolio_weights(mean_ann, cov, mean_bl, cur.vol)
     portfolios = {k: (perf(raw[k]) if raw[k] is not None else None) for k in config.PORTFOLIOS}
 
     reach = (capped_return_range(mu_bl, config.MAX_W) if config.LONG_ONLY

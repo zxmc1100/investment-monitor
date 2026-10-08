@@ -100,3 +100,32 @@ def test_var_cvar_known_answer():
     var, cvar = R.var_cvar(SimpleNamespace(window_returns=win, cur_w=np.array([0.5, 0.5])))   # 0.5A+0.5B = port
     assert var == pytest.approx(-1.0) and cvar == pytest.approx(-3.5)
     assert R.var_cvar(SimpleNamespace(window_returns=win.iloc[:19], cur_w=np.array([0.5, 0.5]))) == (None, None)
+
+
+def test_equal_weight_is_the_sixth_portfolio_and_ignores_the_cap(port_env):
+    """EQUAL (1/N) is the baseline every optimizer must beat — never capped, never infeasible."""
+    from monitor import config
+    from monitor.portfolio import snapshot
+    m = R.build_model(**snapshot.risk_inputs(snapshot.load_book(port_env)))
+    assert config.PORTFOLIOS[-1] == "EQUAL" and R.LABELS["EQUAL"] == "Equal-Weight"
+    n = len(m.universe)
+    np.testing.assert_allclose(m.portfolios["EQUAL"].weights, np.full(n, 1 / n))
+
+
+def test_one_weight_method_builds_opt_and_the_backtest(port_env):
+    """portfolio_weights over the model's own estimate gives exactly the model's portfolios."""
+    from monitor import config
+    from monitor.portfolio import snapshot
+    from monitor.portfolio.optimizer import annualize, to_returns
+    inputs = snapshot.risk_inputs(snapshot.load_book(port_env))
+    m = R.build_model(**inputs)
+    rets = to_returns(inputs["history"][m.universe])
+    window = rets.loc[rets.index >= rets.index[-1] - pd.Timedelta(days=config.LOOKBACK_DAYS)]
+    mean_ann, cov = annualize(window)
+    mkt_w, mean_bl = R.bl_mean(cov, inputs["caps"])
+    np.testing.assert_allclose(mkt_w, m.mkt_w)
+    w = R.portfolio_weights(mean_ann, cov, mean_bl, m.cur.vol)
+    for k in config.PORTFOLIOS:
+        assert (w[k] is None) == (m.portfolios[k] is None)
+        if w[k] is not None:
+            np.testing.assert_allclose(w[k], m.portfolios[k].weights, atol=1e-12)

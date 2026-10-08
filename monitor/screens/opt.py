@@ -27,7 +27,8 @@ HELP = [
      "numbers. Not financial advice."},
     {"h": "PORTFOLIOS", "vis": PUB, "body": "MINVAR lowest volatility; RP equal risk contribution; "
      "HRP clusters correlated names then splits risk (uncapped); BLSHARPE best BL return per unit of "
-     "risk; BLSAME best BL return at today's volatility. All long-only; all but HRP capped at "
+     "risk; BLSAME best BL return at today's volatility; EQUAL 1/N over the same lines, uncapped — the baseline "
+     "every optimizer must beat. All long-only; all but HRP and EQUAL capped at "
      f"{config.MAX_W:.0%} per position."},
     {"h": "TARGET / DRIFT", "vis": PUB, "body": "TARGET <name> picks the portfolio you steer by "
      "(default HRP). DRIFT = half the summed absolute weight gap — the share of the book a full "

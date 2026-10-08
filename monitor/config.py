@@ -209,7 +209,7 @@ SERVICE_PORT = 47800     # the macOS service's (monitor.server.service): 8000 st
 SERVICE_IDLE_MIN = 15    # the service's terminal stops this long after the last tab closes
 
 # Optimizer targets
-PORTFOLIOS = ("MINVAR", "RP", "HRP", "BLSHARPE", "BLSAME")
+PORTFOLIOS = ("MINVAR", "RP", "HRP", "BLSHARPE", "BLSAME", "EQUAL")
 DEFAULT_TARGET = "HRP"
 PREFS_FILE = BUFFER_DIR / "prefs.json"
 

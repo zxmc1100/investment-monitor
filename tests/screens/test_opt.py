@@ -100,7 +100,7 @@ def test_ticket_follows_the_portfolios_cursor(parts):
     port, t = panel(p, "portfolios"), panel(p, "ticket")
     assert port["cursor"] == "HRP" and port["enter"] == "TARGET {key}"
     assert t["follows"] == "portfolios" and "{key}" in t["title"]
-    assert set(t["rows_by_key"]) == {"NOW", "MINVAR", "RP", "HRP", "BLSHARPE", "BLSAME"}
+    assert set(t["rows_by_key"]) == {"NOW", *opt.config.PORTFOLIOS}             # EQUAL has a ticket too
     assert t["rows_by_key"]["NOW"]["rows"] == [] and "CURRENT MIX" in t["rows_by_key"]["NOW"]["context"]
     assert t["rows_by_key"]["HRP"]["rows"] == t["rows"]                 # the TARGET's ticket is the default
     rp = t["rows_by_key"]["RP"]
