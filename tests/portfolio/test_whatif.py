@@ -239,3 +239,9 @@ def test_money_bought_before_any_weights_waits_as_cash_not_lost(monkeypatch):
                    fee=1.0)
     assert roi.loc["2025-01-31"] == pytest.approx(0.0)
     assert roi.loc["2025-02-03"] == pytest.approx(-0.2)                  # invested on 3 Feb: two orders of €1
+
+
+def test_a_broker_dividend_with_only_its_net_counts_its_net_against_the_allowance():
+    """A dividends.csv row may carry the net alone (no gross): the allowance counts the net, the best known."""
+    divs = [{"date": "2026-05-04", "gross": None, "eur": 3.10}, {"date": "2026-05-01", "gross": 50.0, "eur": 40.0}]
+    assert W.allowance_left([], divs, year=2026, allowance=1000.0) == pytest.approx(1000 - 3.10 - 50)

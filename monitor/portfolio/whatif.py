@@ -149,9 +149,10 @@ FUND_EXEMPT = 0.30               # Teilfreistellung: 30 % of an equity fund's ga
 
 def allowance_left(sales: list[dict], dividends: list[dict], *, year: int, allowance: float) -> float:
     """What is left this `year` of the tax-free `allowance` after this year's realized gains (book["sales"]) and
-    gross dividends paid (snapshot.dividends) — never below 0."""
+    gross dividends paid (snapshot.dividends; a broker row with its net alone counts its net) — never below 0."""
     y = str(year)
-    used = sum(s["pnl"] for s in sales if s["date"][:4] == y) + sum(d["gross"] for d in dividends if d["date"][:4] == y)
+    gross = (d["gross"] if d.get("gross") is not None else d.get("eur") or 0.0 for d in dividends if d["date"][:4] == y)
+    used = sum(s["pnl"] for s in sales if s["date"][:4] == y) + sum(gross)
     return max(0.0, allowance - used)
 
 
