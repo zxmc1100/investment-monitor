@@ -12,6 +12,7 @@ import pandas as pd
 
 from monitor import config
 from monitor.portfolio import riskmodel as R
+from monitor.portfolio.analytics import bench_buy_events
 from monitor.portfolio.ledger import DUST, _signed_shares
 from monitor.portfolio.optimizer import annualize, to_returns
 
@@ -75,3 +76,63 @@ def month_weights(prices: pd.DataFrame, shares: dict[str, float], transactions: 
             else:
                 out[k].append((m, out[k][-1][1] if out[k] else _equal(full)))
     return out
+
+
+REBALANCE_BAND = 0.025           # a month start rebalances when any line is this far off its new weight
+MIN_TRADE_EUR = 1.0              # smaller trades are not orders
+
+
+def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict],
+           schedule: list[tuple[pd.Timestamp, pd.Series]], *, fee: float,
+           band: float = REBALANCE_BAND) -> pd.Series:
+    """ROI % on `days` of your money had it followed `schedule` — the benchmarks' cash-flow matching
+    (analytics.build_roi_timeseries): every buy puts the same euros in on its date (the `<=` business-day pointer,
+    less the same single order fee, analytics.bench_buy_events), split by the weights in force; every sale takes
+    the same euros out, pro rata, and counts as cash; bonus shares move no money. Prices are adjusted closes, so
+    dividends are reinvested. At each schedule date the new weights take over: when any line is more than `band`
+    off them, the whole portfolio goes back to target, `fee` per order of at least MIN_TRADE_EUR. ROI = (value +
+    cash out) / money in − 1, PORT's formula; NaN before the first buy."""
+    px = prices.reindex(prices.index.union(days)).ffill().reindex(days)
+    buys = bench_buy_events(transactions)
+    sells = sorted((t["date"], float(t["price"])) for t in transactions if t["action"] == "sell")
+    sched = sorted(schedule, key=lambda s: s[0])
+    units = pd.Series(0.0, index=prices.columns)
+    target: pd.Series | None = None
+    invested = cash_out = 0.0
+    si = bi = ci = 0
+    out: dict[pd.Timestamp, float] = {}
+
+    def value(p: pd.Series) -> float:
+        return float((units * p).fillna(0.0).sum())
+
+    for d in days:
+        ds, p = d.date().isoformat(), px.loc[d]
+        moved = False
+        while si < len(sched) and sched[si][0] <= d:
+            target, moved = sched[si][1], True
+            si += 1
+        v = value(p)
+        if moved and target is not None and v > 0:
+            want = target.reindex(prices.columns).fillna(0.0)
+            if ((want - (units * p).fillna(0.0) / v).abs() > band).any():
+                orders = int(((want * v - (units * p).fillna(0.0)).abs() >= MIN_TRADE_EUR).sum())
+                after = v - fee * orders
+                units = (want * after / p).where(want > 0, 0.0).fillna(0.0)
+        while bi < len(buys) and buys[bi][0] <= ds:
+            _, eur, f = buys[bi]
+            bi += 1
+            if target is not None:
+                w = target[[t for t in target.index if p.get(t, np.nan) > 0]]
+                if len(w):
+                    units = units.add((w / w.sum()) * (eur - f) / p[w.index], fill_value=0.0)
+            invested += eur
+        while ci < len(sells) and sells[ci][0] <= ds:
+            eur = sells[ci][1]
+            ci += 1
+            v = value(p)
+            if v > 0:
+                units = units * max(0.0, 1.0 - eur / v)
+            cash_out += eur
+        if invested > 0:
+            out[d] = (value(p) + cash_out) / invested * 100 - 100
+    return pd.Series(out, dtype=float).reindex(days)

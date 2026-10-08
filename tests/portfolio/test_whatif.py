@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from monitor import config
+from monitor.portfolio import analytics
 from monitor.portfolio import whatif as W
 
 DAYS = pd.bdate_range("2023-01-02", "2026-06-30")
@@ -70,3 +71,53 @@ def test_an_infeasible_month_keeps_the_previous_weights(monkeypatch):
     w = [s for _, s in got["MINVAR"]]
     for later in w[1:]:
         pd.testing.assert_series_equal(later, w[0])
+
+
+FLAT_DAYS = pd.bdate_range("2025-01-01", "2025-03-31")
+
+
+def flat(a=10.0, b=10.0):
+    return pd.DataFrame({"AAA.F": a, "BBB.F": b}, index=FLAT_DAYS)
+
+
+def equal_schedule(days=FLAT_DAYS):
+    eq = pd.Series(0.5, index=["AAA.F", "BBB.F"])
+    return [(m, eq) for m in W.month_starts(days[0], days[-1])]
+
+
+def test_flat_prices_lose_exactly_the_fees(monkeypatch):
+    monkeypatch.setattr(analytics.config, "ORDER_FEE_EUR", 1.0)
+    roi = W.follow(flat(), FLAT_DAYS, [tx("2025-01-06", "XXX.F", "buy", 1000.0)], equal_schedule(), fee=1.0)
+    assert roi.loc["2025-01-03"] != roi.loc["2025-01-03"]                  # NaN before the first buy
+    assert roi.loc["2025-03-31"] == pytest.approx((999 / 1000 - 1) * 100)   # one buy fee, never a rebalance
+
+
+def test_equal_weight_over_two_lines_by_hand_and_the_band(monkeypatch):
+    monkeypatch.setattr(analytics.config, "ORDER_FEE_EUR", 0.0)
+    px = flat()
+    px.loc["2025-01-20":, "AAA.F"] = 20.0                                 # AAA doubles mid-January
+    roi = W.follow(px, FLAT_DAYS, [tx("2025-01-06", "XXX.F", "buy", 1000.0)], equal_schedule(), fee=1.0)
+    assert roi.loc["2025-01-31"] == pytest.approx(50.0)                   # 50·20 + 50·10 = 1500 on 1000
+    # 3 Feb: 2/3 vs 1/3 is 16.7 pp off 50/50 → back to target, two orders of €1
+    assert roi.loc["2025-02-03"] == pytest.approx(49.8)
+    # a drift under the band is left alone
+    px2 = flat()
+    px2.loc["2025-01-20":, "AAA.F"] = 10.5                                # 51.2 % vs 50 %: 1.2 pp
+    roi2 = W.follow(px2, FLAT_DAYS, [tx("2025-01-06", "XXX.F", "buy", 1000.0)], equal_schedule(), fee=1.0)
+    assert roi2.loc["2025-02-03"] == pytest.approx(2.5)
+
+
+def test_a_sale_takes_the_same_euros_out_pro_rata_and_roi_keeps_it_as_cash(monkeypatch):
+    monkeypatch.setattr(analytics.config, "ORDER_FEE_EUR", 0.0)
+    txns = [tx("2025-01-06", "XXX.F", "buy", 1000.0), tx("2025-01-08", "XXX.F", "sell", 300.0)]
+    roi = W.follow(flat(), FLAT_DAYS, txns, equal_schedule(), fee=1.0)
+    assert roi.loc["2025-01-10"] == pytest.approx(0.0)                    # 700 held + 300 out on 1000 in
+
+
+def test_a_weekend_trade_applies_the_next_business_day_and_money_in_a_sold_line_is_still_followed(monkeypatch):
+    """Trades follow PORT's `<=` pointer; the alternatives get your euros whatever line you bought — a line you
+    have since sold out of included."""
+    monkeypatch.setattr(analytics.config, "ORDER_FEE_EUR", 0.0)
+    txns = [tx("2025-01-11", "GONE.F", "buy", 400.0), tx("2025-02-05", "GONE.F", "sell", 400.0)]   # Saturday buy
+    roi = W.follow(flat(), FLAT_DAYS, txns, equal_schedule(), fee=1.0)
+    assert np.isnan(roi.loc["2025-01-10"]) and roi.loc["2025-01-13"] == pytest.approx(0.0)
