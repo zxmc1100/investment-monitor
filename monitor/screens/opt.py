@@ -48,7 +48,8 @@ HELP = [
     {"h": "PAST & FUTURE", "vis": PUB, "body": "Left of TODAY: your ROI line, and each portfolio had your money "
      "followed it since your first trade — the same euros on the same days, weights re-estimated each month on "
      "the year before it (never after), back to target when a line drifts more than 2.5 pp (€{fee} per order), "
-     "dividends reinvested. Right of TODAY, dotted: each portfolio's median from your value today (switching "
+     "dividends reinvested, no tax (realized rebalancing gains of a book this size mostly stay within the "
+     "allowance). Right of TODAY, dotted: each portfolio's median from your value today (switching "
      "costs paid), Monte Carlo on Black-Litterman expected returns and the 1-year covariance; the cursor row and "
      "NOW get their 50 % and 90 % bands. 6M · 1Y · 3Y cut the future. The universe is the stocks you hold today, "
      "which flatters every line — compare the optimizers with EQUAL. Not financial advice."},
@@ -229,19 +230,22 @@ def _path(w: dict, target: str) -> dict:
     pad = [None] * months
     today_idx = len(idx) - 1
 
+    def pct(v):                     # hundredths of a %: more than the chart shows, a third of the bytes
+        return num(round(float(v), 2)) if v is not None and v == v else None
+
     def past(name, s, color, role="port"):
         return {"name": name, "role": role, "kind": "line", "vis": PUB, "color": color,
-                "y": [num(v) for v in s.reindex(idx)] + pad}
+                "y": [pct(v) for v in s.reindex(idx)] + pad}
 
     # the future lines and bands carry their own points only, from x index `at` (today) — the browser pads them
     # (ranges.expandAt); null-padded to the whole x, 28 bands pushed the payload past 300 KB
     def ahead(name, med, color):
         return {"name": f"{name} →", "role": "port", "kind": "line", "vis": PUB, "color": color, "dash": True,
-                "nolegend": True, "at": today_idx, "y": [num(v) for v in med]}
+                "nolegend": True, "at": today_idx, "y": [pct(v) for v in med]}
 
     def band(name, lo, hi, color):
         return {"name": name, "kind": "band", "vis": PUB, "color": color, "at": today_idx,
-                "lo": [num(v) for v in lo], "hi": [num(v) for v in hi]}
+                "lo": [pct(v) for v in lo], "hi": [pct(v) for v in hi]}
 
     series = [past("YOU", you, COLORS["NOW"], role="primary")]
     series += [past(k, w["past"][k], COLORS[k]) for k in config.PORTFOLIOS if k in w["past"]]
@@ -329,7 +333,7 @@ def _ticket(m, q, values, total, tgt, target) -> dict:
         else:
             rows, ctx = _trades(m, q, values, total, p)
             by_key[k] = {"rows": rows, "context": ctx}
-    base = {"id": "ticket", "n": 7, "title": "TICKET → {key}", "type": "table", "span": 12, "vis": PRIV,
+    base = {"id": "ticket", "n": 7, "title": "TICKET → {key}", "type": "table", "span": 7, "vis": PRIV,
             "key": "tkr", "sort": ["d_eur", "desc"], "cols": cols, "rows": [],
             "follows": "portfolios", "rows_by_key": by_key}
     if tgt is None:

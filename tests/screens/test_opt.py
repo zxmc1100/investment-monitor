@@ -231,3 +231,22 @@ def test_the_public_verdict_follows_the_public_cursor_and_carries_no_euros(parts
     rows = v["rows_by_key"]["MINVAR"]["rows"]
     assert [r["h"] for r in rows] and all(set(r) <= {"h", "p", "be", "verdict", "risk"} for r in rows)
     assert all(b["context"] == "" for b in v["rows_by_key"].values()) and "€" not in json.dumps(v)
+
+
+
+def test_the_help_says_the_backtest_pays_no_tax(parts):
+    body = next(h["body"] for h in opt.assemble(parts, dict(META))["help"] if h["h"] == "PAST & FUTURE")
+    assert "no tax" in body
+
+
+def test_rebalance_and_ticket_share_a_row(parts):
+    p = opt.assemble(parts, dict(META))
+    assert panel(p, "verdict")["span"] + panel(p, "ticket")["span"] == 12
+
+
+def test_the_path_chart_sends_hundredths_of_a_percent(parts):
+    """2 decimals of a % are more than the chart can show, and keep the payload far under its cap as history grows."""
+    path = panel(opt.assemble(parts, dict(META)), "path")
+    nums = [v for s in path["series"] for v in s["y"] if v is not None]
+    nums += [v for b in path["series_by_key"].values() for s in b["series"] for v in s["lo"] + s["hi"] if v is not None]
+    assert nums and all(round(v, 2) == v for v in nums)
