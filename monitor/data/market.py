@@ -12,6 +12,7 @@ import pandas as pd
 import yfinance as yf
 
 from monitor.data.instruments import TICKER_MAP
+from monitor.data.yahoo import fill_missing_sessions
 
 
 def _field(raw: pd.DataFrame, name: str, tickers: list[str]) -> pd.DataFrame:
@@ -70,7 +71,8 @@ def fetch_movers(tickers: list[str]) -> dict[str, dict]:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         raw = yf.download(yf_tickers, period="1mo", interval="1d", auto_adjust=False, progress=False)
-    rows = movers_from_frame(_field(raw, "Close", yf_tickers), _field(raw, "Volume", yf_tickers))
+    close = fill_missing_sessions(_field(raw, "Close", yf_tickers), adjusted=False)   # a skipped session, rebuilt
+    rows = movers_from_frame(close, _field(raw, "Volume", yf_tickers))
     return {t: rows[y] for t, y in yf_map.items() if y in rows}
 
 

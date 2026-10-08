@@ -1,4 +1,6 @@
 """fetch_quotes: last price + previous close per TR ticker from one batched download."""
+from datetime import date
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -290,3 +292,134 @@ def test_the_live_quote_reads_yahoos_currency(monkeypatch):
     fakes_yf.install(monkeypatch)
     monkeypatch.setitem(fakes_yf.CURRENCIES, "AAPL", "USD")
     assert Y._live_quote("AAPL")["ccy"] == "USD" and Y._live_quote("SAP.DE")["ccy"] == "EUR"
+
+
+# ── a session Yahoo's daily answer skipped ────────────────────────────────────────────────────────────
+
+TODAY = date(2026, 10, 8)
+DAYS = ["2026-10-02", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"]
+
+
+def _closes(cols: dict[str, list], days=DAYS) -> pd.DataFrame:
+    return pd.DataFrame(cols, index=pd.to_datetime(days), dtype=float)
+
+
+def _multi(close: pd.DataFrame) -> pd.DataFrame:
+    """A Close frame in yfinance's multi-ticker column layout."""
+    out = close.copy()
+    out.columns = pd.MultiIndex.from_product([["Close"], close.columns])
+    return out
+
+
+@pytest.fixture
+def repair(monkeypatch):
+    """yf.download: `plain` for an ordinary call, `fixed` (or a raise) for a repair=True one; records calls."""
+    monkeypatch.setattr(Y, "_ASKED", {})
+    calls = []
+
+    def install(fixed, plain=None, live=None):
+        def dl(tickers, **kw):
+            calls.append((list(tickers) if not isinstance(tickers, str) else [tickers], kw))
+            answer = fixed if kw.get("repair") else plain
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        monkeypatch.setattr(Y.yf, "download", dl)
+        monkeypatch.setattr(Y, "_live_quote", lambda yft: (live or {}).get(yft))
+        return calls
+    return install
+
+
+def test_a_skipped_session_is_rebuilt_and_only_empty_cells_are_filled(repair):
+    """Yahoo's daily answer once had no bar for one session of every European line while its hourly bars
+    were there: the day before was carried flat through the ROI chart and DAY% covered two days. The holed
+    lines alone are asked again with yfinance's repair (it rebuilds a bar from the finer ones); only the
+    empty cells take its values — a bar Yahoo did send is never replaced."""
+    close = _closes({"AAA.F": [10, 11, 12, np.nan, 14], "BBB.F": [5, 5, 5, 6, 6]})
+    calls = repair(_multi(_closes({"AAA.F": [10, 11, 99, 13, 14]})))
+    out = Y.fill_missing_sessions(close, adjusted=False, today=TODAY)
+    assert out.loc["2026-10-07", "AAA.F"] == 13.0 and out.loc["2026-10-06", "AAA.F"] == 12.0
+    assert list(out["BBB.F"]) == [5, 5, 5, 6, 6]
+    assert [c[0] for c in calls] == [["AAA.F"]]
+    assert calls[0][1]["repair"] is True and calls[0][1]["auto_adjust"] is False
+
+
+def test_a_session_missing_from_every_line_gets_its_row_back(repair):
+    close = _closes({"AAA.F": [10, 11, 12, 14], "BBB.F": [5, 5, 5, 6]}, days=DAYS[:3] + DAYS[4:])
+    repair(_multi(_closes({"AAA.F": [10, 11, 12, 13, 14], "BBB.F": [5, 5, 5, 5.5, 6]})))
+    out = Y.fill_missing_sessions(close, adjusted=True, today=TODAY)
+    assert list(out.index.strftime("%Y-%m-%d")) == DAYS
+    assert out.loc["2026-10-07"].tolist() == [13.0, 5.5]
+
+
+def test_no_gap_no_extra_call(repair):
+    """A complete frame, a line whose next bar has not come yet (pre-open, or a line that stopped
+    trading) and a gap older than REPAIR_DAYS are not holes."""
+    calls = repair(AssertionError("asked"))
+    assert Y.fill_missing_sessions(_closes({"AAA.F": [1, 2, 3, 4, 5]}), adjusted=False, today=TODAY) is not None
+    assert Y.fill_missing_sessions(_closes({"AAA.F": [1, 2, 3, np.nan, np.nan]}), adjusted=False, today=TODAY) is not None
+    old = _closes({"AAA.F": [1, np.nan, 3]}, days=["2026-09-01", "2026-09-02", "2026-09-03"])
+    assert Y.fill_missing_sessions(old, adjusted=False, today=TODAY) is not None
+    assert calls == []
+
+
+def test_a_holiday_stays_empty_and_is_not_asked_again(repair):
+    """A real holiday has no finer bars, so repair rebuilds nothing — never invented. The quote loop runs
+    every minute: a day repair answered without a bar is remembered and not asked again."""
+    close = _closes({"AAA.F": [10, 11, 12, np.nan, 14]})
+    calls = repair(_multi(_closes({"AAA.F": [10, 11, 12, 14]}, days=DAYS[:3] + DAYS[4:])))
+    for _ in range(2):
+        out = Y.fill_missing_sessions(close, adjusted=False, today=TODAY)
+        assert np.isnan(out.loc["2026-10-07", "AAA.F"])
+    assert len(calls) == 1
+
+
+def test_a_throttled_or_failed_repair_changes_nothing_and_asks_again(repair):
+    close = _closes({"AAA.F": [10, 11, 12, np.nan, 14]})
+    calls = repair(pd.DataFrame())                            # throttled: an empty answer
+    out = Y.fill_missing_sessions(close, adjusted=False, today=TODAY)
+    assert out.equals(close)
+    out = Y.fill_missing_sessions(close, adjusted=False, today=TODAY)
+    assert len(calls) == 2                                    # not remembered as a holiday
+    repair(ConnectionError("yahoo down"))
+    assert Y.fill_missing_sessions(close, adjusted=False, today=TODAY).equals(close)
+
+
+def test_day_change_is_against_the_rebuilt_session(repair, monkeypatch):
+    """DAY% is today's price against the session before it — the rebuilt one, not the day before that."""
+    import time_machine
+    plain = _multi(_closes({"AAA.F": [10, 11, 12, 14]}, days=DAYS[:3] + DAYS[4:]))
+    repair(_multi(_closes({"AAA.F": [10, 11, 12, 13, 14]})), plain=plain,
+           live={"AAA.F": {"price": 14.3, "prev_close": 12.0, "date": "2026-10-08"}})
+    with time_machine.travel("2026-10-08 10:00:00+02:00", tick=False):
+        q = Y.fetch_quotes(["AAA.F"])["AAA.F"]
+    assert q["prev_close"] == 13.0 and q["price"] == 14.3
+
+
+def test_price_history_carries_the_rebuilt_session(repair):
+    import time_machine
+    plain = _multi(_closes({"AAA.F": [10, 11, 12, 14], "BBB.F": [5, 5, 5, 6]}, days=DAYS[:3] + DAYS[4:]))
+    repair(_multi(_closes({"AAA.F": [10, 11, 12, 13, 14], "BBB.F": [5, 5, 5, 5.5, 6]})), plain=plain)
+    with time_machine.travel("2026-10-08 10:00:00+02:00", tick=False):
+        h = Y.fetch_price_history(["AAA.F", "BBB.F"], adjusted=False)
+    assert h.loc["2026-10-07"].tolist() == [13.0, 5.5]
+
+
+def test_a_rebuilt_session_is_not_asked_again(repair):
+    """While Yahoo's gap lasts every plain answer lacks the bar again: the rebuilt value is reused, not
+    re-asked every minute."""
+    close = _closes({"AAA.F": [10, 11, 12, np.nan, 14]})
+    calls = repair(_multi(_closes({"AAA.F": [10, 11, 12, 13, 14]})))
+    for _ in range(3):
+        assert Y.fill_missing_sessions(close, adjusted=False, today=TODAY).loc["2026-10-07", "AAA.F"] == 13.0
+    assert len(calls) == 1
+    assert np.isnan(close.loc["2026-10-07", "AAA.F"])                 # the caller's frame is never changed
+
+
+def test_a_gap_across_too_many_lines_is_not_asked(repair, monkeypatch):
+    """Repair asks Yahoo again per holed line: a gap across a whole universe (MKT's movers) would burst its
+    throttle — that one is left to Yahoo to heal."""
+    monkeypatch.setattr(Y, "REPAIR_MAX_LINES", 1)
+    close = _closes({"AAA.F": [10, 11, 12, np.nan, 14], "BBB.F": [5, 5, 5, np.nan, 6]})
+    calls = repair(AssertionError("asked"))
+    assert Y.fill_missing_sessions(close, adjusted=False, today=TODAY).equals(close) and calls == []

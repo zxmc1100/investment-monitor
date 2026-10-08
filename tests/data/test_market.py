@@ -121,3 +121,22 @@ def test_dividends_failure_keeps_the_earnings_event(monkeypatch):
     assert M.fetch_events(["RHM.DE"], today=TODAY)["RHM.DE"] == [
         {"date": "2026-11-05", "kind": "EARNINGS", "amount": None},
         {"date": "2026-10-06", "kind": "EX-DIV", "amount": None, "pay": None}]
+
+
+def test_day_move_is_against_a_session_yahoo_skipped_rebuilt(monkeypatch):
+    """A session missing from Yahoo's daily answer is rebuilt (yahoo.fill_missing_sessions) before the
+    movers math — otherwise DAY % spans two sessions."""
+    from monitor.data import yahoo as Y
+    monkeypatch.setattr(Y, "_ASKED", {})
+    idx = pd.bdate_range("2026-09-14", "2026-10-08")
+    skipped = pd.Timestamp("2026-10-07")
+
+    def dl(tickers, repair=False, **kw):
+        days = idx if repair else idx.drop(skipped)
+        close = [100.0] * (len(days) - 2) + ([105.0, 110.0] if repair else [100.0, 110.0])
+        frame = {("Close", "AAA.F"): close, ("Volume", "AAA.F"): [1000.0] * len(days)}
+        return pd.DataFrame(frame, index=days)
+    monkeypatch.setattr("yfinance.download", dl)
+    with time_machine.travel("2026-10-08 10:00:00+00:00", tick=False):
+        r = M.fetch_movers(["AAA.F"])["AAA.F"]
+    assert r["day"] == pytest.approx((110 / 105 - 1) * 100) and r["bar"] == "2026-10-08"

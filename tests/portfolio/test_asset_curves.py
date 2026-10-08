@@ -160,3 +160,28 @@ def test_bonus_on_a_ticker_never_bought_has_no_roi_line_and_no_crash():
     _roi, _bms, av = pa.build_roi_timeseries(txns)
     assert av["CCC.F"].loc["2026-04-01"] == pytest.approx(10.0)
     assert av["__roi__"].get("CCC.F") is None or av["__roi__"]["CCC.F"].dropna().empty
+
+
+def test_a_session_yahoo_skipped_is_valued_at_its_rebuilt_close(monkeypatch):
+    """Yahoo's daily answer once had no bar for one session of every European line: the day before was
+    carried flat through the ROI chart. The bar rebuilt by yahoo.fill_missing_sessions values that day."""
+    import time_machine
+    from monitor.data import yahoo as Y
+    monkeypatch.setattr(Y, "_ASKED", {})
+    skipped = pd.Timestamp("2026-10-07")
+
+    def dl(tickers, start=None, auto_adjust=True, progress=False, repair=False, **kw):
+        tickers = [tickers] if isinstance(tickers, str) else list(tickers)
+        known = [t for t in tickers if t in PRICES]
+        if not known:
+            return pd.DataFrame()
+        idx = pd.bdate_range("2026-09-01", "2026-10-08")
+        idx = idx if repair else idx.drop(skipped)
+        data = {("Close", t): [PRICES[t] * (1.1 if d == skipped else 1.0) for d in idx] for t in known}
+        return pd.DataFrame(data, index=idx, columns=pd.MultiIndex.from_product([["Close"], known]))
+    monkeypatch.setattr(pa.yf, "download", dl)
+    buys = [_txn("2026-09-01", "AAA.F", "buy", 10.0, 100.0), _txn("2026-09-01", "BBB.F", "buy", 20.0, 50.0)]
+    with time_machine.travel("2026-10-08 10:00:00+02:00", tick=False):
+        roi, _bms, av = pa.build_roi_timeseries(buys)
+    assert av["AAA.F"].loc["2026-10-07"] == pytest.approx(1100.0)
+    assert roi.loc["2026-10-07"] == pytest.approx(10.0) and roi.loc["2026-10-06"] == pytest.approx(0.0)

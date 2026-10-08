@@ -13,6 +13,7 @@ from datetime import date as _date, datetime
 
 from monitor import config
 from monitor.data.instruments import BENCHMARKS, TICKER_MAP
+from monitor.data.yahoo import fill_missing_sessions
 from monitor.portfolio.ledger import ADDS, DUST
 
 
@@ -114,6 +115,8 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
             try:
                 raw = yf.download(tickers, start=start, auto_adjust=adjusted, progress=False)
                 close = raw["Close"] if "Close" in raw else raw
+                if isinstance(close, pd.DataFrame):
+                    close = fill_missing_sessions(close, adjusted)    # a session Yahoo skipped, rebuilt
                 if isinstance(close, pd.Series) or len(tickers) == 1:
                     s = (close if isinstance(close, pd.Series) else close.iloc[:, 0]).dropna()
                     if not s.empty:

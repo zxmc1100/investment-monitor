@@ -4,7 +4,7 @@ for prices, caps and quotes. Pure of caching; see monitor.data.buffer for that."
 import math
 import re
 import warnings
-from datetime import datetime
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,7 @@ def fetch_price_history(tr_tickers: list[str], start: str | None = None,
         close = close.to_frame(name=yf_tickers[0])
     if close.index.tz is not None:
         close.index = close.index.tz_localize(None)
+    close = fill_missing_sessions(close, adjusted)
 
     # Map yfinance columns back to the CSV tickers (the first one wins on collisions)
     cols = {}
@@ -234,6 +235,85 @@ def _close_frame(raw: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     return close
 
 
+REPAIR_DAYS = 14                 # how far back a skipped session is looked for
+REPAIR_MAX_LINES = 50            # repair asks Yahoo again per holed line: a universe-wide gap would burst its throttle
+_ASKED: dict[tuple[str, str, bool], float | None] = {}   # (Yahoo ticker, day, adjusted) → rebuilt close; None = no session
+
+
+def _session_holes(close: pd.DataFrame, today: date) -> dict[str, list[pd.Timestamp]]:
+    """{column: weekdays of the REPAIR_DAYS before `today` it has no bar for, though it has one after} — so
+    neither a session still to come nor a line that stopped trading."""
+    end = pd.Timestamp(today)
+    days = pd.bdate_range(end - pd.Timedelta(days=REPAIR_DAYS), end - pd.Timedelta(days=1))
+    out = {}
+    for col in close.columns:
+        s = close[col].dropna()
+        s = s[s > 0]
+        if s.empty:
+            continue
+        have, lo, hi = set(s.index.normalize()), s.index.min().normalize(), s.index.max().normalize()
+        holes = [d for d in days if lo < d < hi and d not in have]
+        if holes:
+            out[col] = holes
+    return out
+
+
+def _put(out: pd.DataFrame, close: pd.DataFrame, day: pd.Timestamp, col: str, value: float) -> pd.DataFrame:
+    """`out` with `value` at (day, col) — a copy the first time, so the caller's `close` is never changed."""
+    if out is close:
+        out = close.copy()
+    if day not in out.index:
+        out = out.reindex(out.index.union([day]))
+    out.loc[day, col] = value
+    return out
+
+
+def fill_missing_sessions(close: pd.DataFrame, adjusted: bool, today: date | None = None) -> pd.DataFrame:
+    """`close` (daily closes, one column per Yahoo ticker, tz-naive) with the sessions Yahoo's daily answer
+    skipped put back. Yahoo once had no 7 Oct 2026 bar for any European line while its hourly bars were
+    there: the day before was carried flat through every chart and DAY% covered two sessions. A recent
+    weekday a line has no bar for, though it has one after (`_session_holes`), is asked again — those lines
+    only, one call — with yfinance's repair, which rebuilds a missing bar from the finer ones. Only empty
+    cells are filled; a bar Yahoo sent is never replaced. A holiday has no finer bars, so nothing is
+    invented. Every answer is remembered for the process (`_ASKED`) — the quote loop runs every minute and
+    each plain answer lacks the bar again while Yahoo's gap lasts; a failed or throttled answer changes
+    nothing and is asked again next time. More than REPAIR_MAX_LINES lines to ask: left to Yahoo to heal."""
+    if close is None or close.empty:
+        return close
+    holes = _session_holes(close, today or date.today())
+    out, ask = close, {}
+    for col, days in holes.items():
+        for d in days:
+            key = (col, d.date().isoformat(), adjusted)
+            if key not in _ASKED:
+                ask.setdefault(col, []).append(d)
+            elif _ASKED[key] is not None:
+                out = _put(out, close, d, col, _ASKED[key])
+    if not ask or len(ask) > REPAIR_MAX_LINES:
+        return out
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            raw = yf.download(list(ask), period="1mo", interval="1d", auto_adjust=adjusted, repair=True,
+                              progress=False)
+        fixed = _close_frame(raw, list(ask))
+    except Exception:
+        return out
+    for col, days in ask.items():
+        got = fixed[col].dropna() if col in fixed.columns else pd.Series(dtype=float)
+        got = got[got > 0]
+        if got.empty:
+            continue                                   # throttled: ask again next time
+        got.index = got.index.normalize()
+        got = got[~got.index.duplicated(keep="last")]
+        for d in days:
+            value = float(got.loc[d]) if d in got.index else None
+            _ASKED[(col, d.date().isoformat(), adjusted)] = value
+            if value is not None:
+                out = _put(out, close, d, col, value)
+    return out
+
+
 def _session_date(when) -> str | None:
     """Local date of Yahoo's regularMarketTime: an epoch int (yfinance < 1.5), a pandas Timestamp
     (tz-aware from 1.5 on; naive read as UTC) or a datetime. None when absent or unreadable."""
@@ -296,7 +376,7 @@ def fetch_quotes(tr_tickers: list[str]) -> dict[str, dict | None]:
         warnings.simplefilter("ignore")
         raw = yf.download(yf_tickers + fx_tickers, period="7d", interval="1d",
                           auto_adjust=False, progress=False)
-    close = _close_frame(raw, yf_tickers + fx_tickers)
+    close = fill_missing_sessions(_close_frame(raw, yf_tickers + fx_tickers), adjusted=False)
 
     def _valid(col: str) -> pd.Series:
         if col not in close.columns:
