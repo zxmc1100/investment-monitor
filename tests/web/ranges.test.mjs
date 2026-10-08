@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canNorm, chartModes, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
+import { canNorm, chartModes, cutHorizon, expandAt, HORIZON_MONTHS, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
 
 const DAY = 86400;
 const END = Date.UTC(2026, 5, 30) / 1000;                 // 2026-06-30
@@ -127,4 +127,29 @@ test("the views a chart offers: ROI and MWR need the money put in, TWR the time-
   assert.deepEqual(chartModes({ inv: [1] }, plain), ["ROI", "MWR"]);
   assert.deepEqual(chartModes({}, twr), ["ROI", "TWR"]);
   assert.deepEqual(chartModes({}, plain), []);              // a public snapshot: none of it, no chips
+});
+
+test("a horizon cuts the future after today: today's index plus its months, every array alike", () => {
+  const x = [1, 2, 3, 4, 5, 6], s = [{ y: [1, 2, 3, null, null, null] }, { y: [null, null, 3, 4, 5, 6], lo: [0, 0, 1, 2, 3, 4], hi: [9, 9, 5, 6, 7, 8] }];
+  const out = cutHorizon(x, s, 2, 2);
+  assert.deepEqual(out.x, [1, 2, 3, 4, 5]);
+  assert.deepEqual(out.series[1].hi, [9, 9, 5, 6, 7]);
+  assert.deepEqual(out.series[0].y, [1, 2, 3, null, null]);
+  assert.equal(HORIZON_MONTHS["3Y"], 36);
+  assert.deepEqual(cutHorizon(x, s, null, 2).x, x);                       // a chart without a future: unchanged
+});
+
+test("a future series sent from index `at` is padded to the chart's x; one without `at` is left as it is", () => {
+  const s = expandAt([{ y: [1, 2] }, { at: 2, y: [5, 6] }, { kind: "band", at: 3, lo: [1, 2], hi: [3, 4] }], 5);
+  assert.deepEqual(s[0].y, [1, 2]);
+  assert.deepEqual(s[1].y, [null, null, 5, 6, null]);
+  assert.deepEqual(s[2].lo, [null, null, null, 1, 2]);
+  assert.deepEqual(s[2].hi, [null, null, null, 3, 4]);
+});
+
+test("a period slices a band's lo / hi with its x", () => {
+  const out = sliceFrom([1, 2, 3, 4], [{ kind: "band", lo: [0, 1, 2, 3], hi: [5, 6, 7, 8] }], 2, 3);
+  assert.deepEqual(out.x, [2, 3]);
+  assert.deepEqual(out.series[0].lo, [1, 2]);
+  assert.deepEqual(out.series[0].hi, [6, 7]);
 });

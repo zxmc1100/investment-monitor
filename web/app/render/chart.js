@@ -1,13 +1,13 @@
 // uPlot line/marker chart. Uses the global `uPlot` from the vendored IIFE build.
 import { esc } from "../dom.js";
 import { fmt, fmtDate, timeTicks } from "../fmt.js";
-import { chartModes, lastValue, MODE_TITLES, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowMwr, windowRoi } from "../ranges.js";
+import { chartModes, cutHorizon, expandAt, HORIZON_MONTHS, lastValue, MODE_TITLES, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowMwr, windowRoi } from "../ranges.js";
 
 const PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9575cd", "#26a69a", "#bdbdbd"];
 const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
 const AXIS_FMT = { eur: "eur:0", "eur+": "eur+:0", pct: "pct:0", "pct+": "pct+:0" };
 
-const color = (s, i) => ROLE[s.role] ?? PALETTE[i % PALETTE.length];
+const color = (s, i) => s.color ?? ROLE[s.role] ?? PALETTE[i % PALETTE.length];
 const axis = () => ({ stroke: "#8a8a8a", grid: { stroke: "#1c1c1c", width: 1 }, ticks: { stroke: "#2b2b2b", width: 1 },
   font: '10px "SF Mono", ui-monospace, Menlo, monospace' });
 
@@ -39,9 +39,37 @@ function drawMarks(u, xs, labels) {
   ctx.restore();
 }
 
+// uPlot's data, series options (after x) and bands for `series`: a line or markers as before, `dash` dotted;
+// a band (kind "band": lo / hi) two invisible lines with the area between them filled in its colour, faint.
+export function plotData(x, series, colorOf) {
+  const data = [x], specs = [{}], bands = [];
+  series.forEach((s, i) => {
+    const c = colorOf(s, i);
+    if (s.kind === "band") {
+      data.push(s.lo, s.hi);
+      specs.push({ label: `${s.name} lo`, stroke: "transparent", points: { show: false }, spanGaps: false },
+                 { label: `${s.name} hi`, stroke: "transparent", points: { show: false }, spanGaps: false });
+      bands.push({ series: [data.length - 1, data.length - 2], fill: `${c}26` });
+      return;
+    }
+    data.push(s.y);
+    specs.push({ label: s.name, stroke: c, width: s.role === "primary" ? 1.8 : 1, spanGaps: false,
+      ...(s.dash ? { dash: [4, 4] } : {}),
+      ...(s.kind === "markers"
+        ? { paths: () => null, points: { show: true, size: 6, fill: c, stroke: c } }
+        : { points: { show: false } }) });
+  });
+  return { data, specs, bands };
+}
+
 export function chart(body, p, ui) {
-  const src = chartSource(p, ui.followKey(p));
-  if (!src?.x || src.x.length < 2 || !src.series?.length) { body.innerHTML = `<div class="empty">NO DATA</div>`; return; }
+  const raw = chartSource(p, ui.followKey(p));
+  if (!raw?.x || raw.x.length < 2 || !raw.series?.length) { body.innerHTML = `<div class="empty">NO DATA</div>`; return; }
+  // A chart with a future (OPT's PAST & FUTURE): its future lines and bands padded to the x (ranges.expandAt), then
+  // cut to the horizon chip — before any range or drag, so today's index still holds.
+  const horizon = p.horizons ? (p.horizons.includes(ui.chartHorizon(p.id)) ? ui.chartHorizon(p.id) : p.horizon) : null;
+  const padded = { ...raw, series: expandAt(raw.series, raw.x.length) };
+  const src = horizon ? { ...padded, ...cutHorizon(padded.x, padded.series, p.today_idx, HORIZON_MONTHS[horizon]) } : padded;
   // A period dragged on the chart is a range of its own ({from, to, prev}) until a named range or a
   // double-click; a following chart drops it when its row changes (another curve, other dates).
   const key = ui.followKey(p), saved = ui.chartRange(p.id) ?? "ALL";
@@ -61,12 +89,13 @@ export function chart(body, p, ui) {
     : mwr ? windowMwr(sliced.series, inv, x, from, inception)
     : roiWin ? windowRoi(sliced.series, inv, inception) : p.rebase ? rebase(sliced.series) : sliced.series;
   const isoAt = (i) => new Date(x[i] * 1000).toISOString().slice(0, 10);
-  const lines = series.filter((s) => s.kind !== "markers");
+  const lines = series.filter((s) => s.kind !== "markers" && s.kind !== "band" && !s.nolegend);
   const legend = p.legend === "rank"
     ? [...lines].sort((a, b) => (lastValue(b.y) ?? -Infinity) - (lastValue(a.y) ?? -Infinity)) : [];
   const chips = (p.ranges ?? []).map((r) => `<span class="${r === range ? "on" : ""}" data-r="${esc(r)}">${esc(r)}</span>`);
   if (dragged) chips.push(`<span class="on">${esc(fmtDate(isoAt(0)))}–${esc(fmtDate(isoAt(x.length - 1)))}</span>`);
   for (const m of modes) chips.push(`<span class="mode${m === mode ? " on" : ""}" data-mode="${m}" title="${esc(MODE_TITLES[m])}">${m}</span>`);
+  for (const h of p.horizons ?? []) chips.push(`<span class="hz${h === horizon ? " on" : ""}" data-h="${esc(h)}">${esc(h)}</span>`);
   const ranges = chips.length ? `<div class="ranges">${chips.join("")}</div>` : "";
   // Fixed-width legend (colgroup + CSS): a value gaining a digit must never resize the plot.
   const legendHtml = legend.length ? `<table class="legend"><colgroup><col><col class="v"></colgroup><tr class="asof"><td colspan="2"></td></tr>${legend.map((s) =>
@@ -86,6 +115,7 @@ export function chart(body, p, ui) {
   paint(null);
   body.querySelectorAll(".ranges span[data-r]").forEach((el) => el.addEventListener("click", () => ui.setRange(p.id, el.dataset.r)));
   body.querySelectorAll(".ranges [data-mode]").forEach((el) => el.addEventListener("click", () => ui.setMode(p.id, el.dataset.mode)));
+  body.querySelectorAll(".ranges [data-h]").forEach((el) => el.addEventListener("click", () => ui.setHorizon(p.id, el.dataset.h)));
 
   // The dragged period becomes the chart's range — drawn again from the data, so every view restarts at its
   // start and a refresh keeps it. After uPlot's own mouse-up handling (the redraw replaces the plot).
@@ -99,6 +129,7 @@ export function chart(body, p, ui) {
   const el = body.querySelector(".plot");
   const size = () => ({ width: Math.max(el.clientWidth, 100), height: Math.max(el.clientHeight, 60) });
   const yfmt = AXIS_FMT[p.yfmt] ?? "num:0";
+  const { data, specs, bands } = plotData(x, series, color);
   const plot = new uPlot({
     ...size(),
     legend: { show: false },
@@ -108,13 +139,9 @@ export function chart(body, p, ui) {
     scales: { x: { time: true } },
     axes: [{ ...axis(), values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) },
       { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) }],
-    series: [{}, ...series.map((s, i) => ({
-      label: s.name, stroke: color(s, i), width: s.role === "primary" ? 1.8 : 1, spanGaps: false,
-      ...(s.kind === "markers"
-        ? { paths: () => null, points: { show: true, size: 6, fill: color(s, i), stroke: color(s, i) } }
-        : { points: { show: false } }),
-    }))],
-  }, [x, ...series.map((s) => s.y)], el);
+    series: specs,
+    bands,
+  }, data, el);
   if (dragged) plot.over.addEventListener("dblclick", () => ui.setRange(p.id, back));
   const ro = new ResizeObserver(() => plot.setSize(size()));
   ro.observe(el);

@@ -44,7 +44,7 @@ function keyRows() {
 const cmd = $("#cmd");
 const S = {
   reg: { screens: [], private: [] }, id: null, param: null, key: null, back: [], backNav: false, resetScroll: false, payload: null, live: null, conn: !api.isStatic,
-  running: new Set(), tables: {}, ranges: {}, mode: {}, max: null, focus: null,
+  running: new Set(), tables: {}, ranges: {}, mode: {}, horizon: {}, max: null, focus: null,
   ac: { items: [], i: 0, moved: false }, history: [], hi: -1, disposers: {}, noticeT: null,
   lookup: { q: "", items: [] }, lookupT: null, alerts: { active: 0, down: false }, alertErr: null,
   builds: {},                                       // screen builds in progress or failed (build.js)
@@ -231,6 +231,8 @@ function ui(pid) {
     setRange(id, r) { S.ranges[id] = r; rerender(id); },
     chartMode: (id) => S.mode[id],
     setMode(id, m) { S.mode[id] = m; rerender(id); },
+    chartHorizon: (id) => S.horizon[id],
+    setHorizon(id, h) { S.horizon[id] = h; rerender(id); },
     onDispose: (fn) => (S.disposers[pid] ??= []).push(fn),
     // form / paste panels (TRADES)
     formState: (p) => (S.forms[formKey(p.id)] ??= blankForm(p)),

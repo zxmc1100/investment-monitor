@@ -19,7 +19,7 @@ export const rangeEnd = (range) => (range && typeof range === "object" ? range.t
 
 // The points from `start` to `end`. `anchor`: open on the last point BEFORE start instead — the close a
 // period's return is measured from (YTD: the year before's last close). Every series slices with x,
-// its `twr` and `cash` too. `start`: the first point's index in x (0: nothing before the window).
+// its `twr` and `cash` too, a band's `lo` / `hi`. `start`: the first point's index in x (0: nothing before it).
 export function sliceFrom(x, series, start, end = Infinity, anchor = false) {
   let i = 0;
   while (i < x.length && x[i] < start) i++;
@@ -30,7 +30,7 @@ export function sliceFrom(x, series, start, end = Infinity, anchor = false) {
   i = Math.min(i, Math.max(0, j - 2));
   const cut = (a) => a?.slice(i, j);
   return { x: x.slice(i, j), start: i, series: series.map((s) => ({ ...s, y: cut(s.y), ...(s.twr ? { twr: cut(s.twr) } : {}),
-    ...(s.cash ? { cash: cut(s.cash) } : {}) })) };
+    ...(s.cash ? { cash: cut(s.cash) } : {}), ...(s.lo ? { lo: cut(s.lo), hi: cut(s.hi) } : {}) })) };
 }
 
 // TWR is offered when every line has a time-weighted curve (`twr`: growth of 1 €, money moves taken out).
@@ -143,4 +143,22 @@ export function rebase(series) {
     const base = s.y[j];
     return { ...s, y: s.y.map((v, k) => (k < i0 || !has(v) || !base ? null : (v / base) * 100)) };
   });
+}
+
+// A series sent from x index `at` (OPT's future lines and bands: only their own points travel) padded with nulls to
+// the chart's `n` points; one without `at` as it is.
+export function expandAt(series, n) {
+  const pad = (a, at) => (a ? [...Array(at).fill(null), ...a, ...Array(Math.max(0, n - at - a.length)).fill(null)].slice(0, n) : a);
+  return (series ?? []).map((s) => (Number.isInteger(s.at)
+    ? { ...s, ...(s.y ? { y: pad(s.y, s.at) } : {}), ...(s.lo ? { lo: pad(s.lo, s.at), hi: pad(s.hi, s.at) } : {}) }
+    : s));
+}
+
+// The future of a chart that has one (OPT's PAST & FUTURE): `todayIdx` the last past point; a horizon keeps that
+// many months after it. Every per-point array of a series is cut alike (y, and a band's lo / hi).
+export const HORIZON_MONTHS = { "6M": 6, "1Y": 12, "3Y": 36 };
+export function cutHorizon(x, series, todayIdx, months) {
+  if (todayIdx === null || todayIdx === undefined) return { x, series };
+  const n = Math.min(x.length, todayIdx + 1 + months), cut = (a) => a?.slice(0, n);
+  return { x: x.slice(0, n), series: series.map((s) => ({ ...s, y: cut(s.y), ...(s.lo ? { lo: cut(s.lo), hi: cut(s.hi) } : {}) })) };
 }
