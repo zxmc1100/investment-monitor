@@ -245,3 +245,14 @@ def test_a_broker_dividend_with_only_its_net_counts_its_net_against_the_allowanc
     """A dividends.csv row may carry the net alone (no gross): the allowance counts the net, the best known."""
     divs = [{"date": "2026-05-04", "gross": None, "eur": 3.10}, {"date": "2026-05-01", "gross": 50.0, "eur": 40.0}]
     assert W.allowance_left([], divs, year=2026, allowance=1000.0) == pytest.approx(1000 - 3.10 - 50)
+
+
+def test_a_sale_bigger_than_the_portfolio_pays_out_only_what_it_holds(monkeypatch):
+    """Your pick tripled and you sold it: the followed portfolio cannot pay out money it never made — it sells all
+    it holds, and its ROI keeps its own result (flat here: 0 %), not your gain."""
+    monkeypatch.setattr(analytics.config, "ORDER_FEE_EUR", 0.0)
+    txns = [tx("2025-01-06", "XXX.F", "buy", 1000.0), tx("2025-01-08", "XXX.F", "sell", 3000.0),
+            tx("2025-01-15", "YYY.F", "buy", 1000.0)]
+    roi = W.follow(flat(), FLAT_DAYS, txns, equal_schedule(), fee=1.0)
+    assert roi.loc["2025-01-10"] == pytest.approx(0.0)
+    assert roi.loc["2025-01-20"] == pytest.approx(0.0)

@@ -90,7 +90,8 @@ def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict
     """ROI % on `days` of your money had it followed `schedule` — the benchmarks' cash-flow matching
     (analytics.build_roi_timeseries): every buy puts the same euros in on its date (the `<=` business-day pointer,
     less the same single order fee, analytics.bench_buy_events), split by the weights in force; every sale takes
-    the same euros out, pro rata, and counts as cash; bonus shares move no money. Prices are adjusted closes, so
+    the same euros out, pro rata, and counts as cash — never more than the portfolio holds (your pick may have made
+    money it never did); bonus shares move no money. Prices are adjusted closes, so
     dividends are reinvested. At each schedule date the new weights take over: when any line is more than `band`
     off them, the whole portfolio goes back to target, `fee` per order of at least MIN_TRADE_EUR. Money with no
     weights to follow yet (bought before any line of today's had traded) waits as cash, in the value, until the first
@@ -135,10 +136,11 @@ def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict
             eur = sells[ci][1]
             ci += 1
             v = value(p)
+            paid = min(eur, v)
             if v > 0:
-                keep = max(0.0, 1.0 - eur / v)
+                keep = 1.0 - paid / v
                 units, idle = units * keep, idle * keep
-            cash_out += eur
+            cash_out += paid
         if invested > 0:
             out[d] = (value(p) + cash_out) / invested * 100 - 100
     return pd.Series(out, dtype=float).reindex(days)
