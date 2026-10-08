@@ -197,7 +197,7 @@ def test_param_routes(penv):
 def test_screens_lists_params_and_targets(penv):
     body = penv[0].get("/api/screens").json()
     assert body["params"] == {"P": ["AAA.F", "BBB.F"]}
-    assert body["targets"] == ["MINVAR", "RP", "HRP", "BLSHARPE", "BLSAME"]
+    assert body["targets"] == ["MINVAR", "RP", "HRP", "BLSHARPE", "BLSAME", "EQUAL"]
     assert {s["id"]: s["param"] for s in body["screens"]} == {"P": True, "FAKE": False}
 
 
@@ -207,7 +207,7 @@ def test_prefs_endpoint(penv):
     assert c.post("/api/prefs", json={"target": "rp"}).json() == {"target": "RP"}
     r = c.post("/api/prefs", json={"target": "bogus"})
     assert r.status_code == 400 and "RP" in r.json()["detail"]["targets"]
-    assert r.json()["detail"]["error"] == "UNKNOWN TARGET BOGUS — TARGET <MINVAR|RP|HRP|BLSHARPE|BLSAME>"
+    assert r.json()["detail"]["error"] == "UNKNOWN TARGET BOGUS — TARGET <MINVAR|RP|HRP|BLSHARPE|BLSAME|EQUAL>"
     r = c.post("/api/prefs", content=b"not json", headers={"Content-Type": "application/json"})
     assert r.status_code == 422 and r.json()["detail"]["error"] == "MALFORMED REQUEST"
 
