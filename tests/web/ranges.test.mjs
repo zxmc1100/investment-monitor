@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canNorm, chartModes, cutHorizon, expandAt, HORIZON_MONTHS, legendRest, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
+import { canNorm, chartModes, cutHorizon, expandAt, HORIZON_MONTHS, legendRest, legendValue, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
 
 const DAY = 86400;
 const END = Date.UTC(2026, 5, 30) / 1000;                 // 2026-06-30
@@ -160,4 +160,17 @@ test("a chart with a future rests its legend on today, not on the horizon's end;
   assert.equal(legendRest(3, 6, 4), 2);                                     // today beyond the period: its last point
   assert.equal(legendRest(10, null, 0), 9);
   assert.equal(legendRest(10, undefined, 0), 9);
+});
+
+test("hovering the future reads each line's projected median, never its value of today under a future date", () => {
+  const series = [
+    { name: "YOU", y: [1, 2, null, null] }, { name: "NOW →", y: [null, 2, 3, 4] },
+    { name: "HRP", y: [5, 6, null, null] }, { name: "HRP →", y: [null, 6, 7, 8] },
+    { name: "EM", y: [9, 9, 9, 9] },                                       // no future of its own
+  ];
+  assert.equal(legendValue(series, series[0], 1, 1), 2);                    // today and before: the line itself
+  assert.equal(legendValue(series, series[0], 3, 1), 4);                    // YOU's future is NOW →
+  assert.equal(legendValue(series, series[2], 2, 1), 7);
+  assert.equal(legendValue(series, series[4], 3, 1), 9);
+  assert.equal(legendValue(series, series[0], 0, null), 1);                 // a chart without a future
 });

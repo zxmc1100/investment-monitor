@@ -169,3 +169,14 @@ export function legendRest(n, todayIdx, start = 0) {
   if (todayIdx === null || todayIdx === undefined) return n - 1;
   return Math.max(0, Math.min(n - 1, todayIdx - start));
 }
+
+// A legend line's value at the cursor `idx`: the line itself up to today (`todayIdx`, in the same coordinates); past
+// today, its projected median — the series "<name> →" (YOU's future is keeping your mix: "NOW →") — or, without one,
+// the line itself. Never today's value under a future date. Pure.
+export function legendValue(series, line, idx, todayIdx) {
+  if (todayIdx !== null && todayIdx !== undefined && idx > todayIdx) {
+    const fut = series.find((s) => s.name === `${line.name === "YOU" ? "NOW" : line.name} →`);
+    if (fut) return valueAt(fut.y, idx);
+  }
+  return valueAt(line.y, idx);
+}

@@ -1,7 +1,7 @@
 // uPlot line/marker chart. Uses the global `uPlot` from the vendored IIFE build.
 import { esc } from "../dom.js";
 import { fmt, fmtDate, timeTicks } from "../fmt.js";
-import { chartModes, cutHorizon, expandAt, HORIZON_MONTHS, lastValue, legendRest, MODE_TITLES, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowMwr, windowRoi } from "../ranges.js";
+import { chartModes, cutHorizon, expandAt, HORIZON_MONTHS, lastValue, legendRest, legendValue, MODE_TITLES, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowMwr, windowRoi } from "../ranges.js";
 
 const PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9575cd", "#26a69a", "#bdbdbd"];
 const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
@@ -91,6 +91,7 @@ export function chart(body, p, ui) {
   const isoAt = (i) => new Date(x[i] * 1000).toISOString().slice(0, 10);
   const lines = series.filter((s) => s.kind !== "markers" && s.kind !== "band" && !s.nolegend);
   const rest = legendRest(x.length, p.horizons ? p.today_idx : null, sliced.start);   // a future's: today
+  const todayAt = p.horizons ? p.today_idx - sliced.start : null;                     // past it: the projections
   const legend = p.legend === "rank"
     ? [...lines].sort((a, b) => (valueAt(b.y, rest) ?? -Infinity) - (valueAt(a.y, rest) ?? -Infinity)) : [];
   const chips = (p.ranges ?? []).map((r) => `<span class="${r === range ? "on" : ""}" data-r="${esc(r)}">${esc(r)}</span>`);
@@ -108,7 +109,7 @@ export function chart(body, p, ui) {
     if (!lg) return;
     lg.querySelector(".asof td").textContent = fmtDate(isoAt(idx ?? rest));
     lg.querySelectorAll("td[data-s]").forEach((td) => {
-      const f = fmt(valueAt(series[Number(td.dataset.s)].y, idx ?? rest), p.yfmt);
+      const f = fmt(legendValue(series, series[Number(td.dataset.s)], idx ?? rest, todayAt), p.yfmt);
       td.textContent = f.text;
       td.className = `r ${f.cls}`;
     });
