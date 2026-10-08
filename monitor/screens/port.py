@@ -13,7 +13,7 @@ import pandas as pd
 from monitor import config
 from monitor.data.buffer import cached_pay_dates
 from monitor.portfolio import snapshot
-from monitor.portfolio.analytics import year_returns
+from monitor.portfolio.analytics import bench_live, live_step, year_returns
 from monitor.portfolio.dividends import T2_HOMES
 from monitor.portfolio.ledger import ADDS
 from monitor.portfolio.meta import exposure_breakdown, region_totals
@@ -128,6 +128,7 @@ def compute(tier: str, ctx: Ctx) -> dict:
         if ctx.equity_log is not None:
             snapshot.log_equity(ctx.equity_log, q["acct"])
         q["ident"] = ident
+        q["bench"] = snapshot.bench_quotes(force=ctx.force, buffer_dir=ctx.buffer_dir)
         return q
     if tier == "daily":
         return snapshot.daily_tier(book, force=ctx.force, buffer_dir=ctx.buffer_dir)
@@ -182,8 +183,7 @@ def _summary(q: dict, d: dict) -> dict:
     its first and last day, its growth (v: money-weighted, payments excluded), the time-weighted return (v2)
     and the euro gain. Public: the two percentages, like XIRR; the euro values private."""
     a = q["acct"]
-    # sum of the displayed (cent-rounded) position values, so the KPI equals the table total
-    value = sum(p["position_value"] for p in q["positions"])
+    value = _live_value(q)
     today = date.today()
     years = year_returns(d["hold"], q["txns"], q["dividends"], live_value=value, today=today)
     cur = next((y for y in years if y["year"] == today.year), {})
@@ -268,19 +268,67 @@ def _positions(q: dict, d: dict) -> dict:
                       "pnl": _num(unreal), "pnlp": _num(unreal / cost * 100) if cost else None}}
 
 
-def _roi(d: dict) -> dict:
+def _at(s: pd.Series | None, day: date, v) -> pd.Series | None:
+    """`s` with its point on `day` set to `v` (added after its last date when absent); `s` itself when v is None."""
+    if s is None or v is None:
+        return s
+    s = s.copy()
+    s.loc[pd.Timestamp(day)] = v
+    return s.sort_index()
+
+
+def _live_value(q: dict) -> float:
+    """The holdings at live quotes: the sum of the displayed (cent-rounded) position values, so the VALUE KPI
+    equals the table total."""
+    return sum(p["position_value"] for p in q["positions"])
+
+
+def _live_points(q: dict, d: dict, today: date) -> dict[str, tuple[float, float | None]]:
+    """{line: (ROI %, time-weighted growth)} of each ROI line today, marked to live quotes — the daily part
+    only moves when it is refreshed (12 h). YOU: the ROI KPI (the chart's formula on the live value) and the
+    live step year_returns ends YTD TWR with; a benchmark: analytics.bench_live on its live quote, left out
+    without a good one (failed, stale, or older than its walk's last close) — its line keeps the daily
+    point. {} on a weekend: the chart has business days only, and the quotes are Friday's closes."""
+    if today.weekday() >= 5:
+        return {}
+    tday, twr = pd.Timestamp(today), d.get("twr")
+    before = twr[twr.index < tday] if twr is not None else None
+    step = live_step(d["hold"], q["txns"], q["dividends"], _live_value(q), today)
+    you_twr = float(before.iloc[-1]) * step if before is not None and len(before) and step is not None else None
+    out = {"YOU": (q["acct"]["simple_roi"], you_twr)}
+    quotes = q.get("bench") or {}
+    fx = (quotes.get(snapshot.BENCH_FX) or {}).get("price")
+    for name, short in BENCH:
+        st = (d["asset_values"].get("__bmlast__") or {}).get(name)
+        quote = quotes.get(st["ticker"]) if st else None
+        if quote is None or quote["date"] < st["day"]:
+            continue
+        marked = bench_live(st, q["txns"], quote["price"], fx, today)
+        if marked is not None:
+            out[short] = marked
+    return out
+
+
+def _roi(q: dict, d: dict) -> dict:
     roi, bms = d["roi_series"], d["bm_series"]
     out = {"id": "roi", "n": 4, "title": "ROI vs SAME CASH ELSEWHERE", "type": "chart", "span": 5,
            "vis": PUB, "context": {"text": "CASH-FLOW MATCHED", "vis": PUB}, "yfmt": "pct+",
            "legend": "rank", "ranges": ["1M", "6M", "YTD", "1Y", "ALL"], "x": [], "series": []}
     if roi.empty:
         return out
-    idx = _thin_index(roi.index)
     # `twr`: each line's time-weighted growth of 1 € (money moves taken out of their days), which the
     # chart's NORM view rebases to 0 at the window's start. Not a public key (redact drops it): next
     # to the ROI line it would give away when, and how much, money was added. Absent in a part
     # computed before it existed — NORM is then simply not offered.
     twr = {"YOU": d.get("twr"), **{short: (d["asset_values"].get("__twr__") or {}).get(name) for name, short in BENCH}}
+    # today's point of every line at live quotes: replaced, or added when the daily part ended before today —
+    # "today" being the quotes' own day, so a quote part from yesterday is never drawn on today's date
+    today = date.fromisoformat(q["as_of"][:10]) if q.get("as_of") else date.today()
+    live = _live_points(q, d, today) if "hold" in d else {}
+    roi = _at(roi, today, live.get("YOU", (None,))[0])
+    bms = {name: _at(bms.get(name), today, live.get(short, (None,))[0]) for name, short in BENCH}
+    twr = {k: _at(s, today, live.get(k, (None, None))[1]) for k, s in twr.items()}
+    idx = _thin_index(roi.index)
 
     def line(name, role, s):
         ln = {"name": name, "role": role, "kind": "line", "vis": PUB, "y": [_num(v) for v in s.reindex(idx)]}
@@ -456,7 +504,7 @@ def assemble(parts: dict, meta: dict) -> dict:
             "context": {"text": f"{len(q['positions'])} POS · EUR · SINCE {since}", "vis": PUB},
             "meta": {**meta, "as_of": q["as_of"], "stale": stale, "warn": q.get("warn") or []},
             "help": help_entries(),
-            "panels": [_summary(q, d), _risk(d), _positions(q, d), _roi(d), _posval(q, d),
+            "panels": [_summary(q, d), _risk(d), _positions(q, d), _roi(q, d), _posval(q, d),
                        _accounting(q["acct"]), _allocation(q), _activity(q), _dividends(q)]}
 
 

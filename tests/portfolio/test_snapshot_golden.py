@@ -7,6 +7,9 @@ deleted, and replaces its golden test. Regenerated once since, when two unread o
 (the correlation matrix — its function was deleted — and daily_tier's `ytd`); no pinned number moved.
 Regenerated again when asset_values gained "__twr__" (the benchmarks' time-weighted growth): with that
 key removed the payload hashed to the previous golden, so again no pinned number moved.
+Regenerated again when asset_values gained "__bmlast__" (each benchmark's state at the last close before
+today, for PORT's live point) and the EM benchmark moved from EUNM.F to EUNM.DE: a field-by-field diff of the
+canonical JSON showed only the new key and the Emerging Markets line (bm_series, __twr__) changed.
 
 Regenerate ONLY when a change to the numbers is intended:  UPDATE_GOLDEN=1 pytest <this file>
 (DUMP_GOLDEN=<path> writes the canonical JSON for a diff)."""

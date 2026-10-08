@@ -43,7 +43,7 @@ BENCHMARKS = {
     "MSCI World":       ("IWDA.AS", "EUR"),  # iShares Core MSCI World — EUR-listed
     "FTSE All-World":   ("VWCE.DE", "EUR"),  # Vanguard FTSE All-World Acc — developed + EM
     "Euro Stoxx 50":    ("EXW1.DE", "EUR"),  # iShares Core EURO STOXX 50
-    "Emerging Markets": ("EUNM.F",  "EUR"),  # iShares MSCI EM UCITS ETF Acc — EUR-listed Frankfurt
+    "Emerging Markets": ("EUNM.DE", "EUR"),  # iShares MSCI EM UCITS ETF Acc — Xetra (its Frankfurt line misses days)
     "Gold":             ("GLD",     "USD"),
     "Bitcoin":          ("BTC-USD", "USD"),
     "Fixed Income":     ("BND",     "USD"),

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from monitor.portfolio.analytics import daily_flows, twr_index, year_returns
+from monitor.portfolio.analytics import daily_flows, live_step, twr_index, year_returns
 
 
 def tx(d, action, price, ticker="X.F", shares=1.0):
@@ -219,3 +219,24 @@ def test_twr_index_is_one_until_money_is_at_work():
     idx = pd.bdate_range("2026-01-05", "2026-01-09")
     hold = pd.Series([0.0, 0.0, 100.0, 110.0, 121.0], index=idx)
     assert list(twr_index(hold, [tx("2026-01-07", "buy", 100.0)], [])) == pytest.approx([1.0, 1.0, 1.0, 1.1, 1.21])
+
+
+def test_live_step_runs_from_the_last_close_before_today_to_the_live_value():
+    """(live + money out) / (last close + money in), the moves dated today or later in the index plus those
+    after its last date up to today — a buy counts from the start of its day, like every TWR step."""
+    idx = pd.bdate_range("2026-06-24", "2026-06-29")              # the daily part ended Monday
+    hold = pd.Series(1000.0, index=idx)
+    txns = [tx("2026-06-24", "buy", 1000.0), tx("2026-06-30", "buy", 200.0), tx("2026-07-01", "buy", 99.0)]
+    divs = [div("2026-06-30", 10.0)]
+    step = live_step(hold, txns, divs, 1250.0, today=date(2026, 6, 30))
+    assert step == pytest.approx((1250.0 + 10.0) / (1000.0 + 200.0))  # 1 Jul is after today: not counted
+    hold.loc[pd.Timestamp("2026-06-30")] = 1190.0                   # today in the index: its close is replaced
+    assert live_step(hold, txns, divs, 1250.0, today=date(2026, 6, 30)) == pytest.approx(step)
+    assert live_step(pd.Series(0.0, index=idx), [], [], 0.0, today=date(2026, 6, 30)) is None   # nothing at work
+
+
+def test_the_live_years_twr_is_its_closes_chained_with_the_live_step():
+    today = date(2026, 6, 30)
+    closes = by_year(year_returns(HOLD.loc[:"2026-06-29"], TXNS, DIVS, today=date(2026, 6, 29)))[2026]["twr"]
+    live = by_year(year_returns(HOLD, TXNS, DIVS, live_value=1850.0, today=today))[2026]["twr"]
+    assert (1 + live / 100) == pytest.approx((1 + closes / 100) * live_step(HOLD, TXNS, DIVS, 1850.0, today=today))

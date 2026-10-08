@@ -176,6 +176,7 @@ BL_VIEWS: list[dict] = []
 
 # Refresh policy
 QUOTE_INTERVAL_S = 60    # quote tier max age while a tab is open
+BENCH_QUOTE_S = 300      # PORT re-asks the benchmark lines' live quotes at most this often
 DAILY_TTL_H = 12         # daily tier max age
 FAILED_RETRY_MIN = 10    # a tier whose last run failed is not auto-run again sooner (REFRESH still runs at once)
 TRADES_SETTLE_S = 2.5    # after TRADES writes your trades, the portfolio screens recompute once the burst settles

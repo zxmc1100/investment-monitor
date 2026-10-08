@@ -290,12 +290,11 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
     asset_values["__roi__"] = {tk: _daily(v) for tk, v in roi_vals.items()}
 
     # ── Benchmark series ──────────────────────────────────────────────────────
-    buy_events = sorted([(t["date"], float(t["price"]),
-                          0.0 if t["ticker"] in config.SAVINGS_PLAN_TICKERS
-                          else min(config.ORDER_FEE_EUR, float(t["price"]))) for t in buys],
-                        key=lambda x: x[0])
+    buy_events = bench_buy_events(transactions)
     benchmark_series: dict[str, pd.Series] = {}
     benchmark_twr: dict[str, pd.Series] = {}
+    benchmark_last: dict[str, dict] = {}
+    tday = pd.Timestamp(datetime.today().date())
 
     for name, (bm_hist, currency) in bm_hists.items():
         bm_shares = 0.0
@@ -348,6 +347,9 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
                 twr *= eur_val / put_in
             twr_vals[ds] = twr
             prev_eur, put_in = eur_val, 0.0
+            if date < tday:                         # the last close before today: where bench_live starts
+                benchmark_last[name] = {"ticker": BENCHMARKS[name][0], "ccy": currency, "day": ds,
+                                        "units": bm_shares, "invested": bm_invested, "eur": eur_val, "twr": twr}
 
         s = pd.Series(bm_vals)
         s.index = pd.to_datetime(s.index)
@@ -358,7 +360,41 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
 
     # Each benchmark's time-weighted growth, under a reserved key like "__roi__" (see the docstring).
     asset_values["__twr__"] = benchmark_twr
+    # ... and each one's state at the last close before today, which bench_live marks to a live price.
+    asset_values["__bmlast__"] = benchmark_last
     return portfolio_series, benchmark_series, asset_values
+
+
+def bench_buy_events(transactions: list[dict]) -> list[tuple[str, float, float]]:
+    """(date, EUR, order fee) of every buy, by date — what a benchmark buys with the same money: the fee is
+    config.ORDER_FEE_EUR (never more than the buy), none for a savings-plan line. Bonus shares: no money."""
+    return sorted([(t["date"], float(t["price"]),
+                    0.0 if t["ticker"] in config.SAVINGS_PLAN_TICKERS
+                    else min(config.ORDER_FEE_EUR, float(t["price"])))
+                   for t in transactions if t["action"] == "buy"], key=lambda x: x[0])
+
+
+def bench_live(state: dict, transactions: list[dict], price: float, eurusd: float | None,
+               today: _date | None = None) -> tuple[float, float] | None:
+    """(ROI %, time-weighted growth) of a benchmark marked to a live `price` in its own currency (`eurusd`,
+    USD per EUR, for a USD line): its walk's state at the last close before today (`__bmlast__`), then the
+    buys dated after that close up to today, filled at `price` less the walk's order fee — the walk's own day
+    step, so at today's close it is the walk's point. None for a USD line without a rate."""
+    if state["ccy"] == "USD" and not eurusd:
+        return None
+    fx = eurusd if state["ccy"] == "USD" else 1.0
+    units, invested, put_in = state["units"], state["invested"], 0.0
+    tday = (today or _date.today()).isoformat()
+    for day, eur, fee in bench_buy_events(transactions):
+        if state["day"] < day <= tday:
+            units += (eur - fee) * fx / price
+            invested += eur
+            put_in += eur
+    eur_val = units * price / fx
+    if invested <= 0:
+        return None
+    twr = state["twr"] * (eur_val - put_in) / state["eur"] if state["eur"] > 0 else state["twr"] * eur_val / put_in
+    return round((eur_val / invested - 1) * 100, 4), twr
 
 
 # ── Calendar-year returns ───────────────────────────────────────────────────────
@@ -401,6 +437,37 @@ def _day_steps(vals: np.ndarray, flows: pd.DataFrame) -> tuple[np.ndarray, np.nd
     at_work = base > 0
     out = vals + (flows["sell"] + flows["dividend"]).to_numpy()
     return np.where(at_work, out / np.where(at_work, base, 1.0), 1.0), at_work
+
+
+def _tail(transactions: list[dict], dividends, last: pd.Timestamp | None, tday: pd.Timestamp) -> dict[str, float]:
+    """EUR per kind moved after the index's `last` date, up to `tday` — the moves a live step carries."""
+    tail = {k: 0.0 for k in _KINDS}
+    for day, kind, eur in _money_moves(transactions, dividends):
+        ts = pd.Timestamp(day)
+        if (last is None or ts > last) and ts <= tday:
+            tail[kind] += eur
+    return tail
+
+
+def live_step(hold: pd.Series, transactions: list[dict], dividends, live_value: float,
+              today: _date | None = None) -> float | None:
+    """The time-weighted step from the last close before `today` to `live_value` (the holdings marked to
+    live quotes): (live_value + W) / (V + B) — V the holdings at that close, B / W the money moved in / out
+    since: every move on an index date from today on, plus those dated after the index's last date up to
+    today (moves after today are not counted). None when no money is at work (V + B ≤ 0). year_returns'
+    last step in the current year and the live point of PORT's NORM chart — one formula, so they agree."""
+    tday = pd.Timestamp(today or _date.today())
+    hold = hold.fillna(0.0).astype(float)
+    index = hold.index if isinstance(hold.index, pd.DatetimeIndex) else pd.DatetimeIndex(hold.index)
+    vals = hold.to_numpy()
+    flows = daily_flows(transactions, dividends, index)
+    tail = _tail(transactions, dividends, index[-1] if len(index) else None, tday)
+    late = np.asarray(index >= tday)
+    before = vals[np.asarray(index < tday)]
+    v_prev = float(before[-1]) if len(before) else 0.0
+    b_live = float(flows["buy"].to_numpy()[late].sum()) + tail["buy"]
+    w_live = float((flows["sell"] + flows["dividend"]).to_numpy()[late].sum()) + tail["sell"] + tail["dividend"]
+    return (live_value + w_live) / (v_prev + b_live) if v_prev + b_live > 0 else None
 
 
 def twr_index(hold: pd.Series, transactions: list[dict], dividends) -> pd.Series:
@@ -454,12 +521,7 @@ def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
     money_in = flows["buy"].to_numpy()                     # B_t
     money_out = (flows["sell"] + flows["dividend"]).to_numpy()   # W_t
     step, at_work = _day_steps(vals, flows)
-    last = index[-1] if len(index) else None
-    tail = {k: 0.0 for k in _KINDS}                        # after the last index date, up to today
-    for day, kind, eur in _money_moves(transactions, dividends):
-        ts = pd.Timestamp(day)
-        if (last is None or ts > last) and ts <= tday:
-            tail[kind] += eur
+    tail = _tail(transactions, dividends, index[-1] if len(index) else None, tday)   # after the last index date
 
     first_trade = pd.Timestamp(min(t["date"] for t in transactions))
     first_year = first_trade.year
@@ -479,13 +541,9 @@ def year_returns(hold: pd.Series, transactions: list[dict], dividends, *,
             factor *= step[i]
             steps += 1
         if live:
-            before = vals[np.asarray(index < tday)]
-            v_prev = float(before[-1]) if len(before) else 0.0
-            late = in_year & ~closes                         # index dates from today on
-            b_live = float(money_in[late].sum()) + tail["buy"]
-            w_live = float(money_out[late].sum()) + tail["sell"] + tail["dividend"]
-            if v_prev + b_live > 0:
-                factor *= (live_value + w_live) / (v_prev + b_live)
+            last_step = live_step(hold, transactions, dividends, live_value, today)
+            if last_step is not None:
+                factor *= last_step
                 steps += 1
             end = float(live_value)
         else:

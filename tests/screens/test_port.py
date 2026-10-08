@@ -425,3 +425,85 @@ def test_positions_give_up_shares_and_average_cost_before_scrolling_sideways(fro
     cols = {c["k"]: c for c in panel(build(tmp_path), "positions")["cols"]}
     assert cols["shrs"].get("lo") and cols["avg"].get("lo")
     assert not any(cols[k].get("lo") for k in ("tkr", "value", "wt", "pnl", "pnlp"))
+
+
+# ── today's ROI point, marked to live quotes ─────────────────────────────────────────────────────────
+
+def _parts(tmp_path):
+    ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=FIX, equity_log=None)
+    return {t: port.compute(t, ctx) for t in port.SCREEN.tiers}
+
+
+def _live_up(monkeypatch, pct=5.0, skip=()):
+    """Every live quote `pct` % above its last close, today; the lines in `skip` have none at all."""
+    real = Y.fetch_quotes
+
+    def quotes(ts):
+        out = real(ts)
+        return {t: (None if t in skip else q and {**q, "price": round(q["price"] * (1 + pct / 100), 4)})
+                for t, q in out.items()}
+    monkeypatch.setattr(Y, "fetch_quotes", quotes)
+
+
+def test_todays_roi_point_is_the_live_roi_kpi_and_its_live_twr_step(frozen, tmp_path, monkeypatch):
+    """The chart moves with the quotes, not only when the daily part is refreshed: YOU's point today is the
+    ROI KPI (same formula, live value) and its NORM growth the live step year_returns ends YTD TWR with."""
+    from datetime import date
+    import pandas as pd
+    from monitor.portfolio.analytics import live_step
+    _live_up(monkeypatch)
+    parts = _parts(tmp_path)
+    p = port.assemble(parts, dict(META))
+    you = panel(p, "roi")["series"][0]
+    q, d = parts["quote"], parts["daily"]
+    assert you["y"][-1] == pytest.approx(kpi(p, "summary", "ROI"), abs=1e-9)
+    assert you["y"][-1] != pytest.approx(float(d["roi_series"].iloc[-1]), abs=0.01)    # not the daily close
+    today = date(2026, 6, 30)
+    before = d["twr"][d["twr"].index < pd.Timestamp(today)].iloc[-1]
+    step = live_step(d["hold"], q["txns"], q["dividends"], kpi(p, "summary", "VALUE"), today)
+    assert you["twr"][-1] == pytest.approx(before * step, abs=1e-4)
+
+
+def test_a_benchmarks_point_today_is_its_live_quote(frozen, tmp_path, monkeypatch):
+    from datetime import date
+    from monitor.portfolio.analytics import bench_live
+    _live_up(monkeypatch)
+    parts = _parts(tmp_path)
+    spx = next(s for s in panel(port.assemble(parts, dict(META)), "roi")["series"] if s["name"] == "SPX")
+    q, d = parts["quote"], parts["daily"]
+    st = d["asset_values"]["__bmlast__"]["S&P 500"]
+    roi, twr = bench_live(st, q["txns"], q["bench"][st["ticker"]]["price"], None, date(2026, 6, 30))
+    assert spx["y"][-1] == pytest.approx(roi) and spx["twr"][-1] == pytest.approx(twr, abs=1e-4)
+    assert spx["y"][-1] != pytest.approx(float(d["bm_series"]["S&P 500"].iloc[-1]), abs=0.01)
+
+
+def test_a_benchmark_without_a_live_quote_keeps_its_daily_point(frozen, tmp_path, monkeypatch):
+    _live_up(monkeypatch, skip={"CSPX.AS"})
+    parts = _parts(tmp_path)
+    spx = next(s for s in panel(port.assemble(parts, dict(META)), "roi")["series"] if s["name"] == "SPX")
+    assert "CSPX.AS" not in parts["quote"]["bench"]
+    assert spx["y"][-1] == pytest.approx(float(parts["daily"]["bm_series"]["S&P 500"].iloc[-1]))
+
+
+def test_no_live_point_on_a_weekend(monkeypatch, tmp_path):
+    """The chart has business days only; on a Saturday the quotes are Friday's closes."""
+    fakes_yf.install(monkeypatch)
+    _live_up(monkeypatch)
+    with time_machine.travel("2026-07-04 14:00:00+00:00", tick=False):
+        parts = _parts(tmp_path)
+        roi = panel(port.assemble(parts, dict(META)), "roi")
+    assert roi["series"][0]["y"][-1] == pytest.approx(float(parts["daily"]["roi_series"].iloc[-1]))
+    assert len(roi["x"]) == len(port._thin_index(parts["daily"]["roi_series"].index))
+
+
+def test_a_quote_part_from_yesterday_is_not_drawn_on_today(monkeypatch, tmp_path):
+    """The parts are assembled whenever a tier lands: the live point sits on the quotes' own day."""
+    import datetime as dt
+    fakes_yf.install(monkeypatch)
+    _live_up(monkeypatch)
+    with time_machine.travel("2026-06-29 14:00:00+00:00", tick=False):
+        parts = _parts(tmp_path)
+    with time_machine.travel("2026-06-30 09:00:00+00:00", tick=False):
+        roi = panel(port.assemble(parts, dict(META)), "roi")
+    assert dt.datetime.fromtimestamp(roi["x"][-1], dt.UTC).date() == dt.date(2026, 6, 29)
+    assert roi["series"][0]["y"][-1] == pytest.approx(parts["quote"]["acct"]["simple_roi"])

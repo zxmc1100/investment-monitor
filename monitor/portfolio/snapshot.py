@@ -159,6 +159,20 @@ def quote_tier(book: dict, *, force: bool = False, buffer_dir: Path | None = Non
                 txns=book["transactions"], realized=book["realized"], dividends=divs, dividend_records=records)
 
 
+BENCH_FX = "EURUSD=X"       # the USD benchmark lines' rate, as the ROI walk reads it (USD per EUR)
+
+
+def bench_quotes(*, force: bool = False, buffer_dir: Path | None = None, _fetch=None) -> dict[str, dict]:
+    """{ticker: quote} for the ROI chart's benchmark lines and BENCH_FX — what PORT marks today's point of each
+    benchmark with (analytics.bench_live). The shared quote buffer, re-asked at most every
+    config.BENCH_QUOTE_S. Good quotes only: a failed or stale one is left out, and its line keeps the daily
+    part's point."""
+    tickers = [t for t, _ in BENCHMARKS.values()] + [BENCH_FX]
+    quotes, stale, _ = cached_quotes(tickers, force=force, fresh_s=config.BENCH_QUOTE_S, buffer_dir=buffer_dir,
+                                     _fetch=_fetch)
+    return {t: q for t, q in quotes.items() if q is not None and t not in stale and q.get("date")}
+
+
 def holdings_value(asset_values: dict) -> pd.Series:
     """EUR value of everything held per business day: the per-ticker curves summed (not held = 0).
     Cash from sells and dividends is excluded — it left the holdings (see analytics.year_returns)."""
