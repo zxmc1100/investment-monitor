@@ -515,3 +515,41 @@ def test_help_says_how_dividends_are_taxed(monkeypatch):
     assert "net after 26.375 % dividend tax" in body("DIVIDENDS")
     monkeypatch.setattr(config, "TAX_FREE_ALLOWANCE", True)
     assert "home country withholds" in body("DIVIDENDS") and "26.375" not in body("DIVIDENDS")
+    assert "YTD" in body("ROI vs SAME CASH ELSEWHERE") and "before the window does not matter" in body("ROI vs")
+
+
+# ── ROI over a window: the money in and out the chart's window ROI needs ──────────────────────────────────
+
+def test_the_roi_chart_carries_the_money_in_and_out_privately(frozen, tmp_path):
+    """A window's ROI (1M … 1Y, dragged) is the ROI formula on the window: needs the money put in to each
+    point (`inv`, the chart's: a benchmark buys with yours, on the same days) and your sales and dividends
+    (`cash`, on YOU). Private — the public view keeps none of it."""
+    parts = _parts(tmp_path)
+    p = port.assemble(parts, dict(META))
+    roi, q = panel(p, "roi"), parts["quote"]
+    you = roi["series"][0]
+    assert len(roi["inv"]) == len(roi["x"]) == len(you["cash"])
+    assert roi["inv"][-1] == pytest.approx(q["acct"]["gross_deposits"], abs=0.01)
+    assert you["cash"][-1] == pytest.approx(q["acct"]["cash_returned"] + q["acct"]["dividends"], abs=0.01)
+    assert all(b >= a for a, b in zip(roi["inv"], roi["inv"][1:]))          # cumulative
+    pub = panel(public_view(p), "roi")
+    assert "inv" not in pub and not any("cash" in s for s in pub["series"])
+
+
+def test_a_windows_roi_is_the_gain_over_the_money_in_it(frozen, tmp_path):
+    """The browser's window ROI, ((1 + y)·I − C₀) / (y₀·I₀ − C₀ + I) − 1 from the close before the window,
+    is the year table's gain over (value on 1 Jan + every buy since) — YTD here."""
+    from datetime import date
+    from monitor.portfolio.analytics import year_returns
+    parts = _parts(tmp_path)
+    p = port.assemble(parts, dict(META))
+    roi = panel(p, "roi")
+    you, inv = roi["series"][0], roi["inv"]
+    i0 = max(i for i, t in enumerate(roi["x"]) if t < 1767225600)          # 2025's last close
+    y0, yt, c0 = you["y"][i0] / 100, you["y"][-1] / 100, you["cash"][i0]
+    window = ((1 + yt) * inv[-1] - c0) / (y0 * inv[i0] - c0 + inv[-1]) - 1
+    q, d = parts["quote"], parts["daily"]
+    value = sum(r["position_value"] for r in q["positions"])
+    yr = year_returns(d["hold"], q["txns"], q["dividends"], live_value=value, today=date(2026, 6, 30))[0]
+    assert window * 100 == pytest.approx((yr["end"] + yr["sells"] + yr["dividends"]) / (yr["start"] + yr["buys"]) * 100 - 100,
+                                         abs=0.02)

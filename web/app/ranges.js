@@ -19,7 +19,7 @@ export const rangeEnd = (range) => (range && typeof range === "object" ? range.t
 
 // The points from `start` to `end`. `anchor`: open on the last point BEFORE start instead — the close a
 // period's return is measured from (YTD: the year before's last close). Every series slices with x,
-// its `twr` too. `start`: the first point's index in x (0: nothing before the window).
+// its `twr` and `cash` too. `start`: the first point's index in x (0: nothing before the window).
 export function sliceFrom(x, series, start, end = Infinity, anchor = false) {
   let i = 0;
   while (i < x.length && x[i] < start) i++;
@@ -29,7 +29,8 @@ export function sliceFrom(x, series, start, end = Infinity, anchor = false) {
   j = Math.max(j, Math.min(i + 2, x.length));            // never fewer than two points
   i = Math.min(i, Math.max(0, j - 2));
   const cut = (a) => a?.slice(i, j);
-  return { x: x.slice(i, j), start: i, series: series.map((s) => ({ ...s, y: cut(s.y), ...(s.twr ? { twr: cut(s.twr) } : {}) })) };
+  return { x: x.slice(i, j), start: i, series: series.map((s) => ({ ...s, y: cut(s.y), ...(s.twr ? { twr: cut(s.twr) } : {}),
+    ...(s.cash ? { cash: cut(s.cash) } : {}) })) };
 }
 
 // NORM is offered when every line has a time-weighted curve (`twr`: growth of 1 €, money moves taken out).
@@ -47,6 +48,25 @@ export function normalize(series, inception = false) {
   return series.map((s) => {
     const base = inception ? 1 : (s.twr ?? []).find(has);
     return { ...s, y: s.y.map((_, k) => (base && has(s.twr[k]) ? (s.twr[k] / base - 1) * 100 : null)) };
+  });
+}
+
+// Each line's ROI over the window, by the ROI formula: the gain since its first point (the close before the
+// window) over the money in it then — the value held, as if bought that day — plus every euro put in since.
+// y in %, `inv` the money put in to each point (every line's: a benchmark buys with yours), `cash` on your line
+// its sales and dividends to each point (a benchmark never sells). With V = (1 + y)·I − C:
+//   ROI = (V + C − C₀) / (V₀ + I − I₀) − 1 = ((1 + y)·I − C₀) / (y₀·I₀ − C₀ + I) − 1      (0 at the first point)
+// `inception`: nothing before the window — the ROI itself. No money in at the first point: no window ROI.
+export function windowRoi(series, inv, inception = false) {
+  if (inception) return series;
+  const has = (v) => v !== null && v !== undefined;
+  return series.map((s) => {
+    const y0 = s.y[0], i0 = inv[0], c0 = s.cash?.[0] ?? 0;
+    const ok = has(y0) && has(i0);
+    return { ...s, y: s.y.map((y, k) => {
+      const den = ok && has(y) && has(inv[k]) ? (y0 / 100) * i0 - c0 + inv[k] : 0;
+      return den > 0 ? (((1 + y / 100) * inv[k] - c0) / den - 1) * 100 : null;
+    }) };
   });
 }
 

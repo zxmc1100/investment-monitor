@@ -13,7 +13,7 @@ import pandas as pd
 from monitor import config
 from monitor.data.buffer import cached_pay_dates
 from monitor.portfolio import snapshot
-from monitor.portfolio.analytics import bench_live, live_step, year_returns
+from monitor.portfolio.analytics import bench_live, daily_flows, live_step, year_returns
 from monitor.portfolio.dividends import T2_HOMES
 from monitor.portfolio.ledger import ADDS
 from monitor.portfolio.meta import exposure_breakdown, region_totals
@@ -56,7 +56,10 @@ HELP = [
      "virtually invested in each benchmark on the same day (USD benchmarks at that day's EUR/USD), "
      "less the same {fee} EUR order fee you paid (savings-plan buys are free). Your line counts "
      "dividends as cash received after tax; benchmarks are total return before tax (dividends "
-     "reinvested). Hover the chart to read every line on that date."},
+     "reinvested). A window — 1M, 6M, YTD, 1Y or a period dragged on the chart — shows each line's ROI over "
+     "it: the gain since the close before it over the value held then plus every euro bought since (a buy "
+     "made yesterday counts in full, as if it had been there from the start; before the window does not "
+     "matter). ALL: since your first trade. Hover the chart to read every line on that date."},
     {"h": "NORM (Alt+N · Ctrl+N)", "vis": PRIV, "body": "Redraws the ROI chart as each line's time-weighted "
      "return from the close before the period shown (or dragged; ALL: from before your first trade, so "
      "its fee counts): 0 at the start, then who did best in "
@@ -345,7 +348,13 @@ def _roi(q: dict, d: dict) -> dict:
         s = bms.get(name)
         if s is not None and not s.empty:
             series.append(line(short, "bench", s))
-    out.update(x=_epoch(idx), series=series)
+    # A window's ROI (1M … 1Y, dragged — drawn by the browser) is the ROI formula on the window: it needs the
+    # money put in to each point (`inv`, every line's: a benchmark buys with yours, on the same days) and your
+    # sales and dividends (`cash`). Same day mapping as the walk (daily_flows); private keys — they tell when
+    # and how much money moved, so the public view drops them.
+    flows = daily_flows(q["txns"], q["dividends"], roi.index)
+    series[0]["cash"] = [_num(round(v, 2)) for v in (flows["sell"] + flows["dividend"]).cumsum().reindex(idx)]
+    out.update(x=_epoch(idx), series=series, inv=[_num(round(v, 2)) for v in flows["buy"].cumsum().reindex(idx)])
     return out
 
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canNorm, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt } from "../../web/app/ranges.js";
+import { canNorm, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowRoi } from "../../web/app/ranges.js";
 
 const DAY = 86400;
 const END = Date.UTC(2026, 5, 30) / 1000;                 // 2026-06-30
@@ -78,4 +78,26 @@ test("valueAt reads the cursor index, falling back to the last value before a ga
   assert.equal(valueAt(y, null), 4);
   assert.equal(valueAt(y, 99), 4);
   assert.equal(valueAt([null, null], 1), null);
+});
+
+const nearly = (a, b) => a.forEach((v, i) => (b[i] === null ? assert.equal(v, null)
+  : assert.ok(Math.abs(v - b[i]) < 1e-9, `${v} vs ${b[i]}`)));
+
+test("a window's ROI is the ROI formula on it: the gain since its first point over the money in it then", () => {
+  // you: 1000 € in, worth 1100 (ROI +10 %); then 500 € more bought, 100 € sold, worth 1600 (ROI (1600+100)/1500−1)
+  const inv = [1000, 1500], you = { role: "primary", y: [10, (1700 / 1500 - 1) * 100], cash: [0, 100] };
+  // window from the first point: (1600 + 100 − 0) / (1100 + 500) − 1 — the 1100 held as if bought then
+  nearly(windowRoi([you], inv)[0].y, [0, (1700 / 1600 - 1) * 100]);
+  // a benchmark (no cash): worth 1100 then, 1500 € in → worth 1650: (1650) / (1100 + 500) − 1
+  const bench = { role: "bench", y: [10, 10] };
+  nearly(windowRoi([bench], inv)[0].y, [0, (1650 / 1600 - 1) * 100]);
+  // money taken out before the window does not count in it
+  const sold = { role: "primary", y: [20, 30], cash: [200, 200] };          // 1000 in: worth 1000+… cash 200 already out
+  nearly(windowRoi([sold], [1000, 1000])[0].y, [0, (1300 - 200) / (1200 - 200) * 100 - 100]);
+});
+
+test("a window with nothing before it (inception) is the ROI itself; a line without money in has none", () => {
+  const you = { role: "primary", y: [5, 7], cash: [0, 0] };
+  assert.deepEqual(windowRoi([you], [100, 200], true)[0].y, [5, 7]);
+  assert.deepEqual(windowRoi([{ role: "bench", y: [null, 3] }], [100, 200])[0].y, [null, null]);
 });

@@ -1,7 +1,7 @@
 // uPlot line/marker chart. Uses the global `uPlot` from the vendored IIFE build.
 import { esc } from "../dom.js";
 import { fmt, fmtDate, timeTicks } from "../fmt.js";
-import { canNorm, lastValue, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt } from "../ranges.js";
+import { canNorm, lastValue, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowRoi } from "../ranges.js";
 
 const PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9575cd", "#26a69a", "#bdbdbd"];
 const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
@@ -47,10 +47,16 @@ export function chart(body, p, ui) {
   const key = ui.followKey(p), saved = ui.chartRange(p.id) ?? "ALL";
   const range = typeof saved === "object" && saved.key !== key ? saved.prev ?? "ALL" : saved;
   const dragged = typeof range === "object";
-  // NORM: each line's time-weighted return from the close before the period (see ranges.normalize).
+  // NORM: each line's time-weighted return from the close before the period (see ranges.normalize). A window
+  // (not ALL) of a chart carrying the money put in (`inv`: PORT's ROI): each line's ROI over it, from that same
+  // close — the ROI formula on the window, money added or taken out counting as it happened (ranges.windowRoi).
   const normable = canNorm(src.series), norm = normable && ui.chartNorm(p.id);
-  const sliced = sliceFrom(src.x, src.series, rangeStart(src.x, range), rangeEnd(range), norm);
-  const x = sliced.x, series = norm ? normalize(sliced.series, sliced.start === 0) : p.rebase ? rebase(sliced.series) : sliced.series;
+  const from = rangeStart(src.x, range);
+  const windowed = !norm && range !== "ALL" && Array.isArray(p.inv) && src.x === p.x;
+  const sliced = sliceFrom(src.x, src.series, from, rangeEnd(range), norm || windowed);
+  const inv = windowed ? p.inv.slice(sliced.start, sliced.start + sliced.x.length) : null;
+  const x = sliced.x, series = norm ? normalize(sliced.series, sliced.start === 0)
+    : windowed ? windowRoi(sliced.series, inv, from <= src.x[0]) : p.rebase ? rebase(sliced.series) : sliced.series;
   const isoAt = (i) => new Date(x[i] * 1000).toISOString().slice(0, 10);
   const lines = series.filter((s) => s.kind !== "markers");
   const legend = p.legend === "rank"
