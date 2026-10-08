@@ -204,3 +204,38 @@ def test_less_downside_is_a_risk_of_its_own():
     now = np.linspace(800, 1200, 101)[:, None] * np.ones((1, 13))
     alt = np.linspace(900, 1150, 101)[:, None] * np.ones((1, 13))
     assert W.verdict(now, alt, 12)["risk"] == "LESS DOWNSIDE"
+
+
+def test_build_starts_every_alternative_from_your_value_less_its_costs(monkeypatch):
+    """Paired fan: NOW starts at your value; each portfolio at your value less what switching costs; the future
+    is ROI % continuing your line (no new money)."""
+    from types import SimpleNamespace
+    from datetime import date
+    px = prices(("AAA.F", "BBB.F"))
+    days = pd.bdate_range("2025-01-06", "2026-06-30")
+    p = SimpleNamespace(weights=np.array([0.5, 0.5]))
+    model = SimpleNamespace(universe=["AAA.F", "BBB.F"], mu_bl=np.array([0.06, 0.06]),
+                            cov=pd.DataFrame(np.diag([0.03, 0.03]), index=["AAA.F", "BBB.F"], columns=["AAA.F", "BBB.F"]),
+                            portfolios={k: (p if k == "EQUAL" else None) for k in config.PORTFOLIOS})
+    book = {"transactions": [tx("2025-01-06", "AAA.F", "buy", 1000.0, 20.0)], "lots": {"AAA.F": [[20.0, 50.0]]},
+            "sales": [], "holdings": {"AAA.F": {"shares": 20.0}}}
+    you = pd.Series(np.linspace(0, 10, len(days)), index=days)
+    w = W.build(model, {"AAA.F": 1100.0}, px, {"AAA.F": 1e10, "BBB.F": 1e10}, book, you, [],
+                funds=set(), today=date(2026, 6, 30))
+    assert set(w["bands"]) == {"NOW", "EQUAL"} and set(w["verdicts"]) == {"EQUAL"}
+    roi0 = (1100.0 / 1000.0 - 1) * 100
+    assert w["bands"]["NOW"][:, 0] == pytest.approx([roi0] * 5)
+    cost = w["costs"]["EQUAL"]["total"]
+    assert cost > 0 and w["bands"]["EQUAL"][2, 0] == pytest.approx(((1100.0 - cost) / 1000.0 - 1) * 100)
+    assert list(w["past"]["EQUAL"].index) == list(days)
+
+
+def test_money_bought_before_any_weights_waits_as_cash_not_lost(monkeypatch):
+    """A buy before the first month with weights (none of today's lines traded yet) is not lost: it waits as cash —
+    in the value — and the first month's weights invest it."""
+    monkeypatch.setattr(analytics.config, "ORDER_FEE_EUR", 0.0)
+    eq = pd.Series(0.5, index=["AAA.F", "BBB.F"])
+    roi = W.follow(flat(), FLAT_DAYS, [tx("2025-01-06", "XXX.F", "buy", 1000.0)], [(pd.Timestamp("2025-02-03"), eq)],
+                   fee=1.0)
+    assert roi.loc["2025-01-31"] == pytest.approx(0.0)
+    assert roi.loc["2025-02-03"] == pytest.approx(-0.2)                  # invested on 3 Feb: two orders of €1

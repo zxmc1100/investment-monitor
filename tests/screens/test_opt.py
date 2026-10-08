@@ -34,7 +34,8 @@ def kv(p, pid):
 
 def test_panels_and_default_target(parts):
     p = opt.assemble(parts, dict(META))
-    assert [q["id"] for q in p["panels"]] == ["target", "weights", "frontier", "portfolios", "ticket"]
+    assert [q["id"] for q in p["panels"]] == ["target", "weights", "frontier", "portfolios", "path", "verdict",
+                                              "ticket"]
     assert kv(p, "target")["TARGET"] == "HRP"
     hl = [c["k"] for c in panel(p, "weights")["cols"] if c.get("hl")]
     assert hl == ["hrp"]
@@ -79,7 +80,7 @@ def test_infeasible_target_shows_dash_and_empty_ticket(parts):
 def test_public_view_has_no_ticket_or_euros(parts):
     p = opt.assemble(parts, dict(META))
     pub = public_view(p)
-    assert [q["id"] for q in pub["panels"]] == ["target", "weights", "frontier", "portfolios"]
+    assert [q["id"] for q in pub["panels"]] == ["target", "weights", "frontier", "portfolios", "path", "verdict"]
     s = json.dumps(pub)
     for r in panel(p, "ticket")["rows"]:
         assert str(r["now_eur"]) not in s
@@ -137,3 +138,61 @@ def test_help_fee_follows_settings(parts, monkeypatch):
     monkeypatch.setattr(config, "ORDER_FEE_EUR", 2.5)
     by = {h["h"]: h["body"] for h in opt.assemble(parts, dict(META))["help"]}
     assert "about €2.5 fee per order" in by["TICKET"]
+
+
+def test_panels_number_top_to_bottom_with_the_what_if(parts):
+    p = opt.assemble(parts, dict(META))
+    assert [(q["id"], q["n"]) for q in p["panels"]] == [("target", 1), ("weights", 2), ("frontier", 3),
+        ("portfolios", 4), ("path", 5), ("verdict", 6), ("ticket", 7)]
+    json.dumps(p, allow_nan=False)
+    assert len(json.dumps(p)) < 300_000
+
+
+def test_the_path_chart_follows_the_cursor_with_bands_and_dotted_futures(parts):
+    path = panel(opt.assemble(parts, dict(META)), "path")
+    assert path["follows"] == "portfolios" and path["horizons"] == ["6M", "1Y", "3Y"] and path["horizon"] == "1Y"
+    names = [s["name"] for s in path["series"]]
+    assert names[0] == "YOU" and "EQUAL" in names and any(s.get("dash") for s in path["series"])
+    blk = path["series_by_key"]["HRP"]["series"]
+    assert [s["kind"] for s in blk] == ["band", "band", "band", "band"]
+    n = len(path["x"])
+    assert path["today_idx"] == n - 1 - 36
+    assert all(s["at"] == path["today_idx"] and len(s["lo"]) == len(s["hi"]) == 37 for s in blk)
+    ahead = [s for s in path["series"] if s.get("dash")]
+    assert ahead and all(s["at"] == path["today_idx"] and len(s["y"]) == 37 for s in ahead)
+
+
+def test_the_verdict_follows_the_cursor_and_keeps_euros_private(parts):
+    p = opt.assemble(parts, dict(META))
+    v = panel(p, "verdict")
+    assert v["follows"] == "portfolios" and [r["h"] for r in v["rows_by_key"]["HRP"]["rows"]] == ["6M", "1Y", "3Y"]
+    assert v["rows_by_key"]["NOW"]["rows"] == []
+    assert {r["verdict"] for r in v["rows_by_key"]["HRP"]["rows"]} <= {"WORTH IT", "MARGINAL", "NOT WORTH IT"}
+    pub = panel(public_view(p), "verdict")
+    assert {c["k"] for c in pub["cols"]} == {"h", "p", "be", "verdict", "risk"} and "€" not in json.dumps(pub)
+    pub_path = panel(public_view(p), "path")
+    assert "lo" in pub_path["series_by_key"]["HRP"]["series"][0]
+    assert (pub_path["horizons"], pub_path["horizon"], pub_path["today_idx"]) == (
+        ["6M", "1Y", "3Y"], "1Y", panel(p, "path")["today_idx"])
+
+
+def test_an_infeasible_portfolio_has_no_fan_and_says_so(parts, monkeypatch):
+    m = parts["daily"]["model"]
+    w = parts["daily"]["whatif"]
+    w["verdicts"].pop("BLSAME", None)
+    w["bands"].pop("BLSAME", None)
+    monkeypatch.setitem(m.portfolios, "BLSAME", None)
+    p = opt.assemble(parts, dict(META))
+    assert panel(p, "verdict")["rows_by_key"]["BLSAME"]["context"]["text"].startswith("BLSAME INFEASIBLE")
+    assert panel(p, "path")["series_by_key"]["BLSAME"]["series"] == []
+
+
+def test_a_what_if_failure_leaves_the_rest_of_opt(tmp_path, monkeypatch):
+    fakes_yf.install(monkeypatch)
+    monkeypatch.setattr(opt.whatif, "build", lambda *a, **k: (_ for _ in ()).throw(ValueError("no history")))
+    with time_machine.travel("2026-06-30 14:00:00+00:00", tick=False):
+        ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=FIX, equity_log=None)
+        parts = {t: opt.compute(t, ctx) for t in opt.SCREEN.tiers}
+    p = opt.assemble(parts, dict(META))
+    assert panel(p, "path")["context"]["text"] == "WHAT-IF UNAVAILABLE — ValueError: no history"
+    assert panel(p, "verdict")["rows"] == [] and panel(p, "ticket")["n"] == 7 and panel(p, "weights")["rows"]

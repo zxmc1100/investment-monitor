@@ -13,9 +13,10 @@ import copy
 
 PUBLIC = "public"
 _PANEL_KEYS = ("id", "n", "title", "type", "span", "rows_span", "key", "sort", "drives",
-               "follows", "ranges", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels")
+               "follows", "ranges", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels",
+               "horizons", "horizon", "today_idx")
 _NODE_KEYS = ("k", "label", "v", "v2", "fmt", "vis", "align", "op", "sep", "strong", "h", "body",
-              "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide")
+              "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide", "hi", "color", "dash", "nolegend", "at")
 _LISTS = {"kpi": "items", "ledger": "lines", "bars": "items", "scatter": "series"}
 # Maximized detail lists. PORT SUMMARY `years` nodes carry a euro `gain`, which is not on
 # _NODE_KEYS — the public view keeps the year's percentages (v, v2) and drops it.
@@ -154,13 +155,13 @@ def _panel(p: dict) -> dict | None:
         if k not in p:
             continue
         val = p[k]
-        if k in ("id", "title", "type", "key", "drives", "follows", "legend", "yfmt", "xfmt"):
+        if k in ("id", "title", "type", "key", "drives", "follows", "legend", "yfmt", "xfmt", "horizon"):
             if isinstance(val, str):
                 out[k] = val
-        elif k in ("n", "span", "rows_span"):
-            if isinstance(val, int):
+        elif k in ("n", "span", "rows_span", "today_idx"):
+            if isinstance(val, int) and not isinstance(val, bool):
                 out[k] = val
-        elif k == "ranges":
+        elif k in ("ranges", "horizons"):
             if isinstance(val, list) and all(isinstance(v, str) for v in val):
                 out[k] = list(val)
         elif k == "rebase":

@@ -7,6 +7,8 @@ network. Universe = today's holdings ⇒ selection bias: compare the optimizers 
 alone."""
 from __future__ import annotations
 
+from datetime import date
+
 import numpy as np
 import pandas as pd
 
@@ -90,20 +92,21 @@ def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict
     less the same single order fee, analytics.bench_buy_events), split by the weights in force; every sale takes
     the same euros out, pro rata, and counts as cash; bonus shares move no money. Prices are adjusted closes, so
     dividends are reinvested. At each schedule date the new weights take over: when any line is more than `band`
-    off them, the whole portfolio goes back to target, `fee` per order of at least MIN_TRADE_EUR. ROI = (value +
-    cash out) / money in − 1, PORT's formula; NaN before the first buy."""
+    off them, the whole portfolio goes back to target, `fee` per order of at least MIN_TRADE_EUR. Money with no
+    weights to follow yet (bought before any line of today's had traded) waits as cash, in the value, until the first
+    weights invest it. ROI = (value + cash out) / money in − 1, PORT's formula; NaN before the first buy."""
     px = prices.reindex(prices.index.union(days)).ffill().reindex(days)
     buys = bench_buy_events(transactions)
     sells = sorted((t["date"], float(t["price"])) for t in transactions if t["action"] == "sell")
     sched = sorted(schedule, key=lambda s: s[0])
     units = pd.Series(0.0, index=prices.columns)
     target: pd.Series | None = None
-    invested = cash_out = 0.0
+    invested = cash_out = idle = 0.0
     si = bi = ci = 0
     out: dict[pd.Timestamp, float] = {}
 
     def value(p: pd.Series) -> float:
-        return float((units * p).fillna(0.0).sum())
+        return float((units * p).fillna(0.0).sum()) + idle
 
     for d in days:
         ds, p = d.date().isoformat(), px.loc[d]
@@ -118,20 +121,23 @@ def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict
                 orders = int(((want * v - (units * p).fillna(0.0)).abs() >= MIN_TRADE_EUR).sum())
                 after = v - fee * orders
                 units = (want * after / p).where(want > 0, 0.0).fillna(0.0)
+                idle = 0.0
         while bi < len(buys) and buys[bi][0] <= ds:
             _, eur, f = buys[bi]
             bi += 1
-            if target is not None:
-                w = target[[t for t in target.index if p.get(t, np.nan) > 0]]
-                if len(w):
-                    units = units.add((w / w.sum()) * (eur - f) / p[w.index], fill_value=0.0)
+            w = target[[t for t in target.index if p.get(t, np.nan) > 0]] if target is not None else []
+            if len(w):
+                units = units.add((w / w.sum()) * (eur - f) / p[w.index], fill_value=0.0)
+            else:
+                idle += eur - f
             invested += eur
         while ci < len(sells) and sells[ci][0] <= ds:
             eur = sells[ci][1]
             ci += 1
             v = value(p)
             if v > 0:
-                units = units * max(0.0, 1.0 - eur / v)
+                keep = max(0.0, 1.0 - eur / v)
+                units, idle = units * keep, idle * keep
             cash_out += eur
         if invested > 0:
             out[d] = (value(p) + cash_out) / invested * 100 - 100
@@ -212,3 +218,48 @@ def verdict(now: np.ndarray, alt: np.ndarray, month: int) -> dict:
              "NOT WORTH IT" if p < MARGINAL_P or med <= 0 else "MARGINAL")
     risk = "LESS DOWNSIDE" if down > 0 else "MORE DOWNSIDE" if down < 0 else "SAME DOWNSIDE"
     return {"p_ahead": p, "median_diff": med, "downside": down, "break_even": be, "label": label, "risk": risk}
+
+
+def build(model, values: dict[str, float], history: pd.DataFrame, caps: dict[str, float], book: dict,
+          you: pd.Series, dividends: list[dict], *, funds: set[str], today: date) -> dict:
+    """Everything OPT's panels 5 and 6 show, from the RiskModel (today's portfolios, μ = BL, Σ = 1y), the buffered
+    position `values`, the 5y adjusted `history`, market `caps`, the ledger `book`, your ROI line `you` (PORT's
+    walk — its index is the chart's past) and the paid `dividends`."""
+    uni = list(model.universe)
+    px = history[uni]
+    last = px.ffill().iloc[-1]
+    shares = {t: caps[t] / float(last[t]) for t in uni if caps.get(t) and float(last.get(t) or 0) > 0}
+    sched = month_weights(px, shares, book["transactions"], month_starts(you.index[0], you.index[-1]))
+    past = {k: follow(px, you.index, book["transactions"], sched[k], fee=config.ORDER_FEE_EUR)
+            for k in config.PORTFOLIOS if sched[k]}
+
+    invested = sum(float(t["price"]) for t in book["transactions"] if t["action"] == "buy")
+    cash_out = (sum(float(t["price"]) for t in book["transactions"] if t["action"] == "sell")
+                + sum(float(d["eur"]) for d in dividends))
+    vals = np.array([float(values.get(t, 0.0)) for t in uni])
+    total = float(vals.sum())
+    held = book.get("holdings", {})
+    price_now = {t: values[t] / held[t]["shares"] for t in uni
+                 if t in values and held.get(t, {}).get("shares")}
+    left = (allowance_left(book.get("sales", []), dividends, year=today.year, allowance=config.ALLOWANCE_EUR)
+            if config.TAX_FREE_ALLOWANCE else 0.0)
+    starts, costs = {"NOW": vals}, {}
+    for k in config.PORTFOLIOS:
+        p = model.portfolios.get(k)
+        if p is None:
+            continue
+        trades = {t: float(p.weights[i] * total - vals[i]) for i, t in enumerate(uni)
+                  if abs(p.weights[i] * total - vals[i]) >= MIN_TRADE_EUR}
+        costs[k] = switch_costs(trades, price_now, book.get("lots", {}), funds=funds, allowance_left=left,
+                                tax_rate=config.DIVIDEND_TAX, fee=config.ORDER_FEE_EUR)
+        starts[k] = np.asarray(p.weights, float) * (total - costs[k]["total"])
+    sims = simulate(np.asarray(model.mu_bl, float), model.cov.values, starts)
+    to_roi = (lambda v: (v + cash_out) / invested * 100 - 100) if invested else (lambda v: v * np.nan)
+    bands = {k: to_roi(np.percentile(v, [5, 25, 50, 75, 95], axis=0)) for k, v in sims.items()}
+    verdicts = {k: {h: verdict(sims["NOW"], sims[k], m) for h, m in HORIZONS.items()} for k in sims if k != "NOW"}
+    you_now = float(you.dropna().iloc[-1]) if you.notna().any() else float("nan")
+    eq_now = float(past["EQUAL"].dropna().iloc[-1]) if "EQUAL" in past and past["EQUAL"].notna().any() else float("nan")
+    check = {k: {"vs_you": float(s.dropna().iloc[-1]) - you_now, "vs_equal": float(s.dropna().iloc[-1]) - eq_now}
+             for k, s in past.items() if s.notna().any()}
+    return {"past": past, "you": you, "bands": bands, "verdicts": verdicts, "costs": costs,
+            "past_check": check, "today": today}
