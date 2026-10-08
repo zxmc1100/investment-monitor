@@ -197,5 +197,22 @@ def test_a_what_if_failure_leaves_the_rest_of_opt(tmp_path, monkeypatch):
         ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=FIX, equity_log=None)
         parts = {t: opt.compute(t, ctx) for t in opt.SCREEN.tiers}
     p = opt.assemble(parts, dict(META))
-    assert panel(p, "path")["context"]["text"] == "WHAT-IF UNAVAILABLE — ValueError: no history"
+    assert panel(p, "path")["context"]["text"] == "WHAT-IF UNAVAILABLE — ValueError"
+    assert "no history" not in json.dumps(p)                       # the message (a path, maybe) is logged, never shown
     assert panel(p, "verdict")["rows"] == [] and panel(p, "ticket")["n"] == 7 and panel(p, "weights")["rows"]
+
+
+def test_a_failed_what_if_keeps_the_last_good_one_marked_stale(tmp_path, monkeypatch):
+    """A throttled Yahoo answer never replaces good data: the last good what-if is kept, said to be stale."""
+    fakes_yf.install(monkeypatch)
+    with time_machine.travel("2026-06-30 14:00:00+00:00", tick=False):
+        ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=FIX, equity_log=None)
+        good = opt.compute("daily", ctx)["whatif"]
+        assert "error" not in good and "stale" not in good
+        monkeypatch.setattr(opt.whatif, "build", lambda *a, **k: (_ for _ in ()).throw(ConnectionError("throttled")))
+        parts = {t: opt.compute(t, ctx) for t in opt.SCREEN.tiers}
+    w = parts["daily"]["whatif"]
+    assert w["stale"] == "ConnectionError" and set(w["bands"]) == set(good["bands"])
+    p = opt.assemble(parts, dict(META))
+    assert panel(p, "path")["context"]["text"].startswith("STALE — LAST GOOD")
+    assert panel(p, "verdict")["rows_by_key"]["HRP"]["rows"]

@@ -7,7 +7,9 @@ Drift, the NOW columns and the ticket use LIVE weights against the DAILY covaria
 from __future__ import annotations
 
 import logging
+import pickle
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -75,19 +77,36 @@ def compute(tier: str, ctx: Ctx) -> dict:
     raise ValueError(f"OPT has no {tier!r} tier")
 
 
+WHATIF_LAST = "whatif_last.pkl"     # the last good what-if, in the buffer: a failed run never replaces it
+
+
 def _whatif(book: dict, model, inputs: dict, ctx: Ctx) -> dict:
     """whatif.build over its inputs — your ROI line (PORT's walk), the paid dividends, which lines are funds. A
-    failure is panels 5 and 6's message, never OPT's."""
+    failure (a throttled Yahoo answer, mostly) never replaces good data and never takes OPT down: the last good
+    what-if comes back marked `stale` (the error's type), or — none yet — panels 5 and 6 say why. Only the error's
+    type reaches the payload (the message may name a local path); the rest is logged."""
+    last = Path(ctx.buffer_dir or config.BUFFER_DIR) / WHATIF_LAST
     try:
         port = snapshot.daily_tier(book, force=False, buffer_dir=ctx.buffer_dir)
         divs = snapshot.dividends(book, buffer_dir=ctx.buffer_dir)
         ident = identify(model.universe, buffer_dir=ctx.buffer_dir, need=("name",), max_asks=0)
         funds = {t for t, r in ident.items() if "countries" in r} | (PORTFOLIO_ETFS & set(model.universe))
-        return whatif.build(model, inputs["values"], inputs["history"], inputs["caps"], book, port["roi_series"],
-                            divs, funds=funds, today=date.today())
+        w = whatif.build(model, inputs["values"], inputs["history"], inputs["caps"], book, port["roi_series"],
+                         divs, funds=funds, today=date.today())
     except Exception as e:                                   # noqa: BLE001 — the what-if must never take OPT down
         log.warning("what-if failed", exc_info=True)
-        return {"error": f"{type(e).__name__}: {e}"[:160]}
+        try:
+            return {**pickle.loads(last.read_bytes()), "stale": type(e).__name__}
+        except Exception:                                    # noqa: BLE001 — no last good one: say why
+            return {"error": type(e).__name__}
+    try:
+        last.parent.mkdir(parents=True, exist_ok=True)
+        tmp = last.with_suffix(".tmp")
+        tmp.write_bytes(pickle.dumps(w))
+        tmp.replace(last)
+    except OSError:
+        log.warning("what-if: could not keep the last good one", exc_info=True)
+    return w
 
 
 def _pct(x) -> float | None:
@@ -239,9 +258,10 @@ def _path(w: dict, target: str) -> dict:
             fans += [band("NOW 90%", now[0], now[4], COLORS["NOW"]), band("NOW 50%", now[1], now[3], COLORS["NOW"])]
         by_key[k] = {"series": fans, "vis": PUB}
     today = epoch([pd.Timestamp(w["today"])])[0]
+    stale = f"STALE — LAST GOOD {w['today']:%d %b %y}".upper() + f" ({w['stale']}) · " if w.get("stale") else ""
     return {**base, "x": epoch(idx) + epoch(future), "series": series, "series_by_key": by_key,
             "horizons": list(whatif.HORIZONS), "horizon": "1Y", "today_idx": today_idx,
-            "vlines": [today], "vlabels": ["TODAY"], "context": {"text": PATH_CONTEXT, "vis": PUB}}
+            "vlines": [today], "vlabels": ["TODAY"], "context": {"text": stale + PATH_CONTEXT, "vis": PUB}}
 
 
 def _verdict(w: dict, target: str) -> dict:
