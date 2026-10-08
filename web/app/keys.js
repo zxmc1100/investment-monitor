@@ -6,6 +6,7 @@
 const NAV = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10, Home: -1e9, End: 1e9 };
 const QUIET = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Enter", "Escape"]);
 const ONCE = new Set(["Enter", "Delete", "Backspace"]);     // a held key repeats: these act once per press
+const MODE_KEYS = { KeyR: "ROI", KeyM: "MWR", KeyT: "TWR" };   // Option/Alt + the view's initial
 export const ASK_MS = 400;                                  // an Enter sooner than this after a question: a double-tap
 
 // What a key does while a form field — not the command bar — has focus: "leave" (Esc), "help" (F1), "field" (the
@@ -39,9 +40,10 @@ export function keyAction(e, s) {
   if (e.key === "F1" || (e.key === "?" && s.empty)) return r("help");
   if (e.altKey && /^Digit[1-9]$/.test(e.code ?? "")) return r("maximize", true, Number(e.code.slice(5)));
   if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) return r("history", true, e.key === "ArrowUp" ? 1 : -1);
-  // NORM: Alt+N by the physical key (a Mac's Option+N is the ˜ dead key: bindKeys swallows its accent), or
-  // Ctrl+N — never a dead key on a Mac (Windows keeps Ctrl+N for a new window).
-  if ((e.altKey || (e.ctrlKey && !e.metaKey)) && e.code === "KeyN") return r("norm");
+  // The ROI chart's view: Option/Alt + its initial, by the physical key — a Mac's Option+R / M / T type ®, µ, †,
+  // so the key is prevented and nothing reaches the command bar (a layout's dead key: bindKeys swallows its
+  // accent). Never Ctrl: Ctrl+R / T / M are the browser's.
+  if (e.altKey && !e.ctrlKey && !e.metaKey && MODE_KEYS[e.code]) return r("mode", true, MODE_KEYS[e.code]);
   if (e.metaKey || e.ctrlKey || e.altKey || (s.overlay && !cancel)) return r("none", false);
   if (s.ac && (e.key === "ArrowDown" || e.key === "ArrowUp")) return r("acMove", true, e.key === "ArrowDown" ? 1 : -1);
   if (s.ac && e.key === "Tab") return r("acAccept");
@@ -85,7 +87,7 @@ export function bindKeys(k) {
       case "escape": k.escape(); break;
       case "maximize": k.maximize(a.arg); break;
       case "history": k.history(a.arg); break;
-      case "norm": k.norm(); break;
+      case "mode": k.mode(a.arg); break;
       case "acMove": k.acMove(a.arg); break;
       case "acAccept": k.acAccept(); break;
       case "drill": k.drill(); break;

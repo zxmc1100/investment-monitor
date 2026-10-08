@@ -1,7 +1,7 @@
 // uPlot line/marker chart. Uses the global `uPlot` from the vendored IIFE build.
 import { esc } from "../dom.js";
 import { fmt, fmtDate, timeTicks } from "../fmt.js";
-import { canNorm, lastValue, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowRoi } from "../ranges.js";
+import { chartModes, lastValue, MODE_TITLES, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowMwr, windowRoi } from "../ranges.js";
 
 const PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9575cd", "#26a69a", "#bdbdbd"];
 const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
@@ -47,23 +47,26 @@ export function chart(body, p, ui) {
   const key = ui.followKey(p), saved = ui.chartRange(p.id) ?? "ALL";
   const range = typeof saved === "object" && saved.key !== key ? saved.prev ?? "ALL" : saved;
   const dragged = typeof range === "object";
-  // NORM: each line's time-weighted return from the close before the period (see ranges.normalize). A window
-  // (not ALL) of a chart carrying the money put in (`inv`: PORT's ROI): each line's ROI over it, from that same
-  // close — the ROI formula on the window, money added or taken out counting as it happened (ranges.windowRoi).
-  const normable = canNorm(src.series), norm = normable && ui.chartNorm(p.id);
-  const from = rangeStart(src.x, range);
-  const windowed = !norm && range !== "ALL" && Array.isArray(p.inv) && src.x === p.x;
-  const sliced = sliceFrom(src.x, src.series, from, rangeEnd(range), norm || windowed);
-  const inv = windowed ? p.inv.slice(sliced.start, sliced.start + sliced.x.length) : null;
-  const x = sliced.x, series = norm ? normalize(sliced.series, sliced.start === 0)
-    : windowed ? windowRoi(sliced.series, inv, from <= src.x[0]) : p.rebase ? rebase(sliced.series) : sliced.series;
+  // The view (PORT's ROI chart: ranges.chartModes), each line measured from the close before the period shown or
+  // dragged — ROI (default): the ROI formula on the window (ranges.windowRoi; ALL: the lines as they are) · MWR:
+  // money-weighted, Modified Dietz (ranges.windowMwr) · TWR: time-weighted (ranges.normalize).
+  const modes = src.x === p.x ? chartModes(p, src.series) : [];
+  const mode = modes.includes(ui.chartMode(p.id)) ? ui.chartMode(p.id) : modes[0] ?? null;
+  const from = rangeStart(src.x, range), inception = from <= src.x[0];
+  const twr = mode === "TWR", mwr = mode === "MWR" && Array.isArray(p.inv);
+  const roiWin = mode === "ROI" && range !== "ALL" && Array.isArray(p.inv);
+  const sliced = sliceFrom(src.x, src.series, from, rangeEnd(range), twr || mwr || roiWin);
+  const inv = mwr || roiWin ? p.inv.slice(sliced.start, sliced.start + sliced.x.length) : null;
+  const x = sliced.x, series = twr ? normalize(sliced.series, sliced.start === 0)
+    : mwr ? windowMwr(sliced.series, inv, x, from, inception)
+    : roiWin ? windowRoi(sliced.series, inv, inception) : p.rebase ? rebase(sliced.series) : sliced.series;
   const isoAt = (i) => new Date(x[i] * 1000).toISOString().slice(0, 10);
   const lines = series.filter((s) => s.kind !== "markers");
   const legend = p.legend === "rank"
     ? [...lines].sort((a, b) => (lastValue(b.y) ?? -Infinity) - (lastValue(a.y) ?? -Infinity)) : [];
   const chips = (p.ranges ?? []).map((r) => `<span class="${r === range ? "on" : ""}" data-r="${esc(r)}">${esc(r)}</span>`);
   if (dragged) chips.push(`<span class="on">${esc(fmtDate(isoAt(0)))}–${esc(fmtDate(isoAt(x.length - 1)))}</span>`);
-  if (normable) chips.push(`<span class="norm${norm ? " on" : ""}" data-norm title="Alt+N · Ctrl+N">NORM</span>`);
+  for (const m of modes) chips.push(`<span class="mode${m === mode ? " on" : ""}" data-mode="${m}" title="${esc(MODE_TITLES[m])}">${m}</span>`);
   const ranges = chips.length ? `<div class="ranges">${chips.join("")}</div>` : "";
   // Fixed-width legend (colgroup + CSS): a value gaining a digit must never resize the plot.
   const legendHtml = legend.length ? `<table class="legend"><colgroup><col><col class="v"></colgroup><tr class="asof"><td colspan="2"></td></tr>${legend.map((s) =>
@@ -82,9 +85,9 @@ export function chart(body, p, ui) {
   };
   paint(null);
   body.querySelectorAll(".ranges span[data-r]").forEach((el) => el.addEventListener("click", () => ui.setRange(p.id, el.dataset.r)));
-  body.querySelector(".ranges [data-norm]")?.addEventListener("click", () => ui.toggleNorm(p.id));
+  body.querySelectorAll(".ranges [data-mode]").forEach((el) => el.addEventListener("click", () => ui.setMode(p.id, el.dataset.mode)));
 
-  // The dragged period becomes the chart's range — drawn again from the data, so NORM restarts at its
+  // The dragged period becomes the chart's range — drawn again from the data, so every view restarts at its
   // start and a refresh keeps it. After uPlot's own mouse-up handling (the redraw replaces the plot).
   const back = dragged ? range.prev ?? "ALL" : range;
   const zoom = (u) => {

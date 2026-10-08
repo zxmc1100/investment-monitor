@@ -54,7 +54,7 @@ def test_value_weights_and_roi_reconcile(frozen, tmp_path):
 
 
 def test_roi_lines_carry_their_time_weighted_growth_privately(frozen, tmp_path):
-    """NORM draws each line from its `twr` (growth of 1 € with buys, sells and dividends taken out of
+    """TWR draws each line from its `twr` (growth of 1 € with buys, sells and dividends taken out of
     their days). Your line's is the YTD TWR KPI's chain; the public view keeps none of it — with the
     ROI lines it would give away when, and how much, money was added."""
     from datetime import date
@@ -447,7 +447,7 @@ def _live_up(monkeypatch, pct=5.0, skip=()):
 
 def test_todays_roi_point_is_the_live_roi_kpi_and_its_live_twr_step(frozen, tmp_path, monkeypatch):
     """The chart moves with the quotes, not only when the daily part is refreshed: YOU's point today is the
-    ROI KPI (same formula, live value) and its NORM growth the live step year_returns ends YTD TWR with."""
+    ROI KPI (same formula, live value) and its TWR growth the live step year_returns ends YTD TWR with."""
     from datetime import date
     import pandas as pd
     from monitor.portfolio.analytics import live_step
@@ -515,7 +515,8 @@ def test_help_says_how_dividends_are_taxed(monkeypatch):
     assert "net after 26.375 % dividend tax" in body("DIVIDENDS")
     monkeypatch.setattr(config, "TAX_FREE_ALLOWANCE", True)
     assert "home country withholds" in body("DIVIDENDS") and "26.375" not in body("DIVIDENDS")
-    assert "YTD" in body("ROI vs SAME CASH ELSEWHERE") and "before the window does not matter" in body("ROI vs")
+    assert "YTD" in body("ROI vs SAME CASH ELSEWHERE") and "before the window does not matter" in body("ROI · MWR · TWR")
+    assert all(w in body("ROI · MWR · TWR") for w in ("return on investment", "Modified Dietz", "time-weighted"))
 
 
 # ── ROI over a window: the money in and out the chart's window ROI needs ──────────────────────────────────
@@ -553,3 +554,24 @@ def test_a_windows_roi_is_the_gain_over_the_money_in_it(frozen, tmp_path):
     yr = year_returns(d["hold"], q["txns"], q["dividends"], live_value=value, today=date(2026, 6, 30))[0]
     assert window * 100 == pytest.approx((yr["end"] + yr["sells"] + yr["dividends"]) / (yr["start"] + yr["buys"]) * 100 - 100,
                                          abs=0.02)
+
+
+def test_a_windows_money_weighted_return_is_the_ytd_kpi(frozen, tmp_path):
+    """The browser's MWR view (Modified Dietz on the chart's points, from 1 Jan) is the YTD KPI: the gain over
+    the 31 Dec value plus each euro in or out weighted by the share of the year after its day."""
+    from datetime import date
+    from monitor.portfolio.analytics import year_returns
+    parts = _parts(tmp_path)
+    roi = panel(port.assemble(parts, dict(META)), "roi")
+    you, inv, xs = roi["series"][0], roi["inv"], roi["x"]
+    jan1 = 1767225600
+    a = max(i for i, t in enumerate(xs) if t < jan1)
+    y = [v / 100 for v in you["y"]]
+    v0 = (1 + y[a]) * inv[a] - you["cash"][a]
+    flows = [(xs[i], (inv[i] - inv[i - 1]) - (you["cash"][i] - you["cash"][i - 1])) for i in range(a + 1, len(xs))]
+    work = v0 + sum(f * (xs[-1] - t) / (xs[-1] - jan1) for t, f in flows)
+    mwr = (y[-1] * inv[-1] - y[a] * inv[a]) / work * 100
+    q, d = parts["quote"], parts["daily"]
+    value = sum(r["position_value"] for r in q["positions"])
+    yr = year_returns(d["hold"], q["txns"], q["dividends"], live_value=value, today=date(2026, 6, 30))[0]
+    assert mwr == pytest.approx(yr["growth"], abs=0.02)

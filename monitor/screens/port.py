@@ -56,16 +56,20 @@ HELP = [
      "virtually invested in each benchmark on the same day (USD benchmarks at that day's EUR/USD), "
      "less the same {fee} EUR order fee you paid (savings-plan buys are free). Your line counts "
      "dividends as cash received after tax; benchmarks are total return before tax (dividends "
-     "reinvested). A window — 1M, 6M, YTD, 1Y or a period dragged on the chart — shows each line's ROI over "
-     "it: the gain since the close before it over the value held then plus every euro bought since (a buy "
-     "made yesterday counts in full, as if it had been there from the start; before the window does not "
-     "matter). ALL: since your first trade. Hover the chart to read every line on that date."},
-    {"h": "NORM (Alt+N · Ctrl+N)", "vis": PRIV, "body": "Redraws the ROI chart as each line's time-weighted "
-     "return from the close before the period shown (or dragged; ALL: from before your first trade, so "
-     "its fee counts): 0 at the start, then who did best in "
-     "it. Each day's buys, sells and dividends are taken out of that day, so adding money never reads "
-     "as a gain or a loss. Benchmarks are then their own total return in EUR less the order fees; your "
-     "line is your holdings, as YTD TWR (over a calendar year it is YTD TWR at the last close)."},
+     "reinvested). A window — 1M, 6M, YTD, 1Y or a period dragged on the chart — is measured from the close "
+     "before it, three ways (chips, or Option/Alt + the initial): ROI, MWR, TWR — see ROI · MWR · TWR. ALL: "
+     "since your first trade. Hover the chart to read every line on that date."},
+    {"h": "ROI · MWR · TWR (⌥R · ⌥M · ⌥T — Alt on Windows / Linux)", "vis": PRIV, "body": "The ROI chart's three "
+     "views of the period shown (or dragged), each line from 0 at the close before it. ROI (default) — return "
+     "on investment: the gain since then over the value held then plus every euro bought since; a buy made "
+     "yesterday counts in full, as if it had been there from the start, and before the window does not matter "
+     "(ALL: your ROI line). MWR — money-weighted return (Modified Dietz): the same gain over the money at work, "
+     "each euro counted for the share of the period it was invested — the YTD KPI over a calendar year. "
+     "TWR — time-weighted return: each day's buys, sales and dividends taken out of that day, so adding money "
+     "never reads as a gain or a loss — how the holdings performed, the measure to compare with an index; "
+     "benchmarks are then their own total return in EUR less the order fees (over a calendar year your line "
+     "is YTD TWR at the last close; ALL: from before your first trade, so its fee counts). Over a period you "
+     "added a lot of money in, TWR reads higher than ROI: it scores the holdings, not the money."},
     {"h": "DIVIDENDS", "vis": PRIV, "body": "Each dividend with its ex date (who gets it: the shares you held "
      "before that day), its pay date (when the money arrives) and the net after {taxed}. NEXT: the next ex "
      "date from Yahoo's calendar, per share its last. DUE: the ex date has passed, the money is not in yet. PAID: "
@@ -322,9 +326,9 @@ def _roi(q: dict, d: dict) -> dict:
     if roi.empty:
         return out
     # `twr`: each line's time-weighted growth of 1 € (money moves taken out of their days), which the
-    # chart's NORM view rebases to 0 at the window's start. Not a public key (redact drops it): next
+    # chart's TWR view rebases to 0 at the window's start. Not a public key (redact drops it): next
     # to the ROI line it would give away when, and how much, money was added. Absent in a part
-    # computed before it existed — NORM is then simply not offered.
+    # computed before it existed — TWR is then simply not offered.
     twr = {"YOU": d.get("twr"), **{short: (d["asset_values"].get("__twr__") or {}).get(name) for name, short in BENCH}}
     # today's point of every line at live quotes: replaced, or added when the daily part ended before today —
     # "today" being the quotes' own day, so a quote part from yesterday is never drawn on today's date
@@ -338,7 +342,7 @@ def _roi(q: dict, d: dict) -> dict:
     def line(name, role, s):
         ln = {"name": name, "role": role, "kind": "line", "vis": PUB, "y": [_num(v) for v in s.reindex(idx)]}
         if twr.get(name) is not None:
-            # 4 decimals: a NORM value within 0.01 pp (the legend shows 0.1), at 7 bytes a point —
+            # 4 decimals: a TWR value within 0.01 pp (the legend shows 0.1), at 7 bytes a point —
             # the payload stays < 300 KB
             ln["twr"] = [_num(round(v, 4)) for v in twr[name].reindex(idx)]
         return ln

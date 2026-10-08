@@ -99,7 +99,7 @@ tr.tot td { border-top: 1px solid var(--line); color: var(--amber); }
 .panel.max[data-type="chart"] > .body { flex: 1 1 0; }
 .ranges { display: flex; gap: 8px; padding: 1px 6px; color: var(--dim); }
 .ranges span { cursor: pointer; padding: 0 3px; } .ranges span.on { color: var(--fg); background: #222; }
-.ranges span.norm { margin-left: 10px; } .ranges span.norm.on { color: #000; background: var(--amber); }
+.ranges span:not(.mode) + span.mode { margin-left: 10px; } .ranges span.mode.on { color: #000; background: var(--amber); }
 .plotwrap { flex: 1; display: flex; min-height: 0; }
 .plot { flex: 1; min-width: 0; min-height: 0; }
 .legend { width: 21ch; flex: none; table-layout: fixed; font-size: 10px; align-self: flex-start; }

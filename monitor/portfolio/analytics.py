@@ -455,7 +455,7 @@ def live_step(hold: pd.Series, transactions: list[dict], dividends, live_value: 
     live quotes): (live_value + W) / (V + B) — V the holdings at that close, B / W the money moved in / out
     since: every move on an index date from today on, plus those dated after the index's last date up to
     today (moves after today are not counted). None when no money is at work (V + B ≤ 0). year_returns'
-    last step in the current year and the live point of PORT's NORM chart — one formula, so they agree."""
+    last step in the current year and the live point of PORT's TWR view — one formula, so they agree."""
     tday = pd.Timestamp(today or _date.today())
     hold = hold.fillna(0.0).astype(float)
     index = hold.index if isinstance(hold.index, pd.DatetimeIndex) else pd.DatetimeIndex(hold.index)

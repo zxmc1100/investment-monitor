@@ -8,7 +8,7 @@ import { $, esc } from "./dom.js";
 import { fmtClock, fmtDate, fmtStamp } from "./fmt.js";
 import { rank } from "./fuzzy.js";
 import { ASK_MS, bindKeys } from "./keys.js";
-import { canNorm } from "./ranges.js";
+import { chartModes } from "./ranges.js";
 import { followsLater } from "./render/table.js";
 import { renderPanel } from "./render/index.js";
 import { changesHash, hashOf, keyOf, popBack, pushBack, routeOf } from "./route.js";
@@ -33,8 +33,9 @@ function keyRows() {
     ["Alt+↑ ↓", "command history"],
     ["Alt+1…9", "maximize panel n (again or Esc restores)"],
     ["drag on a chart", "zoom into that period · double-click zooms back out"],
-    ["Alt+N · Ctrl+N", "NORM: every line from 0 at the start of the chart's period (or the period dragged) — "
-      + "time-weighted, so buys and sells move no line: who did best in it · again: back to ROI"],
+    ["⌥R · ⌥M · ⌥T (Alt+)", "the ROI chart over the period shown or dragged — ROI: return on investment, the gain "
+      + "over every euro in it (default) · MWR: money-weighted (Modified Dietz), each euro for the time it was in · "
+      + "TWR: time-weighted, buys and sales moving no line — who performed best"],
     ["F1 or ?", "this help"],
     ["Esc", "leave a form field · clear bar · close overlay · restore panel · back from a security · leave full screen"],
   ];
@@ -43,7 +44,7 @@ function keyRows() {
 const cmd = $("#cmd");
 const S = {
   reg: { screens: [], private: [] }, id: null, param: null, key: null, back: [], backNav: false, resetScroll: false, payload: null, live: null, conn: !api.isStatic,
-  running: new Set(), tables: {}, ranges: {}, norm: {}, max: null, focus: null,
+  running: new Set(), tables: {}, ranges: {}, mode: {}, max: null, focus: null,
   ac: { items: [], i: 0, moved: false }, history: [], hi: -1, disposers: {}, noticeT: null,
   lookup: { q: "", items: [] }, lookupT: null, alerts: { active: 0, down: false }, alertErr: null,
   builds: {},                                       // screen builds in progress or failed (build.js)
@@ -228,8 +229,8 @@ function ui(pid) {
     followKey: (p) => (p.follows ? S.tables[p.follows]?.cursor ?? null : null),
     chartRange: (id) => S.ranges[id],
     setRange(id, r) { S.ranges[id] = r; rerender(id); },
-    chartNorm: (id) => !!S.norm[id],
-    toggleNorm(id) { S.norm[id] = !S.norm[id]; rerender(id); },
+    chartMode: (id) => S.mode[id],
+    setMode(id, m) { S.mode[id] = m; rerender(id); },
     onDispose: (fn) => (S.disposers[pid] ??= []).push(fn),
     // form / paste panels (TRADES)
     formState: (p) => (S.forms[formKey(p.id)] ??= blankForm(p)),
@@ -736,11 +737,11 @@ const keyHandlers = {
     }
   },
   help: () => showHelp(),
-  norm() {                                 // every chart on the screen that can: all on, or all back off
-    const ids = (S.payload?.panels ?? []).filter((p) => p.type === "chart" && canNorm(p.series)).map((p) => p.id);
-    if (!ids.length) { notice("NO CHART TO NORMALIZE HERE"); return; }
-    const on = !ids.every((id) => S.norm[id]);
-    for (const id of ids) { S.norm[id] = on; rerender(id); }
+  mode(m) {                                // every chart on the screen that offers the view
+    const ids = (S.payload?.panels ?? []).filter((p) => p.type === "chart" && chartModes(p, p.series).includes(m))
+      .map((p) => p.id);
+    if (!ids.length) { notice(`NO CHART WITH ${m} HERE`); return; }
+    for (const id of ids) { S.mode[id] = m; rerender(id); }
   },
   maximize(n) {
     S.max = S.max === n ? null : n;

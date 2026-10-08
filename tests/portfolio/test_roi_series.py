@@ -64,7 +64,7 @@ def test_benchmarks_ignore_bonus_shares(calls):
 def test_a_day_without_a_bar_is_valued_at_the_last_close_never_the_next(calls, monkeypatch):
     """Xetra and Frankfurt are shut on 31 Dec: no bar. That day is worth the 30 Dec close — the
     next session's close (2 Jan) would put the new year's first move into the old year, and every
-    YTD (both KPIs, NORM) would start after it. Buys still fill at the next session's close."""
+    YTD (both KPIs, TWR) would start after it. Buys still fill at the next session's close."""
     shut = pd.Timestamp("2025-12-31")
     real = fakes_yf.series
     monkeypatch.setattr(fakes_yf, "series", lambda t, end=None: real(t, end).drop(shut, errors="ignore"))

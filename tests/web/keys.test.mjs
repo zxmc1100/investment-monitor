@@ -33,14 +33,18 @@ test("a focused button keeps Enter, Space and Tab; other keys work the terminal;
   assert.equal(fieldKey(k("a"), null, cmd), null);
 });
 
-test("Alt+N normalizes the charts — by the physical key (a Mac's Option+N types a dead key); Shift+N types N", () => {
+test("Option/Alt + an initial picks the ROI chart's view — ROI, MWR, TWR — and never types into the bar", () => {
   const s = { field: null, empty: true, overlay: false, asking: false, onOverlay: false, askAge: 0, typed: false, ac: false };
-  assert.equal(keyAction(k("Dead", { code: "KeyN", altKey: true }), s).act, "norm");
-  assert.equal(keyAction(k("n", { code: "KeyN", altKey: true }), { ...s, empty: false }).act, "norm");
-  assert.equal(keyAction(k("N", { code: "KeyN", shiftKey: true }), s).act, "type");
-  assert.equal(keyAction(k("n", { code: "KeyN", altKey: true }), { ...s, field: "field" }).act, "field");   // a form keeps it
-  // Ctrl+N too: a Mac's Option+N is the ˜ dead key; Ctrl+letter never is (Windows keeps Ctrl+N: new window)
-  assert.equal(keyAction(k("n", { code: "KeyN", ctrlKey: true }), s).act, "norm");
-  assert.equal(keyAction(k("n", { code: "KeyN", metaKey: true }), s).act, "none");               // ⌘N: the browser's
-  assert.equal(keyAction(k("n", { code: "KeyN", ctrlKey: true, metaKey: true }), s).act, "none");
+  // a Mac's Option+R/M/T type ®, µ, †: read by the physical key, prevented — nothing reaches the command bar
+  for (const [ch, code, view] of [["®", "KeyR", "ROI"], ["µ", "KeyM", "MWR"], ["†", "KeyT", "TWR"], ["r", "KeyR", "ROI"]]) {
+    const a = keyAction(k(ch, { code, altKey: true }), s);
+    assert.deepEqual([a.act, a.arg, a.prevent], ["mode", view, true]);
+    assert.equal(keyAction(k(ch, { code, altKey: true }), { ...s, empty: false }).act, "mode");    // mid-typing too
+  }
+  assert.equal(keyAction(k("Dead", { code: "KeyT", altKey: true }), s).act, "mode");               // a dead-key layout
+  assert.equal(keyAction(k("r", { code: "KeyR", altKey: true }), { ...s, field: "field" }).act, "field");   // a form keeps it
+  assert.equal(keyAction(k("R", { code: "KeyR", shiftKey: true }), s).act, "type");
+  assert.equal(keyAction(k("r", { code: "KeyR", ctrlKey: true }), s).act, "none");                 // Ctrl+R: the browser's
+  assert.equal(keyAction(k("t", { code: "KeyT", metaKey: true }), s).act, "none");                 // ⌘T: the browser's
+  assert.equal(keyAction(k("˜", { code: "KeyN", altKey: true }), s).act, "none");                  // NORM is TWR now
 });

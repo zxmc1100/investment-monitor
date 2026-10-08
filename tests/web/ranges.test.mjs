@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canNorm, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowRoi } from "../../web/app/ranges.js";
+import { canNorm, chartModes, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
 
 const DAY = 86400;
 const END = Date.UTC(2026, 5, 30) / 1000;                 // 2026-06-30
@@ -100,4 +100,31 @@ test("a window with nothing before it (inception) is the ROI itself; a line with
   const you = { role: "primary", y: [5, 7], cash: [0, 0] };
   assert.deepEqual(windowRoi([you], [100, 200], true)[0].y, [5, 7]);
   assert.deepEqual(windowRoi([{ role: "bench", y: [null, 3] }], [100, 200])[0].y, [null, null]);
+});
+
+test("a window's money-weighted return (Modified Dietz): the gain over the money at work, each euro for the share of the window it was in", () => {
+  const D = 86400;
+  // the close before the window (day −1): 1000 € in, worth 1100. Day 10: 500 € bought (worth 1620 after).
+  // Day 30: 100 € out (a sale), worth 1650. The window opens on day 0.
+  const xs = [-1 * D, 10 * D, 30 * D], inv = [1000, 1500, 1500];
+  const you = { role: "primary", y: [10, (1620 - 1500) / 1500 * 100, (1650 + 100 - 1500) / 1500 * 100], cash: [0, 0, 100] };
+  // day 10: gain 20 over 1100 (the buy that day has had no time); day 30: gain 150 over 1100 + 500·20/30
+  nearly(windowMwr([you], inv, xs, 0)[0].y, [0, 20 / 1100 * 100, 150 / (1100 + 500 * 20 / 30) * 100]);
+  // a benchmark: the same money in, nothing out — worth 1100, then 1650 after the buy, then 1800
+  const bench = { role: "bench", y: [10, (1650 / 1500 - 1) * 100, (1800 / 1500 - 1) * 100] };
+  nearly(windowMwr([bench], inv, xs, 0)[0].y, [0, 50 / 1100 * 100, 200 / (1100 + 500 * 20 / 30) * 100]);
+});
+
+test("money-weighted from the first trade (inception): nothing held before, the first day's buys count in full", () => {
+  const D = 86400, xs = [0, 10 * D], inv = [1000, 1000];
+  const you = { role: "primary", y: [-1, 5], cash: [0, 0] };
+  nearly(windowMwr([you], inv, xs, 0, true)[0].y, [-1, 5]);
+});
+
+test("the views a chart offers: ROI and MWR need the money put in, TWR the time-weighted curves", () => {
+  const twr = [{ y: [1], twr: [1] }], plain = [{ y: [1] }];
+  assert.deepEqual(chartModes({ inv: [1] }, twr), ["ROI", "MWR", "TWR"]);
+  assert.deepEqual(chartModes({ inv: [1] }, plain), ["ROI", "MWR"]);
+  assert.deepEqual(chartModes({}, twr), ["ROI", "TWR"]);
+  assert.deepEqual(chartModes({}, plain), []);              // a public snapshot: none of it, no chips
 });

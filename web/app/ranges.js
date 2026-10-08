@@ -33,7 +33,7 @@ export function sliceFrom(x, series, start, end = Infinity, anchor = false) {
     ...(s.cash ? { cash: cut(s.cash) } : {}) })) };
 }
 
-// NORM is offered when every line has a time-weighted curve (`twr`: growth of 1 €, money moves taken out).
+// TWR is offered when every line has a time-weighted curve (`twr`: growth of 1 €, money moves taken out).
 export function canNorm(series) {
   const lines = (series ?? []).filter((s) => s.kind !== "markers");
   return lines.length > 0 && lines.every((s) => Array.isArray(s.twr));
@@ -69,6 +69,53 @@ export function windowRoi(series, inv, inception = false) {
     }) };
   });
 }
+
+// Each line's money-weighted return over the window (Modified Dietz — the YTD KPI's method): the gain since its
+// first point (the close before the window) over the money at work — the value held then, plus each euro put in
+// (less each taken out) counted for the share of the window left after its day. A flow on the point measured
+// has had no time (weight 0); `from` is the window's opening day. y in %, `inv` and `cash` as windowRoi; the gain
+// to a point is y·I − y₀·I₀. `inception`: nothing before the window — no value held, measured from the first
+// point (its buys count in full).
+export function windowMwr(series, inv, xs, from, inception = false) {
+  const has = (v) => v !== null && v !== undefined;
+  const p0 = inception ? xs[0] : from;
+  return series.map((s) => {
+    const c = (k) => s.cash?.[k] ?? 0;
+    const y0 = inception ? 0 : s.y[0];
+    if (!has(y0) || !has(inv[0])) return { ...s, y: s.y.map(() => null) };
+    const i0 = inception ? 0 : inv[0], c0 = inception ? 0 : c(0);
+    const v0 = inception ? 0 : (1 + y0 / 100) * i0 - c0, p = (y0 / 100) * i0;
+    let s1 = 0, s2 = 0, prevI = i0, prevC = c0;     // Σ net flow, Σ net flow × its time
+    return { ...s, y: s.y.map((y, k) => {
+      if (!inception && k === 0) return 0;
+      const flow = (inv[k] - prevI) - (c(k) - prevC);
+      prevI = inv[k]; prevC = c(k);
+      s1 += flow; s2 += flow * xs[k];
+      if (!has(y)) return null;
+      const span = xs[k] - p0;
+      const work = v0 + (span > 0 ? (xs[k] * s1 - s2) / span : s1);
+      return work > 0 ? (((y / 100) * inv[k] - p) / work) * 100 : null;
+    }) };
+  });
+}
+
+// The views a chart offers: ROI (its own lines; over a window, the ROI formula on it) and MWR need the money put
+// in (`inv`, PORT's ROI chart), TWR every line's time-weighted curve (`twr`). None of it (a public snapshot):
+// no views, the lines as they are.
+export function chartModes(p, series) {
+  const twr = canNorm(series);
+  return Array.isArray(p.inv) ? ["ROI", "MWR", ...(twr ? ["TWR"] : [])] : twr ? ["ROI", "TWR"] : [];
+}
+
+// What each view is, for its chip's tooltip and the help.
+export const MODE_TITLES = {
+  ROI: "ROI — return on investment (⌥R · Alt+R): the gain over every euro committed. Over a window: the gain "
+    + "since its start over the value held then plus every euro bought since — a buy made yesterday counts in full",
+  MWR: "MWR — money-weighted return, Modified Dietz (⌥M · Alt+M): the gain over the money at work, each euro "
+    + "counted for the share of the window it was invested — the YTD KPI's method",
+  TWR: "TWR — time-weighted return (⌥T · Alt+T): each line's growth with every buy, sale and dividend taken out of "
+    + "its day — how the holdings performed, the standard to compare with an index; YTD TWR's method",
+};
 
 // Value of a series at the cursor index, falling back to the last value before it (a gap);
 // a null index (no cursor) gives the last value.
