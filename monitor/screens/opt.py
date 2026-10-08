@@ -252,26 +252,28 @@ def _verdict(w: dict, target: str) -> dict:
             {"k": "be", "label": "BREAK-EVEN", "fmt": "text", "vis": PUB, "align": "r"},
             {"k": "verdict", "label": "VERDICT", "fmt": "text", "vis": PUB},
             {"k": "risk", "label": "RISK", "fmt": "text", "vis": PUB}]
+    # rows in horizon order (`_i`), not the key's alphabet (1Y < 3Y < 6M); a following block's context is a plain
+    # string, as TICKET's (rows_by_key never reaches the public view, so its euros stay private)
     base = {"id": "verdict", "n": 6, "title": "REBALANCE? → {key}", "type": "table", "span": 5, "vis": PUB,
-            "key": "h", "cols": cols, "rows": [], "follows": "portfolios"}
+            "key": "h", "sort": ["_i", "asc"], "cols": cols, "rows": [], "follows": "portfolios"}
     if "error" in w:
         return {**base, "rows_by_key": {}, "context": {"text": f"WHAT-IF UNAVAILABLE — {w['error']}", "vis": PUB}}
-    by_key = {"NOW": {"rows": [], "context": {"text": "THIS IS YOUR CURRENT MIX", "vis": PUB}}}
+    by_key = {"NOW": {"rows": [], "context": "THIS IS YOUR CURRENT MIX"}}
     for k in config.PORTFOLIOS:
         v = w["verdicts"].get(k)
         if v is None:
-            by_key[k] = {"rows": [], "context": {"text": f"{k} INFEASIBLE — NO VERDICT", "vis": PUB}}
+            by_key[k] = {"rows": [], "context": f"{k} INFEASIBLE — NO VERDICT"}
             continue
-        rows = [{"h": h, "p": num(v[h]["p_ahead"] * 100), "med": num(round(v[h]["median_diff"], 2)),
+        rows = [{"_i": i, "h": h, "p": num(v[h]["p_ahead"] * 100), "med": num(round(v[h]["median_diff"], 2)),
                  "down": num(round(v[h]["downside"], 2)),
                  "be": f"{v[h]['break_even']} MO" if v[h]["break_even"] else "—",
-                 "verdict": v[h]["label"], "risk": v[h]["risk"]} for h in whatif.HORIZONS]
+                 "verdict": v[h]["label"], "risk": v[h]["risk"]} for i, h in enumerate(whatif.HORIZONS)]
         c, chk = w["costs"][k], w["past_check"].get(k, {})
         text = (f"COSTS €{c['total']:.0f} (FEES €{c['fees']:.0f} + TAX €{c['tax']:.0f})"
                 + (f" · FOLLOWED: {chk['vs_you']:+.1f} pp vs YOU, {chk['vs_equal']:+.1f} pp vs EQUAL" if chk else ""))
-        by_key[k] = {"rows": rows, "context": {"text": text, "vis": PRIV}}
-    own = by_key.get(target, {"rows": [], "context": {"text": "", "vis": PUB}})
-    return {**base, "rows": own["rows"], "context": own["context"], "rows_by_key": by_key}
+        by_key[k] = {"rows": rows, "context": text}
+    own = by_key.get(target, {"rows": [], "context": ""})
+    return {**base, "rows": own["rows"], "context": {"text": own["context"], "vis": PRIV}, "rows_by_key": by_key}
 
 
 def _trades(m, q, values, total, port) -> tuple[list[dict], str]:

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canNorm, chartModes, cutHorizon, expandAt, HORIZON_MONTHS, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
+import { canNorm, chartModes, cutHorizon, expandAt, HORIZON_MONTHS, legendRest, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
 
 const DAY = 86400;
 const END = Date.UTC(2026, 5, 30) / 1000;                 // 2026-06-30
@@ -152,4 +152,12 @@ test("a period slices a band's lo / hi with its x", () => {
   assert.deepEqual(out.x, [2, 3]);
   assert.deepEqual(out.series[0].lo, [1, 2]);
   assert.deepEqual(out.series[0].hi, [6, 7]);
+});
+
+test("a chart with a future rests its legend on today, not on the horizon's end; one without on its last point", () => {
+  assert.equal(legendRest(10, 6, 0), 6);
+  assert.equal(legendRest(10, 6, 4), 2);                                    // a dragged period starting at index 4
+  assert.equal(legendRest(3, 6, 4), 2);                                     // today beyond the period: its last point
+  assert.equal(legendRest(10, null, 0), 9);
+  assert.equal(legendRest(10, undefined, 0), 9);
 });

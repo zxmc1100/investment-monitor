@@ -166,7 +166,10 @@ def test_the_verdict_follows_the_cursor_and_keeps_euros_private(parts):
     p = opt.assemble(parts, dict(META))
     v = panel(p, "verdict")
     assert v["follows"] == "portfolios" and [r["h"] for r in v["rows_by_key"]["HRP"]["rows"]] == ["6M", "1Y", "3Y"]
-    assert v["rows_by_key"]["NOW"]["rows"] == []
+    assert v["rows_by_key"]["NOW"]["rows"] == [] and v["rows_by_key"]["NOW"]["context"] == "THIS IS YOUR CURRENT MIX"
+    assert v["rows_by_key"]["HRP"]["context"].startswith("COSTS €")
+    # the horizons in their own order, not the alphabet's (1Y < 3Y < 6M)
+    assert v["sort"] == ["_i", "asc"] and [r["_i"] for r in v["rows_by_key"]["HRP"]["rows"]] == [0, 1, 2]
     assert {r["verdict"] for r in v["rows_by_key"]["HRP"]["rows"]} <= {"WORTH IT", "MARGINAL", "NOT WORTH IT"}
     pub = panel(public_view(p), "verdict")
     assert {c["k"] for c in pub["cols"]} == {"h", "p", "be", "verdict", "risk"} and "€" not in json.dumps(pub)
@@ -183,7 +186,7 @@ def test_an_infeasible_portfolio_has_no_fan_and_says_so(parts, monkeypatch):
     w["bands"].pop("BLSAME", None)
     monkeypatch.setitem(m.portfolios, "BLSAME", None)
     p = opt.assemble(parts, dict(META))
-    assert panel(p, "verdict")["rows_by_key"]["BLSAME"]["context"]["text"].startswith("BLSAME INFEASIBLE")
+    assert panel(p, "verdict")["rows_by_key"]["BLSAME"]["context"].startswith("BLSAME INFEASIBLE")   # a string, as TICKET
     assert panel(p, "path")["series_by_key"]["BLSAME"]["series"] == []
 
 

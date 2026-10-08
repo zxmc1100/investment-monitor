@@ -162,3 +162,10 @@ export function cutHorizon(x, series, todayIdx, months) {
   const n = Math.min(x.length, todayIdx + 1 + months), cut = (a) => a?.slice(0, n);
   return { x: x.slice(0, n), series: series.map((s) => ({ ...s, y: cut(s.y), ...(s.lo ? { lo: cut(s.lo), hi: cut(s.hi) } : {}) })) };
 }
+
+// Where a chart's legend rests with no cursor: its last point — or, for a chart with a future, today (`todayIdx` in
+// the full x; `start` the shown period's first index), never the horizon's end. Pure.
+export function legendRest(n, todayIdx, start = 0) {
+  if (todayIdx === null || todayIdx === undefined) return n - 1;
+  return Math.max(0, Math.min(n - 1, todayIdx - start));
+}
