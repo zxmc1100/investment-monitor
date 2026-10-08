@@ -36,12 +36,16 @@ export function fmtStamp(iso, now = new Date()) {
 export const fmtClock = (d) => `${dmy(d)} ${hms(d)}`;
 
 // Time-axis tick labels (uPlot `values`; ticks in epoch seconds at local boundaries, `incr` their
-// spacing in seconds): 2026 for years, OCT 26 for months, 04 OCT for days.
+// spacing in seconds): 2026 for years, 04 OCT for days, OCT for months — and on the first month tick of
+// a new year the year itself (2026). Never "OCT 26": next to day ticks (08 OCT) it reads as 26 October.
 export function timeTicks(ticks, incr) {
-  return ticks.map((t) => {
+  return ticks.map((t, i) => {
     const d = new Date(t * 1000);
     if (incr >= 360 * 86400) return String(d.getFullYear());
-    if (incr >= 28 * 86400) return `${MON[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`;
+    if (incr >= 28 * 86400) {
+      const turned = i > 0 && new Date(ticks[i - 1] * 1000).getFullYear() !== d.getFullYear();
+      return turned ? String(d.getFullYear()) : MON[d.getMonth()];
+    }
     return `${pad(d.getDate())} ${MON[d.getMonth()]}`;
   });
 }

@@ -57,11 +57,17 @@ test("status-bar times: today's HH:MM:SS, older ones DD MON YY HH:MM; the clock 
   assert.equal(fmtStamp("garbage", now), "—");
   assert.equal(fmtClock(now), "04 OCT 26 14:03:22");
 });
-test("chart time ticks: years, then MON YY, then DD MON — never US M/D or mixed case", () => {
+test("chart time ticks: years, then months, then DD MON — never US M/D or mixed case", () => {
   const t = (y, m, d) => new Date(y, m, d).getTime() / 1000;
   assert.deepEqual(timeTicks([t(2024, 0, 1), t(2025, 0, 1)], 365 * 86400), ["2024", "2025"]);
-  assert.deepEqual(timeTicks([t(2026, 8, 1), t(2026, 9, 1)], 30 * 86400), ["SEP 26", "OCT 26"]);
   assert.deepEqual(timeTicks([t(2026, 9, 1), t(2026, 9, 8)], 7 * 86400), ["01 OCT", "08 OCT"]);
+});
+test("a month tick never reads as a day: OCT, not OCT 26 (26 October?) — the year where it turns", () => {
+  const t = (y, m, d) => new Date(y, m, d).getTime() / 1000;
+  assert.deepEqual(timeTicks([t(2026, 8, 1), t(2026, 9, 1)], 30 * 86400), ["SEP", "OCT"]);
+  assert.deepEqual(timeTicks([t(2025, 10, 1), t(2025, 11, 1), t(2026, 0, 1), t(2026, 1, 1)], 30 * 86400),
+                   ["NOV", "DEC", "2026", "FEB"]);
+  assert.deepEqual(timeTicks([t(2025, 11, 1), t(2026, 2, 1)], 90 * 86400), ["DEC", "2026"]);   // no January tick
 });
 
 test("qty: shares as entered, every decimal kept; px: a price per share, 2 to 4 decimals", () => {
