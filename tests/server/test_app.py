@@ -68,6 +68,22 @@ def test_registry_reports_a_settings_problem_for_the_status_bar(env, monkeypatch
     assert env[0].get("/api/screens").json()["settings_error"] == "input/settings.toml: unknown key 'fee' ignored"
 
 
+def test_registry_names_cashflow_monitor_only_when_set(env, monkeypatch):
+    from monitor import config
+    assert env[0].get("/api/screens").json()["cashflow_url"] is None
+    monkeypatch.setitem(config.SETTINGS, "cashflow_url", "http://localhost:47820")
+    assert env[0].get("/api/screens").json()["cashflow_url"] == "http://localhost:47820"
+
+
+def test_only_the_terminal_and_cashflow_monitor_may_frame_the_page(env, monkeypatch):
+    """In full screen Cashflow Monitor shows the terminal in a frame (web/app/peer.js); no other page may."""
+    from monitor import config
+    assert env[0].get("/").headers["content-security-policy"] == "frame-ancestors 'self'"
+    monkeypatch.setitem(config.SETTINGS, "cashflow_url", "http://localhost:47820")
+    assert env[0].get("/").headers["content-security-policy"] == \
+        "frame-ancestors 'self' http://localhost:47820 http://127.0.0.1:47820"
+
+
 def test_cold_screen_returns_202_then_payload(env):
     c, eng, _ = env
     r = c.get("/api/screen/fake")

@@ -6,6 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -48,6 +49,18 @@ def _own_origins(host: str) -> set[str]:
     127.0.0.1): the same port under either name."""
     port = host.rsplit(":", 1)[1] if ":" in host else ""
     return {f"http://{name}{':' + port if port else ''}" for name in ("localhost", "127.0.0.1")}
+
+
+def frame_ancestors(cashflow_url: str) -> str:
+    """Who may show the terminal in a frame: itself and, once settings.toml names it, Cashflow Monitor (its
+    full-screen switch, web/app/peer.js) under either loopback name — no other page."""
+    out = "frame-ancestors 'self'"
+    if not cashflow_url:
+        return out
+    u = urlsplit(cashflow_url)
+    names = ("localhost", "127.0.0.1") if u.hostname in ("localhost", "127.0.0.1") else (u.hostname,)
+    port = f":{u.port}" if u.port else ""
+    return out + "".join(f" {u.scheme}://{n}{port}" for n in names)
 
 
 class _SameOriginWrites:
@@ -213,6 +226,7 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
         return {"screens": [s.entry() for s in engine.screens.values()],
                 "quote_interval_s": config.QUOTE_INTERVAL_S,
                 "params": params, "targets": list(config.PORTFOLIOS),
+                "cashflow_url": config.SETTINGS["cashflow_url"] or None,
                 "settings_error": config.SETTINGS_ERROR}
 
     @app.get("/api/screen/{sid}")
@@ -434,6 +448,7 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
     @app.get("/")
     def index():
         return FileResponse(web_dir / "index.html", media_type="text/html",
-                            headers={"Cache-Control": "no-store"})
+                            headers={"Cache-Control": "no-store",
+                                     "Content-Security-Policy": frame_ancestors(config.SETTINGS["cashflow_url"])})
 
     return app

@@ -58,6 +58,12 @@ def _table(v):
     return {str(k).strip(): x.strip() for k, x in v.items()}
 
 
+def _url(v):
+    if not isinstance(v, str) or (v.strip() and not v.strip().startswith(("http://", "https://"))):
+        raise ValueError('must be an address, e.g. "http://localhost:47820"')
+    return v.strip()
+
+
 # key -> (default, validator). Defaults fit a Trade Republic account taxed in Germany.
 _SETTINGS = {
     "order_fee_eur": (1.0, _number(0, None, "must be a number >= 0")),
@@ -71,6 +77,7 @@ _SETTINGS = {
     "names": ({}, _table),
     "sectors": ({}, _table),
     "countries": ({}, _table),
+    "cashflow_url": ("", _url),             # Cashflow Monitor's address: the CASH command opens it ("" = none)
 }
 
 

@@ -52,6 +52,15 @@ test("blank is a no-op", () => {
 test("FULL toggles full screen, with or without GO", () => {
   for (const s of ["full", "FULL <GO>", "fs"]) assert.deepEqual(parse(s, CTX), { type: "fullscreen" });
 });
+test("CASH opens Cashflow Monitor when settings.toml names it", () => {
+  const url = "http://localhost:47820";
+  for (const s of ["cash", "CASH <GO>"]) assert.deepEqual(parse(s, { ...CTX, cashflow: url }), { type: "goto", url });
+  assert.deepEqual(parse("cash", CTX), { type: "error", msg: "CASH: SET cashflow_url IN input/settings.toml" });
+  assert.ok(!helpRows(CTX).some((r) => r.cmd === "CASH"));
+  assert.ok(!verbItems(CTX).some((i) => i.label === "CASH"));
+  assert.ok(helpRows({ ...CTX, cashflow: url }).some((r) => r.cmd === "CASH" && r.local));
+  assert.ok(verbItems({ ...CTX, cashflow: url }).some((i) => i.label === "CASH" && i.run === "CASH"));
+});
 test("WATCH and UNWATCH", () => {
   assert.deepEqual(parse("watch rheinmetall", CTX), { type: "watch", query: "RHEINMETALL" });
   assert.deepEqual(parse("WATCH deutsche bank <GO>", CTX), { type: "watch", query: "DEUTSCHE BANK" });
@@ -117,7 +126,7 @@ const LIVE = {
             { id: "ALRT", fkey: 7, status: "live", param: false, build: null },
             { id: "SEC", fkey: null, status: "live", param: true, param_name: "TICKER", title: "Security" },
             { id: "DOC", fkey: null, status: "live", param: true, param_name: "ID", unknown_param: "UNKNOWN DOC", title: "Document" }],
-  params: { SEC: ["SAP.DE"], DOC: ["A_ONE"] }, targets: ["MINVAR", "HRP"],
+  params: { SEC: ["SAP.DE"], DOC: ["A_ONE"] }, targets: ["MINVAR", "HRP"], cashflow: "http://localhost:47820",
 };
 const head = (cmd) => cmd.split(" ")[0];
 

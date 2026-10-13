@@ -59,7 +59,8 @@ const oneOf = (names, none) => `<${(names.length ? names : [none]).join("|")}>`;
 // palette all read, so HELP can neither miss a verb nor list one that does not exist. `usage` is
 // also the error a verb missing its argument shows; `local`: only the live terminal runs it;
 // `arg`: picked in the palette, it fills the bar for the argument instead of running; `when`: HELP lists
-// it only then (BUILD: once a screen declares a build).
+// it only then (BUILD: once a screen declares a build; CASH: once settings.toml names Cashflow Monitor), and
+// the palette too.
 export const VERBS = [
   { verb: "TARGET", usage: (c) => `TARGET ${oneOf(c.targets ?? [], "NAME")}`, local: true, arg: true,
     desc: "the optimizer's target portfolio (alone: shows it; Enter on OPT's PORTFOLIOS sets it too)",
@@ -100,6 +101,9 @@ export const VERBS = [
     parse: (rest) => (rest.length === 1 && rest[0] === "FRESH" ? { type: "fresh" } : err("START FRESH")) },
   { verb: "FULL", alias: ["FS"], usage: fixed("FULL"), desc: "full screen on / off (Esc also leaves)",
     parse: () => ({ type: "fullscreen" }) },
+  { verb: "CASH", usage: fixed("CASH"), local: true, desc: "open Cashflow Monitor (its INV comes back; in full screen over this page)",
+    when: (c) => !!c.cashflow,
+    parse: (rest, c) => (c.cashflow ? { type: "goto", url: c.cashflow } : err("CASH: SET cashflow_url IN input/settings.toml")) },
   { verb: "HELP", alias: ["?"], usage: fixed("HELP [SCREEN]"), desc: "this help, or another screen's",
     parse: (rest, c) => helpOf(rest, c) },
 ];
@@ -168,7 +172,8 @@ export function helpRows(ctx) {
 // The verbs the command palette offers: everything the terminal runs here, less TARGET and BUILD (the
 // palette lists TARGET <name> and BUILD <screen> one by one). An `arg` verb fills the bar.
 export function verbItems(ctx) {
-  return VERBS.filter((v) => !(ctx.static && v.local) && v.verb !== "TARGET" && v.verb !== "BUILD")
+  return VERBS.filter((v) => !(ctx.static && v.local) && v.verb !== "TARGET" && v.verb !== "BUILD"
+      && (!v.when || v.when(ctx)))
     .map((v) => ({ label: v.usage(ctx), desc: v.desc, run: v.run ?? (v.arg ? `${v.verb} ` : v.verb), fill: !!v.arg }));
 }
 

@@ -8,6 +8,7 @@ import { $, esc } from "./dom.js";
 import { fmtClock, fmtDate, fmtStamp } from "./fmt.js";
 import { rank } from "./fuzzy.js";
 import { ASK_MS, bindKeys } from "./keys.js";
+import { askFull, framed, listen, switchTo } from "./peer.js";
 import { chartModes } from "./ranges.js";
 import { followsLater } from "./render/table.js";
 import { renderPanel } from "./render/index.js";
@@ -64,6 +65,7 @@ async function boot() {
   syncAlerts();
   syncBuilds();
   bindKeys(keyHandlers);
+  listen({ back: () => cmd.focus(), full: toggleFullscreen, shown: () => cmd.focus() });   // CASH in full screen
   cmd.addEventListener("input", () => { S.ac.moved = false; S.typed = true; updateAc(); });
   document.addEventListener("pointerdown", (e) => {                  // a press elsewhere: no answer — a press,
     if (S.ask && !e.target.closest("#overlay")) cancelAsk();          // so the click that opened it never closes it
@@ -634,7 +636,7 @@ async function doWatch(query) {
 function closeAc() { const box = $("#ac"); box.hidden = true; box.innerHTML = ""; S.ac = { items: [], i: 0, moved: false }; }
 
 const ctx = () => ({ screens: S.reg.screens, private: S.reg.private, params: S.reg.params ?? {}, targets: S.reg.targets ?? [],
-  static: api.isStatic });
+  cashflow: S.reg.cashflow_url ?? null, static: api.isStatic });
 
 // Browser full screen (the Enter that runs the command is the user gesture the API requires).
 function toggleFullscreen() {
@@ -658,7 +660,8 @@ function run(text) {
     case "screen": location.hash = hashOf(a); break;
     case "help": showHelp(a.screen, a.param); break;
     case "private": notice(localOnlyMsg(a.id)); break;
-    case "fullscreen": toggleFullscreen(); break;
+    case "fullscreen": if (framed) askFull(); else toggleFullscreen(); break;   // framed: the page around owns it
+    case "goto": switchTo(a.url); break;
     case "refresh": {
       const id = a.screen ?? S.id, param = a.screen ? null : S.param, what = param ? `${id} ${param}` : id;
       api.refresh(id, a.tier, param).then((r) => {

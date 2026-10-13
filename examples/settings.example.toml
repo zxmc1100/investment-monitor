@@ -28,6 +28,11 @@ tax_free_allowance = false
 # this year (your realized gains and dividends so far) before it charges tax on a switch.
 allowance_eur = 1000
 
+# Your Cashflow Monitor's address, if you run one: the CASH command opens it (and its INV comes back here).
+# Empty: no CASH command.
+# Example: cashflow_url = "http://localhost:47820"
+cashflow_url = ""
+
 # Your rates for a home country, when your statement shows another (they replace the built-in ones).
 [withholding]
 # "Taiwan" = 0.21

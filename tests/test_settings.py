@@ -42,7 +42,7 @@ def test_missing_file_gives_the_defaults(tmp_path):
     assert err is None
     assert s == {"order_fee_eur": 1.0, "savings_plan_tickers": (), "dividend_tax": 0.26375,
                  "tax_free_allowance": False, "withholding": {}, "allowance_eur": 1000.0,
-                 "tickers": {}, "isins": {}, "names": {}, "sectors": {}, "countries": {}}
+                 "tickers": {}, "isins": {}, "names": {}, "sectors": {}, "countries": {}, "cashflow_url": ""}
 
 
 def test_every_key_is_read(tmp_path):
@@ -58,6 +58,13 @@ def test_every_key_is_read(tmp_path):
 def test_an_integer_fee_is_a_number(tmp_path):
     s, err = load_settings(_write(tmp_path, "order_fee_eur = 0\n"))
     assert err is None and s["order_fee_eur"] == 0.0 and isinstance(s["order_fee_eur"], float)
+
+
+def test_cashflow_url_is_an_address_or_nothing(tmp_path):
+    s, err = load_settings(_write(tmp_path, 'cashflow_url = " http://localhost:47820 "\n'))
+    assert err is None and s["cashflow_url"] == "http://localhost:47820"
+    s, err = load_settings(_write(tmp_path, 'cashflow_url = "localhost:47820"\n'))
+    assert s["cashflow_url"] == "" and "cashflow_url must be an address" in err
 
 
 def test_invalid_toml_keeps_every_default_and_says_where(tmp_path):
