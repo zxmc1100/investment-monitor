@@ -353,14 +353,31 @@ def test_a_session_missing_from_every_line_gets_its_row_back(repair):
 
 
 def test_no_gap_no_extra_call(repair):
-    """A complete frame, a line whose next bar has not come yet (pre-open, or a line that stopped
-    trading) and a gap older than REPAIR_DAYS are not holes."""
+    """A complete frame, today's session (still to come), a line that stopped trading (no bar for more
+    than STOPPED_DAYS weekdays) and a gap older than REPAIR_DAYS are not holes."""
     calls = repair(AssertionError("asked"))
     assert Y.fill_missing_sessions(_closes({"AAA.F": [1, 2, 3, 4, 5]}), adjusted=False, today=TODAY) is not None
-    assert Y.fill_missing_sessions(_closes({"AAA.F": [1, 2, 3, np.nan, np.nan]}), adjusted=False, today=TODAY) is not None
+    assert Y.fill_missing_sessions(_closes({"AAA.F": [1, 2, 3, 4, np.nan]}), adjusted=False, today=TODAY) is not None
+    stopped = _closes({"AAA.F": [1, 2, 3, np.nan, np.nan]}, days=["2026-09-29", "2026-09-30", "2026-10-01",
+                                                                    "2026-10-06", "2026-10-07"])
+    assert Y.fill_missing_sessions(stopped, adjusted=False, today=TODAY) is not None
     old = _closes({"AAA.F": [1, np.nan, 3]}, days=["2026-09-01", "2026-09-02", "2026-09-03"])
     assert Y.fill_missing_sessions(old, adjusted=False, today=TODAY) is not None
     assert calls == []
+
+
+def test_a_missing_last_session_is_rebuilt(repair):
+    """Yahoo's daily answer once had no Friday 16 Oct 2026 bar for any European ETF (hourly bars there): with
+    no bar after it the hole was never asked, and every benchmark sat flat on Friday all weekend. A line's
+    last weekdays before today are holes while it traded recently — the other lines' bars stay as sent."""
+    close = _closes({"AAA.F": [10, 11, 12, np.nan, np.nan], "BBB.F": [5, 5, 5, 6, 7]})
+    calls = repair(_multi(_closes({"AAA.F": [10, 11, 12, 13, 14]})))
+    out = Y.fill_missing_sessions(close, adjusted=False, today=date(2026, 10, 9))
+    assert out["AAA.F"].tolist() == [10, 11, 12, 13, 14] and out["BBB.F"].tolist() == [5, 5, 5, 6, 7]
+    assert [c[0] for c in calls] == [["AAA.F"]]
+    lone = _closes({"AAA.F": [10, 11, 12]}, days=DAYS[:3])                          # rows end with the line
+    repair(_multi(_closes({"AAA.F": [10, 11, 12, 13, 14]})))
+    assert Y.fill_missing_sessions(lone, adjusted=False, today=TODAY)["AAA.F"].tolist() == [10, 11, 12, 13]
 
 
 def test_a_holiday_stays_empty_and_is_not_asked_again(repair):

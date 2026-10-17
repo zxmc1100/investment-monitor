@@ -237,12 +237,15 @@ def _close_frame(raw: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
 
 REPAIR_DAYS = 14                 # how far back a skipped session is looked for
 REPAIR_MAX_LINES = 50            # repair asks Yahoo again per holed line: a universe-wide gap would burst its throttle
+STOPPED_DAYS = 3                 # weekdays without a bar after which a line is taken as stopped trading
 _ASKED: dict[tuple[str, str, bool], float | None] = {}   # (Yahoo ticker, day, adjusted) → rebuilt close; None = no session
 
 
 def _session_holes(close: pd.DataFrame, today: date) -> dict[str, list[pd.Timestamp]]:
-    """{column: weekdays of the REPAIR_DAYS before `today` it has no bar for, though it has one after} — so
-    neither a session still to come nor a line that stopped trading."""
+    """{column: weekdays of the REPAIR_DAYS before `today` it has no bar for} — between two of its bars, or
+    after its last one while that is at most STOPPED_DAYS weekdays back (Yahoo once skipped Friday 16 Oct 2026
+    for every European ETF: with no bar after it, every benchmark sat flat on Friday all weekend). Never today
+    (a session still to come), nor the days after a line that stopped trading."""
     end = pd.Timestamp(today)
     days = pd.bdate_range(end - pd.Timedelta(days=REPAIR_DAYS), end - pd.Timedelta(days=1))
     out = {}
@@ -252,7 +255,8 @@ def _session_holes(close: pd.DataFrame, today: date) -> dict[str, list[pd.Timest
         if s.empty:
             continue
         have, lo, hi = set(s.index.normalize()), s.index.min().normalize(), s.index.max().normalize()
-        holes = [d for d in days if lo < d < hi and d not in have]
+        trading = (days > hi).sum() <= STOPPED_DAYS
+        holes = [d for d in days if lo < d and d not in have and (d < hi or trading)]
         if holes:
             out[col] = holes
     return out
@@ -272,7 +276,7 @@ def fill_missing_sessions(close: pd.DataFrame, adjusted: bool, today: date | Non
     """`close` (daily closes, one column per Yahoo ticker, tz-naive) with the sessions Yahoo's daily answer
     skipped put back. Yahoo once had no 7 Oct 2026 bar for any European line while its hourly bars were
     there: the day before was carried flat through every chart and DAY% covered two sessions. A recent
-    weekday a line has no bar for, though it has one after (`_session_holes`), is asked again — those lines
+    weekday a line has no bar for (`_session_holes`) is asked again — those lines
     only, one call — with yfinance's repair, which rebuilds a missing bar from the finer ones. Only empty
     cells are filled; a bar Yahoo sent is never replaced. A holiday has no finer bars, so nothing is
     invented. Every answer is remembered for the process (`_ASKED`) — the quote loop runs every minute and
