@@ -1,7 +1,7 @@
 // uPlot line/marker chart. Uses the global `uPlot` from the vendored IIFE build.
 import { esc } from "../dom.js";
 import { fmt, fmtDate, timeTicks } from "../fmt.js";
-import { chartModes, cutHorizon, expandAt, HORIZON_MONTHS, lastValue, legendRest, legendValue, MODE_TITLES, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowMwr, windowRoi } from "../ranges.js";
+import { chartModes, cutHorizon, defaultRange, expandAt, HORIZON_MONTHS, lastValue, legendRest, legendValue, MODE_TITLES, normalize, rangeEnd, rangeStart, rebase, sliceFrom, valueAt, windowMwr, windowRoi } from "../ranges.js";
 
 const PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9575cd", "#26a69a", "#bdbdbd"];
 const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
@@ -72,8 +72,8 @@ export function chart(body, p, ui) {
   const src = horizon ? { ...padded, ...cutHorizon(padded.x, padded.series, p.today_idx, HORIZON_MONTHS[horizon]) } : padded;
   // A period dragged on the chart is a range of its own ({from, to, prev}) until a named range or a
   // double-click; a following chart drops it when its row changes (another curve, other dates).
-  const key = ui.followKey(p), saved = ui.chartRange(p.id) ?? "ALL";
-  const range = typeof saved === "object" && saved.key !== key ? saved.prev ?? "ALL" : saved;
+  const key = ui.followKey(p), dflt = defaultRange(p), saved = ui.chartRange(p.id) ?? dflt;
+  const range = typeof saved === "object" && saved.key !== key ? saved.prev ?? dflt : saved;
   const dragged = typeof range === "object";
   // The view (PORT's ROI chart: ranges.chartModes), each line measured from the close before the period shown or
   // dragged — ROI (default): the ROI formula on the window (ranges.windowRoi; ALL: the lines as they are) · MWR:
@@ -121,7 +121,7 @@ export function chart(body, p, ui) {
 
   // The dragged period becomes the chart's range — drawn again from the data, so every view restarts at its
   // start and a refresh keeps it. After uPlot's own mouse-up handling (the redraw replaces the plot).
-  const back = dragged ? range.prev ?? "ALL" : range;
+  const back = dragged ? range.prev ?? dflt : range;
   const zoom = (u) => {
     const { left, width } = u.select;
     if (width < 3) return;

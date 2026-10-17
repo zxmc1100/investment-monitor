@@ -17,6 +17,9 @@ export function rangeStart(xs, range) {
 
 export const rangeEnd = (range) => (range && typeof range === "object" ? range.to : Infinity);
 
+// The range a chart opens on: the one its panel names (PORT's ROI chart: YTD) if it offers it, else ALL.
+export const defaultRange = (p) => (p.range && p.ranges?.includes(p.range) ? p.range : "ALL");
+
 // The points from `start` to `end`. `anchor`: open on the last point BEFORE start instead — the close a
 // period's return is measured from (YTD: the year before's last close). Every series slices with x,
 // its `twr` and `cash` too, a band's `lo` / `hi`. `start`: the first point's index in x (0: nothing before it).

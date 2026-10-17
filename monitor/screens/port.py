@@ -57,8 +57,8 @@ HELP = [
      "less the same {fee} EUR order fee you paid (savings-plan buys are free). Your line counts "
      "dividends as cash received after tax; benchmarks are total return before tax (dividends "
      "reinvested). A window — 1M, 6M, YTD, 1Y or a period dragged on the chart — is measured from the close "
-     "before it, three ways (chips, or Option/Alt + the initial): ROI, MWR, TWR — see ROI · MWR · TWR. ALL: "
-     "since your first trade. Hover the chart to read every line on that date."},
+     "before it, three ways (chips, or Option/Alt + the initial): ROI, MWR, TWR — see ROI · MWR · TWR. It "
+     "opens on YTD. ALL: since your first trade. Hover the chart to read every line on that date."},
     {"h": "ROI · MWR · TWR (⌥R · ⌥M · ⌥T — Alt on Windows / Linux)", "vis": PRIV, "body": "The ROI chart's three "
      "views of the period shown (or dragged), each line from 0 at the close before it. ROI (default) — return "
      "on investment: the gain since then over the value held then plus every euro bought since; a buy made "
@@ -322,7 +322,7 @@ def _roi(q: dict, d: dict) -> dict:
     roi, bms = d["roi_series"], d["bm_series"]
     out = {"id": "roi", "n": 4, "title": "ROI vs SAME CASH ELSEWHERE", "type": "chart", "span": 5,
            "vis": PUB, "context": {"text": "CASH-FLOW MATCHED", "vis": PUB}, "yfmt": "pct+",
-           "legend": "rank", "ranges": ["1M", "6M", "YTD", "1Y", "ALL"], "x": [], "series": []}
+           "legend": "rank", "ranges": ["1M", "6M", "YTD", "1Y", "ALL"], "range": "YTD", "x": [], "series": []}
     if roi.empty:
         return out
     # `twr`: each line's time-weighted growth of 1 € (money moves taken out of their days), which the

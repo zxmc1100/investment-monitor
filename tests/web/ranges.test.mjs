@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canNorm, chartModes, cutHorizon, expandAt, HORIZON_MONTHS, legendRest, legendValue, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
+import { canNorm, chartModes, cutHorizon, defaultRange, expandAt, HORIZON_MONTHS, legendRest, legendValue, lastValue, normalize, rangeEnd, rangeStart, sliceFrom, valueAt, windowMwr, windowRoi } from "../../web/app/ranges.js";
 
 const DAY = 86400;
 const END = Date.UTC(2026, 5, 30) / 1000;                 // 2026-06-30
@@ -173,4 +173,11 @@ test("hovering the future reads each line's projected median, never its value of
   assert.equal(legendValue(series, series[2], 2, 1), 7);
   assert.equal(legendValue(series, series[4], 3, 1), 9);
   assert.equal(legendValue(series, series[0], 0, null), 1);                 // a chart without a future
+});
+
+test("a chart opens on the range its panel names, if it offers it; else ALL", () => {
+  assert.equal(defaultRange({ ranges: ["1M", "YTD", "ALL"], range: "YTD" }), "YTD");
+  assert.equal(defaultRange({ ranges: ["1M", "ALL"], range: "YTD" }), "ALL");
+  assert.equal(defaultRange({ ranges: ["1M", "ALL"] }), "ALL");
+  assert.equal(defaultRange({}), "ALL");
 });

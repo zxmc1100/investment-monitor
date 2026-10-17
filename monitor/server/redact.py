@@ -13,7 +13,7 @@ import copy
 
 PUBLIC = "public"
 _PANEL_KEYS = ("id", "n", "title", "type", "span", "rows_span", "key", "sort", "drives",
-               "follows", "ranges", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels",
+               "follows", "ranges", "range", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels",
                "horizons", "horizon", "today_idx", "cursor")
 _NODE_KEYS = ("k", "label", "v", "v2", "fmt", "vis", "align", "op", "sep", "strong", "h", "body",
               "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide", "hi", "color", "dash", "nolegend", "at")
@@ -167,7 +167,8 @@ def _panel(p: dict) -> dict | None:
         if k not in p:
             continue
         val = p[k]
-        if k in ("id", "title", "type", "key", "drives", "follows", "legend", "yfmt", "xfmt", "horizon", "cursor"):
+        if k in ("id", "title", "type", "key", "drives", "follows", "range", "legend", "yfmt", "xfmt", "horizon",
+                 "cursor"):
             if isinstance(val, str):
                 out[k] = val
         elif k in ("n", "span", "rows_span", "today_idx"):

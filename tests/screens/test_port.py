@@ -73,6 +73,7 @@ def test_roi_lines_carry_their_time_weighted_growth_privately(frozen, tmp_path):
     assert (you[-1] / you[jan1] - 1) * 100 == pytest.approx(closes["twr"], abs=0.01)   # twr has 4 decimals
     pub = panel(public_view(p), "roi")
     assert pub["series"] and not any("twr" in s for s in pub["series"])
+    assert roi["range"] == pub["range"] == "YTD"                      # opens on the year, public view too
 
 
 def test_port_payload_is_strict_json(frozen, tmp_path):
