@@ -38,6 +38,10 @@ cashflow_url = ""
 # Example: remote_host = "my-mac.tail1234.ts.net"
 remote_host = ""
 
+# Cashflow Monitor's address there (its own `tailscale serve` port): CASH on the iPad or phone opens it.
+# Example: cashflow_remote_url = "https://my-mac.tail1234.ts.net:8443"
+cashflow_remote_url = ""
+
 # Your rates for a home country, when your statement shows another (they replace the built-in ones).
 [withholding]
 # "Taiwan" = 0.21

@@ -70,16 +70,17 @@ def _own_origins(host: str) -> set[str]:
     return own
 
 
-def frame_ancestors(cashflow_url: str) -> str:
+def frame_ancestors(*cashflow_urls: str) -> str:
     """Who may show the terminal in a frame: itself and, once settings.toml names it, Cashflow Monitor (its
-    full-screen switch, web/app/peer.js) under either loopback name — no other page."""
+    full-screen switch, web/app/peer.js) at each address it is named at — a loopback one under either name — no
+    other page."""
     out = "frame-ancestors 'self'"
-    if not cashflow_url:
-        return out
-    u = urlsplit(cashflow_url)
-    names = ("localhost", "127.0.0.1") if u.hostname in ("localhost", "127.0.0.1") else (u.hostname,)
-    port = f":{u.port}" if u.port else ""
-    return out + "".join(f" {u.scheme}://{n}{port}" for n in names)
+    for url in filter(None, cashflow_urls):
+        u = urlsplit(url)
+        names = ("localhost", "127.0.0.1") if u.hostname in ("localhost", "127.0.0.1") else (u.hostname,)
+        port = f":{u.port}" if u.port else ""
+        out += "".join(f" {u.scheme}://{n}{port}" for n in names)
+    return out
 
 
 class _SameOriginWrites:
@@ -238,13 +239,14 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
         return scr, p
 
     @app.get("/api/screens")
-    def screens():
+    def screens(request: Request):
+        remote = request.url.hostname == config.SETTINGS["remote_host"]   # an iPad's CASH: Cashflow Monitor there
         params = {sid: engine.params(sid) for sid, s in engine.screens.items()
                   if s.status == "live" and s.params is not None}
         return {"screens": [s.entry() for s in engine.screens.values()],
                 "quote_interval_s": config.QUOTE_INTERVAL_S,
                 "params": params, "targets": list(config.PORTFOLIOS),
-                "cashflow_url": config.SETTINGS["cashflow_url"] or None,
+                "cashflow_url": config.SETTINGS["cashflow_remote_url" if remote else "cashflow_url"] or None,
                 "settings_error": config.SETTINGS_ERROR}
 
     @app.get("/api/screen/{sid}")
@@ -471,6 +473,7 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
     def index():
         return FileResponse(web_dir / "index.html", media_type="text/html",
                             headers={"Cache-Control": "no-store",
-                                     "Content-Security-Policy": frame_ancestors(config.SETTINGS["cashflow_url"])})
+                                     "Content-Security-Policy": frame_ancestors(config.SETTINGS["cashflow_url"],
+                                                                                config.SETTINGS["cashflow_remote_url"])})
 
     return app

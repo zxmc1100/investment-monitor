@@ -108,6 +108,22 @@ def test_registry_names_cashflow_monitor_only_when_set(env, monkeypatch):
     assert env[0].get("/api/screens").json()["cashflow_url"] == "http://localhost:47820"
 
 
+def test_an_ipad_is_handed_cashflow_monitors_tailscale_address(env, monkeypatch):
+    """localhost on the iPad is the iPad: a page opened at remote_host gets cashflow_remote_url, or no CASH."""
+    from monitor import config
+    from fastapi.testclient import TestClient
+    remote = "my-mac.tail1234.ts.net"
+    monkeypatch.setitem(config.SETTINGS, "remote_host", remote)
+    monkeypatch.setitem(config.SETTINGS, "cashflow_url", "http://localhost:47820")
+    ipad = TestClient(env[0].app, base_url=f"https://{remote}")
+    assert ipad.get("/api/screens").json()["cashflow_url"] is None
+    monkeypatch.setitem(config.SETTINGS, "cashflow_remote_url", f"https://{remote}:8443")
+    assert ipad.get("/api/screens").json()["cashflow_url"] == f"https://{remote}:8443"
+    assert env[0].get("/api/screens").json()["cashflow_url"] == "http://localhost:47820"
+    assert env[0].get("/").headers["content-security-policy"] == \
+        f"frame-ancestors 'self' http://localhost:47820 http://127.0.0.1:47820 https://{remote}:8443"
+
+
 def test_only_the_terminal_and_cashflow_monitor_may_frame_the_page(env, monkeypatch):
     """In full screen Cashflow Monitor shows the terminal in a frame (web/app/peer.js); no other page may."""
     from monitor import config

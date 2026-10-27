@@ -85,6 +85,7 @@ _SETTINGS = {
     "countries": ({}, _table),
     "cashflow_url": ("", _url),             # Cashflow Monitor's address: the CASH command opens it ("" = none)
     "remote_host": ("", _host),             # the Tailscale name an iPad opens this terminal at ("" = this Mac only)
+    "cashflow_remote_url": ("", _url),      # Cashflow Monitor's address there: CASH on the iPad opens it
 }
 
 

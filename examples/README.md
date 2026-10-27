@@ -59,8 +59,11 @@ The terminal still runs on your computer; another device opens it through [Tails
 3. In `input/settings.toml`: `remote_host = "my-mac.tail1234.ts.net"`.
 4. On the iPad open that address in Safari, then Share → Add to Home Screen, and open it twice while the
    computer is on.
+5. Cashflow Monitor too, if you run one: `tailscale serve --bg --https=8443 47820` and, in settings.toml,
+   `cashflow_remote_url = "https://my-mac.tail1234.ts.net:8443"`.
 
 While the computer is awake the iPad is live; asleep or off, the iPad shows the last screens it fetched,
 marked OFFLINE. Taps: a panel's title bar maximizes it (again: restores), a second tap on a row opens it, an
-overlay's title bar closes it; the on-screen keyboard comes up when you tap the command bar. Every device in
-your tailnet can open it: keep the tailnet to your own devices and never `tailscale funnel` this port.
+overlay's title bar closes it, a swipe along the F-key bar goes to the next screen (or back); the on-screen
+keyboard comes up when you tap the command bar. Every device in your tailnet can open it: keep the tailnet to
+your own devices and never `tailscale funnel` this port.
