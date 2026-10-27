@@ -33,6 +33,11 @@ allowance_eur = 1000
 # Example: cashflow_url = "http://localhost:47820"
 cashflow_url = ""
 
+# Your computer's Tailscale name, if an iPad or phone opens the terminal through `tailscale serve` (README: On an
+# iPad or phone). Empty: this computer only.
+# Example: remote_host = "my-mac.tail1234.ts.net"
+remote_host = ""
+
 # Your rates for a home country, when your statement shows another (they replace the built-in ones).
 [withholding]
 # "Taiwan" = 0.21

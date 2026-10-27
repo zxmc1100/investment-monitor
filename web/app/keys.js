@@ -3,6 +3,7 @@
 // keeps its own keys: Esc leaves it, F1 is help, everything else is the field's. An open question (DELETE …?)
 // is answered only by Enter on the question itself with an empty bar, no sooner than ASK_MS after it opened;
 // any other key closes it unanswered. Backspace never deletes a trade; Del does only right after a cursor move.
+// A finger (an iPad) gets taps for what it has no key for: tapAction.
 const NAV = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10, Home: -1e9, End: 1e9 };
 const QUIET = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Enter", "Escape"]);
 const ONCE = new Set(["Enter", "Delete", "Backspace"]);     // a held key repeats: these act once per press
@@ -62,6 +63,36 @@ export function keyAction(e, s) {
   return r("none", false);
 }
 
+// What a finger's or a pen's tap does beyond a click (an iPad: no Alt, Esc or Enter) — a keymap handler's name:
+// on an overlay's title bar it closes it (never a question's: its buttons answer it), on a panel's title bar it
+// maximizes the panel (again: restores), on the row the table cursor already stood on it opens it, as Enter.
+// `s`: {overlayHead, asking, panelHead, onCursor: the row was the cursor's when pressed}. Pure.
+export function tapAction(s) {
+  if (s.overlayHead) return s.asking ? null : "escape";
+  if (s.panelHead) return "maximize";
+  return s.onCursor ? "drill" : null;
+}
+
+// Taps, and the on-screen keyboard: the command bar still takes focus after a tap (app.js), so a hardware keyboard
+// types at once, but inputmode none keeps the on-screen one down unless the tap was on the bar itself.
+function bindTaps(k) {
+  let finger = false, onCursor = false;
+  document.addEventListener("pointerdown", (e) => {
+    finger = e.pointerType !== "mouse";
+    if (!finger) return;
+    onCursor = !!e.target.closest?.("#grid tbody tr.cur");
+    const want = e.target === k.cmd ? "" : "none";
+    if (k.cmd.inputMode !== want) { k.cmd.inputMode = want; k.cmd.blur(); }   // the next focus shows / hides it
+  }, true);
+  document.addEventListener("click", (e) => {
+    if (!finger) return;
+    const head = e.target.closest?.("#overlay > .h, #grid .panel > .h");
+    const overlayHead = head?.parentElement.id === "overlay";
+    const act = tapAction({ overlayHead, asking: k.asking(), panelHead: !!head && !overlayHead, onCursor });
+    if (act) k[act](Number(head?.parentElement.dataset.n));
+  });
+}
+
 // A shortcut that is a dead key (a Mac's Option+N: ˜) still starts an accent in the focused field — the
 // input method gets it whatever the page does with the key. The field is left for that moment, so the
 // accent lands nowhere, then given back its text and focus.
@@ -102,4 +133,5 @@ export function bindKeys(k) {
       default: break;
     }
   });
+  bindTaps(k);
 }

@@ -64,8 +64,18 @@ export const importTrades = (etag, text, mode) => send("api/trades/import", "POS
 export const resetTrades = (etag) => send("api/trades/reset", "POST", { etag });
 export const undoTrades = (etag) => send("api/trades/undo", "POST", { etag });
 
+// On another device (an iPad over Tailscale: https, settings remote_host) the service worker web/sw.js keeps every
+// screen it fetched, so with the Mac asleep the terminal still opens on the last ones. Never on this Mac
+// (loopback) or the static snapshot: nothing changes there. True when it registered.
+export function keepOffline(nav = globalThis.navigator, loc = globalThis.location) {
+  if (isStatic || !nav?.serviceWorker || ["localhost", "127.0.0.1"].includes(loc?.hostname)) return false;
+  nav.serviceWorker.register("sw.js").catch(() => {});
+  return true;
+}
+
 export function subscribe(onEvent) {
   if (isStatic) return () => {};
+  keepOffline();
   const es = new EventSource("api/stream");
   es.addEventListener("screen", (e) => onEvent("screen", JSON.parse(e.data)));
   es.addEventListener("job", (e) => onEvent("job", JSON.parse(e.data)));

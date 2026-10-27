@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fieldKey, keyAction } from "../../web/app/keys.js";
+import { fieldKey, keyAction, tapAction } from "../../web/app/keys.js";
 
 const cmd = { tagName: "INPUT", id: "cmd" };
 const el = (tagName, extra = {}) => ({ tagName, ...extra });
@@ -47,4 +47,12 @@ test("Option/Alt + an initial picks the ROI chart's view — ROI, MWR, TWR — a
   assert.equal(keyAction(k("r", { code: "KeyR", ctrlKey: true }), s).act, "none");                 // Ctrl+R: the browser's
   assert.equal(keyAction(k("t", { code: "KeyT", metaKey: true }), s).act, "none");                 // ⌘T: the browser's
   assert.equal(keyAction(k("˜", { code: "KeyN", altKey: true }), s).act, "none");                  // NORM is TWR now
+});
+
+test("a tap: an overlay's title bar closes it, never a question's; a panel's maximizes; the cursor's row opens", () => {
+  assert.equal(tapAction({ overlayHead: true, asking: false }), "escape");
+  assert.equal(tapAction({ overlayHead: true, asking: true, onCursor: true }), null);   // its buttons answer it
+  assert.equal(tapAction({ panelHead: true, onCursor: true }), "maximize");
+  assert.equal(tapAction({ onCursor: true }), "drill");
+  assert.equal(tapAction({}), null);                                                  // a first tap on a row: cursor only
 });

@@ -1,5 +1,6 @@
 """HTTP surface: JSON API, SSE stream and the SPA.
-Bound to 127.0.0.1 by monitor.server.run; never exposed beyond localhost.
+Bound to 127.0.0.1 by monitor.server.run; reached from another device only through `tailscale serve` (settings
+remote_host, its https name — an iPad's).
 Every refusal is {"detail": {"error": <one short uppercase line, as the terminal shows it>, ...data}}."""
 import asyncio
 import logging
@@ -44,11 +45,29 @@ class _GzipExceptStream:
             await self.gz(scope, receive, send)
 
 
+class _KnownHosts:
+    """DNS-rebinding guard: a hostile page rebinding its name to 127.0.0.1 must not read private payloads. The Host
+    must be localhost, 127.0.0.1 or settings' remote_host — read per request, so a settings change needs no restart."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        config.refresh_settings()                          # one stat: else only a screen's compute re-reads it
+        hosts = ["127.0.0.1", "localhost", *filter(None, [config.SETTINGS["remote_host"]])]
+        await TrustedHostMiddleware(self.app, allowed_hosts=hosts)(scope, receive, send)
+
+
 def _own_origins(host: str) -> set[str]:
-    """This terminal's origins for a request whose Host header is `host` (already allow-listed to localhost /
-    127.0.0.1): the same port under either name."""
+    """This terminal's origins for a request whose Host header is `host` (already allow-listed): the same port under
+    either loopback name, and remote_host's https origin (tailscale serve) under any Host — the proxy may rename it."""
     port = host.rsplit(":", 1)[1] if ":" in host else ""
-    return {f"http://{name}{':' + port if port else ''}" for name in ("localhost", "127.0.0.1")}
+    own = {f"http://{name}{':' + port if port else ''}" for name in ("localhost", "127.0.0.1")}
+    if remote := config.SETTINGS["remote_host"]:
+        own.add(f"https://{remote}")
+        if host.split(":")[0] == remote:
+            own.add(f"https://{host}")                     # tailscale serve on another https port
+    return own
 
 
 def frame_ancestors(cashflow_url: str) -> str:
@@ -189,8 +208,7 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
     app.state.idle = idle
     if idle is not None:
         app.add_middleware(_Touch, watch=idle)
-    # DNS-rebinding guard: a hostile page rebinding to 127.0.0.1 must not read private payloads.
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+    app.add_middleware(_KnownHosts)                        # DNS rebinding: only this Mac's names and remote_host
     app.add_middleware(_SameOriginWrites)                  # CSRF: writes only from this terminal's own page
     app.add_middleware(_GzipExceptStream)
 
@@ -444,6 +462,10 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
 
     if (web_dir / "app").is_dir():
         app.mount("/app", _Revalidated(directory=web_dir / "app"), name="app")
+
+    @app.get("/sw.js")                                     # at the root: its scope is the whole terminal
+    def service_worker():
+        return FileResponse(web_dir / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.get("/")
     def index():

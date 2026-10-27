@@ -55,6 +55,39 @@ def test_foreign_host_header_is_rejected(env):
     assert env[0].get("/api/screens", headers={"Host": "attacker.example:8000"}).status_code == 400
 
 
+def test_remote_host_is_served_only_once_settings_name_it(env, monkeypatch):
+    """An iPad reaches the terminal through `tailscale serve`: its https name must pass the Host check, and its
+    origin may write (BUILD, REFRESH, TRADES) — whether the proxy keeps that Host or renames it to 127.0.0.1."""
+    from monitor import config
+    c, remote = env[0], "my-mac.tail1234.ts.net"
+    assert c.get("/api/screens", headers={"Host": remote}).status_code == 400
+    assert c.post("/api/refresh/FAKE?tier=quote", headers={"Origin": f"https://{remote}"}).status_code == 403
+    monkeypatch.setitem(config.SETTINGS, "remote_host", remote)
+    assert c.get("/api/screens", headers={"Host": remote}).status_code == 200
+    assert c.get("/api/screens", headers={"Host": "other.tail1234.ts.net"}).status_code == 400
+    for host in (remote, "127.0.0.1:47800"):
+        r = c.post("/api/refresh/FAKE?tier=quote", headers={"Host": host, "Origin": f"https://{remote}"})
+        assert r.status_code == 200, host
+    for origin in (f"http://{remote}", "https://other.tail1234.ts.net"):
+        assert c.post("/api/refresh/FAKE?tier=quote", headers={"Host": remote, "Origin": origin}).status_code == 403
+
+
+def test_remote_host_counts_from_the_request_after_settings_toml_names_it(env, settings_file):
+    """The iPad's own request re-reads settings.toml: before, only a screen's compute did, and the Host check
+    turned every iPad request away until a tab on this Mac or a restart."""
+    remote = {"Host": "my-mac.tail1234.ts.net"}
+    assert env[0].get("/api/screens", headers=remote).status_code == 400
+    settings_file.write_text('remote_host = "my-mac.tail1234.ts.net"\n', encoding="utf-8")
+    assert env[0].get("/api/screens", headers=remote).status_code == 200
+
+
+def test_the_service_worker_is_served_at_the_root(env, web):
+    (web / "sw.js").write_text("// sw", encoding="utf-8")
+    r = env[0].get("/sw.js")
+    assert r.text == "// sw" and r.headers["content-type"].startswith("text/javascript")
+    assert r.headers["cache-control"] == "no-cache"
+
+
 def test_registry_lists_live_and_soon_screens(env):
     body = env[0].get("/api/screens").json()
     assert [s["id"] for s in body["screens"]] == ["FAKE", "SOON"]

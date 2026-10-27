@@ -64,6 +64,12 @@ def _url(v):
     return v.strip()
 
 
+def _host(v):
+    if not isinstance(v, str) or not all(c.isalnum() or c in ".-" for c in v.strip()):
+        raise ValueError('must be a host name, e.g. "my-mac.tail1234.ts.net"')
+    return v.strip().lower().rstrip(".")
+
+
 # key -> (default, validator). Defaults fit a Trade Republic account taxed in Germany.
 _SETTINGS = {
     "order_fee_eur": (1.0, _number(0, None, "must be a number >= 0")),
@@ -78,6 +84,7 @@ _SETTINGS = {
     "sectors": ({}, _table),
     "countries": ({}, _table),
     "cashflow_url": ("", _url),             # Cashflow Monitor's address: the CASH command opens it ("" = none)
+    "remote_host": ("", _host),             # the Tailscale name an iPad opens this terminal at ("" = this Mac only)
 }
 
 

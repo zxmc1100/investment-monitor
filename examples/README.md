@@ -46,3 +46,21 @@ never guessed.
 `input/settings.toml` — see `settings.example.toml`; without it the defaults apply (Trade Republic,
 1 EUR per order, German dividend tax). Tickers there (e.g. `savings_plan_tickers`) are
 as written in your CSV's Ticker column.
+
+## On an iPad or phone
+
+The terminal still runs on your computer; another device opens it through [Tailscale](https://tailscale.com)
+(free), a private network of your own devices that gives your computer an https address:
+
+1. Install Tailscale on both and sign in to the same account. In its admin console (DNS) turn on MagicDNS
+   and HTTPS Certificates.
+2. On the computer: `tailscale serve --bg 47800` (the macOS service; a start file's terminal: `8000`). It
+   prints the address, e.g. `https://my-mac.tail1234.ts.net`.
+3. In `input/settings.toml`: `remote_host = "my-mac.tail1234.ts.net"`.
+4. On the iPad open that address in Safari, then Share → Add to Home Screen, and open it twice while the
+   computer is on.
+
+While the computer is awake the iPad is live; asleep or off, the iPad shows the last screens it fetched,
+marked OFFLINE. Taps: a panel's title bar maximizes it (again: restores), a second tap on a row opens it, an
+overlay's title bar closes it; the on-screen keyboard comes up when you tap the command bar. Every device in
+your tailnet can open it: keep the tailnet to your own devices and never `tailscale funnel` this port.
