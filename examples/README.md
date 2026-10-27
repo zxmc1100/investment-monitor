@@ -64,6 +64,7 @@ The terminal still runs on your computer; another device opens it through [Tails
 
 While the computer is awake the iPad is live; asleep or off, the iPad shows the last screens it fetched,
 marked OFFLINE. Taps: a panel's title bar maximizes it (again: restores), a second tap on a row opens it, an
-overlay's title bar closes it, a swipe along the F-key bar goes to the next screen (or back); the on-screen
-keyboard comes up when you tap the command bar. Every device in your tailnet can open it: keep the tailnet to
-your own devices and never `tailscale funnel` this port.
+overlay's title bar closes it; the F-key bar is a glass tab bar: drag along it and let go on a screen, and the
+open screen's key again closes it (on a computer too); the on-screen keyboard comes up when you tap the command
+bar. Every device in your tailnet can open it: keep the tailnet to your own devices and never `tailscale funnel`
+this port.

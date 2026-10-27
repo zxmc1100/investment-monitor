@@ -3,8 +3,8 @@
 // keeps its own keys: Esc leaves it, F1 is help, everything else is the field's. An open question (DELETE …?)
 // is answered only by Enter on the question itself with an empty bar, no sooner than ASK_MS after it opened;
 // any other key closes it unanswered. Backspace never deletes a trade; Del does only right after a cursor move.
-// A finger (an iPad) gets taps for what it has no key for: tapAction; a swipe along the F-key bar: swipeTo.
-import { routeOf } from "./route.js";
+// A finger (an iPad) gets taps for what it has no key for: tapAction. The F-key bar itself: tabbar.js.
+import { bindBar } from "./tabbar.js";
 const NAV = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10, Home: -1e9, End: 1e9 };
 const QUIET = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Enter", "Escape"]);
 const ONCE = new Set(["Enter", "Delete", "Backspace"]);     // a held key repeats: these act once per press
@@ -74,24 +74,14 @@ export function tapAction(s) {
   return s.onCursor ? "drill" : null;
 }
 
-// A swipe along the F-key bar goes to the screen beside this one in the bar's order: leftwards the next, rightwards
-// the one before; none past either end, nor from a screen without a key (SEC, LAB). `ids`: the bar's screens. Pure.
-export function swipeTo(ids, current, dx) {
-  const i = ids.indexOf(current);
-  return i < 0 ? null : (ids[i + (dx < 0 ? 1 : -1)] ?? null);
-}
-
-const SWIPE_PX = 40;
-
-// Taps, the F-key bar's swipe, and the on-screen keyboard: the command bar still takes focus after a tap (app.js), so a hardware keyboard
+// Taps, and the on-screen keyboard: the command bar still takes focus after a tap (app.js), so a hardware keyboard
 // types at once, but inputmode none keeps the on-screen one down unless the tap was on the bar itself.
 function bindTaps(k) {
-  let finger = false, onCursor = false, bar = null;
+  let finger = false, onCursor = false;
   document.addEventListener("pointerdown", (e) => {
     finger = e.pointerType !== "mouse";
     if (!finger) return;
     onCursor = !!e.target.closest?.("#grid tbody tr.cur");
-    bar = e.target.closest?.("#fkeys") ? { x: e.clientX, y: e.clientY } : null;
     const want = e.target === k.cmd ? "" : "none";
     if (k.cmd.inputMode !== want) { k.cmd.inputMode = want; k.cmd.blur(); }   // the next focus shows / hides it
   }, true);
@@ -101,13 +91,6 @@ function bindTaps(k) {
     const overlayHead = head?.parentElement.id === "overlay";
     const act = tapAction({ overlayHead, asking: k.asking(), panelHead: !!head && !overlayHead, onCursor });
     if (act) k[act](Number(head?.parentElement.dataset.n));
-  });
-  document.addEventListener("pointerup", (e) => {
-    const dx = e.clientX - (bar?.x ?? 0), dy = e.clientY - (bar?.y ?? 0);
-    if (!finger || !bar || Math.abs(dx) < SWIPE_PX || Math.abs(dx) < 2 * Math.abs(dy)) return;
-    const keys = [...document.querySelectorAll("#fkeys [data-run]:not(.soon)")].filter((el) => el.dataset.run !== "HELP");
-    const to = swipeTo(keys.map((el) => el.dataset.run), routeOf(location.hash).id, dx);
-    keys.find((el) => el.dataset.run === to)?.click();   // as a tap on that key
   });
 }
 
@@ -152,4 +135,5 @@ export function bindKeys(k) {
     }
   });
   bindTaps(k);
+  bindBar(k);
 }

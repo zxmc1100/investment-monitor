@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fieldKey, keyAction, swipeTo, tapAction } from "../../web/app/keys.js";
+import { fieldKey, keyAction, tapAction } from "../../web/app/keys.js";
 
 const cmd = { tagName: "INPUT", id: "cmd" };
 const el = (tagName, extra = {}) => ({ tagName, ...extra });
@@ -55,13 +55,4 @@ test("a tap: an overlay's title bar closes it, never a question's; a panel's max
   assert.equal(tapAction({ panelHead: true, onCursor: true }), "maximize");
   assert.equal(tapAction({ onCursor: true }), "drill");
   assert.equal(tapAction({}), null);                                                  // a first tap on a row: cursor only
-});
-
-test("a swipe along the F-key bar goes to the screen beside this one, never past an end", () => {
-  const ids = ["PORT", "OPT", "RISK"];
-  assert.equal(swipeTo(ids, "OPT", -80), "RISK");   // leftwards: the next
-  assert.equal(swipeTo(ids, "OPT", 80), "PORT");
-  assert.equal(swipeTo(ids, "RISK", -80), null);
-  assert.equal(swipeTo(ids, "PORT", 80), null);
-  assert.equal(swipeTo(ids, "SEC", -80), null);     // a screen without a key
 });
