@@ -10,8 +10,10 @@
 * { box-sizing: border-box; }
 /* iPadOS fills the status bar's edge with a solid colour only when a fixed band sits at the top (>= 90 % wide,
    > 10px tall; the colour is the band's background); without one it blurs what lies below it — the command bar.
-   The band runs from the screen's top to 12px past the status bar and paints nothing (the clip): content under it
-   stays in view, and off an iPad it is an invisible 12px. */
+   The band runs from the page's top to 12px past any inset and paints nothing (the clip): content under it stays
+   in view, and off an iPad it is an invisible 12px. No black-translucent status bar: since iPadOS 26.1 that one
+   blurs ~24pt below itself whatever the page does, and shortens the page by the status bar (an iPad's numbers,
+   2026-10-27: inset 32, innerHeight 788 of 820). */
 #edge { position: fixed; top: 0; left: 0; right: 0; height: calc(env(safe-area-inset-top) + 12px);
   background-color: var(--bg); -webkit-background-clip: text; background-clip: text;
   z-index: 2147483647; pointer-events: none; }
