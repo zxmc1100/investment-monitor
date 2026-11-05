@@ -10,7 +10,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 PKG = REPO / "monitor"
 
-RANK = {"data": 0, "universe": 1, "portfolio": 1, "alerts": 2, "screens": 4, "server": 5}
+RANK = {"data": 0, "universe": 1, "portfolio": 1, "alerts": 2, "screens": 4, "server": 5, "tui": 6}
 COMMON = {"config", "plugins"}          # importable from any layer (plugins: config only)
 
 # (importer, imported) pairs tolerated until the noted task removes them — none left.

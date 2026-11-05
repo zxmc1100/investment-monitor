@@ -6,6 +6,7 @@ HEAD = "python -m monitor <command> [args]      (e.g. python -m monitor init)"
 CORE = {"init": "create input/ from examples/ (portfolio, interest, settings; never overwrites)",
         "serve": "terminal server on http://localhost:8000 (auto-reload)",
         "export": "public static snapshot → docs/",
+        "tui": "the terminal in your terminal, with vim keys (starts the server if none runs)",
         "service": "macOS: install | uninstall — open the terminal from a bookmark (http://localhost:47800)"}
 
 
@@ -17,6 +18,9 @@ def usage(commands: dict) -> str:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["tui"]:                   # a client: it never needs the add-on's imports, and starts at once
+        from monitor.tui.run import main as tui_main
+        return tui_main(argv[1:])
     from monitor import config, plugins
     commands = plugins.commands()             # a local add-on first: it may add settings keys
     if config.SETTINGS_ERROR:                 # defaults are in use for the bad keys: say so, once

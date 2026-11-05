@@ -91,7 +91,7 @@ Type to command, Enter to run, Esc to go back. Number keys switch screens (with 
 
 Type a ticker (or `SEC <ticker>`) for one security. Keys: ↑↓ PgUp PgDn move the cursor · Enter opens
 the row · Shift+←→ sort column, Shift+↑↓ direction · Tab next panel · Alt+1…9 maximize a panel ·
-Alt+↑↓ command history · drag a chart to zoom, double-click to reset · F1 or `?` help.
+Alt+↑↓ command history · drag a chart to zoom, double-click to reset · F1 or `?` help. The same terminal in your own terminal, with vim keys: `.venv/bin/python -m monitor tui` (`examples/README.md`).
 
 Commands (`HELP` lists them all): `BUY SAP.DE 4 @ 240` · `SELL ALV.DE 2 = 820 2026-03-02` ·
 `BONUS IWDA.AS 0.15 = 15` · `UNDO` · `START FRESH` · `WATCH <name|ticker>` · `UNWATCH <ticker>` ·

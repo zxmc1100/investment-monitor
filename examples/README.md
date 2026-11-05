@@ -47,6 +47,31 @@ never guessed.
 1 EUR per order, German dividend tax). Tickers there (e.g. `savings_plan_tickers`) are
 as written in your CSV's Ticker column.
 
+## In your own terminal, with vim keys
+
+`python -m monitor tui`, from this folder's parent, with the Python a start file set up (the main README names it).
+
+The same screens, numbers and commands as the browser, in a terminal window: it uses a server already running or
+starts one for as long as it runs, and browser and terminal can be open together. `?` lists everything; the short of it:
+
+| Keys | |
+|---|---|
+| `j` `k` · `gg` `G` · `Ctrl-D` `Ctrl-U` · `5j` · `12G` | row cursor |
+| `/` `n` `N` | find a row in the table |
+| `Enter` · `Esc` · `Ctrl-O` | open the row · back · back to where you came from |
+| `1`…`9` · `gt` `gT` · `:` | screens · next, previous · the command bar (the browser's commands; `:q` leaves) |
+| `h` `l` · `Ctrl-W h j k l` · `Tab` | panels |
+| `z1`…`z9` · `Ctrl-W o` | maximize a panel (again or `Esc` restores) |
+| `<` `>` · `s` | sort column · direction |
+| `[` `]` · `{` `}` · `m` | a chart's range · horizon · view (ROI, MWR, TWR) |
+| on a chart: `h` `l` `w` `b` `0` `$` · `v` … `Enter` · `-` | its cursor · zoom into a period · back out |
+| `o` · `i` · `dd` · `u` | TRADES: add · step into the focused form · delete the row · undo (each change asks first) |
+
+The mouse works too; to select text hold Option (elsewhere Shift) while dragging. It looks best where the terminal
+takes 24-bit colour (Apple's Terminal gets the nearest of 256) at about 160 x 45 or more. Another computer's terminal:
+`python -m monitor tui --url https://my-mac.tail1234.ts.net` (see below). A CSV goes in with `:import <file>`, Tab
+completing the path.
+
 ## On an iPad or phone
 
 The terminal still runs on your computer; another device opens it through [Tailscale](https://tailscale.com)
