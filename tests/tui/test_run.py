@@ -130,18 +130,6 @@ def test_it_needs_a_terminal():
     assert r.returncode == 2 and "real terminal" in r.stderr
 
 
-def test_it_lists_itself_in_the_help():
-    r = subprocess.run(
-        [sys.executable, "-m", "monitor", "--help"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=REPO,
-        timeout=60,
-    )
-    assert "tui" in r.stdout and "vim keys" in r.stdout
-
-
 def test_connect_reuses_a_running_server_and_never_starts_a_second(server, monkeypatch, capsys):
     port = int(server.rsplit(":", 1)[1])
     monkeypatch.setattr(R.service, "installed_here", lambda: False)

@@ -789,7 +789,7 @@ def test_import_reads_a_file_utf8_or_excel(app, api, clock, tmp_path):
     press(app, "esc")
     typed(app, f":import {tmp_path}/brok")
     press(app, "tab")
-    assert app.bar == f"IMPORT {tmp_path}/broker.csv"
+    assert app.bar == f"IMPORT {tmp_path / 'broker.csv'}"  # the system's own separator, whichever was typed
     press(app, "enter")
     st = app.form_state(app.panel("paste"))
     assert st["text"] == "Crème;1\n" and st["file"] == "broker.csv" and "FROM broker.csv" in screen(app)
