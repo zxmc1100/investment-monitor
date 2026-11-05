@@ -71,10 +71,8 @@ export function bindBar(k) {
     mark();
   });
   new MutationObserver(mark).observe(bar, { childList: true });   // renderFkeys replaced the keys
-  addEventListener("resize", () => { mark(); probe(); });
+  addEventListener("resize", () => mark());
   mark();
-  probe();
-  setTimeout(probe, 2000);
 
   // Before the key's own click (app.js): its open screen's key, or HELP over help, closes instead.
   document.addEventListener("click", (e) => {
@@ -125,17 +123,4 @@ export function bindBar(k) {
     for (const key of keys()) key.classList.toggle("hot", key === el);
     if (el) place(el, x);
   }
-}
-
-// shortcut: a temporary readout of an iPad's real safe-area and viewport numbers (its screenshot carries them) — goes
-// once the top edge is settled.
-function probe() {
-  if (["localhost", "127.0.0.1"].includes(location.hostname)) return;     // this Mac
-  const el = document.querySelector("#probe") ?? document.body.appendChild(Object.assign(document.createElement("div"), { id: "probe" }));
-  const cs = getComputedStyle(document.body), px = (v) => Math.round(parseFloat(v));
-  const cmd = document.querySelector("#cmdbar")?.getBoundingClientRect();
-  el.textContent = `probe safe ${px(cs.paddingTop)}/${px(cs.paddingRight)}/${px(cs.paddingBottom)}/${px(cs.paddingLeft)}` +
-    ` · inner ${innerWidth}x${innerHeight} · screen ${screen.width}x${screen.height} · html ${document.documentElement.clientHeight}` +
-    ` · vv ${Math.round(visualViewport?.offsetTop ?? -1)}+${Math.round(visualViewport?.height ?? -1)}` +
-    ` · cmd@${Math.round(cmd?.top ?? -1)} · standalone ${navigator.standalone} ${matchMedia("(display-mode: standalone)").matches}`;
 }
