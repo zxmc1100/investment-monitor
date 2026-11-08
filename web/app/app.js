@@ -452,17 +452,18 @@ function keepFocus() {
   };
 }
 
-// Spare height goes to rows holding a chart or a frontier; KPI, table and heatmap rows keep their
-// content height (no grey band below the last row, no stretched number strips — a heatmap's cells are
-// fixed rows: grown, it only showed empty stripes, its row's tables too). A screen with no chart row
-// gives the spare height to its last row.
+// Spare height goes to rows holding a chart or a frontier, or a panel flagged `grow` (MKT's movers: long lists showing
+// what fits); KPI, table and heatmap rows keep their content height (no grey band below the last row, no stretched number
+// strips — a heatmap's cells are fixed rows: grown, it only showed empty stripes, its row's tables too). A screen with
+// no such row gives the spare height to its last row.
 const GROWS = new Set(["chart", "scatter"]);
 function fitRows(grid) {
   grid.style.gridTemplateRows = "";
   const rows = new Map();
   for (const el of grid.querySelectorAll(":scope > .panel")) {
     const t = el.offsetTop;
-    rows.set(t, (rows.get(t) ?? false) || (GROWS.has(el.dataset.type) && !el.classList.contains("fit")));
+    const grows = el.classList.contains("grow") || (GROWS.has(el.dataset.type) && !el.classList.contains("fit"));
+    rows.set(t, (rows.get(t) ?? false) || grows);
   }
   const grow = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, g]) => g);
   if (!grow.length) return;
@@ -781,7 +782,8 @@ const keyHandlers = {
   cursor(d) {
     const p = focusedTable();
     if (!p) return;
-    const keys = [...document.querySelectorAll(`#grid .panel[data-id="${CSS.escape(p.id)}"] tbody tr`)].map((tr) => tr.dataset.key);
+    const keys = [...document.querySelectorAll(`#grid .panel[data-id="${CSS.escape(p.id)}"] tbody tr:not([hidden])`)]
+      .map((tr) => tr.dataset.key);                // a fit table's rows that show (render/table.js showWhatFits)
     if (!keys.length) return;
     const t = ui(p.id).tableState(p);
     ui(p.id).setCursor(p.id, keys[Math.max(0, Math.min(keys.length - 1, keys.indexOf(String(t.cursor)) + d))]);

@@ -1044,3 +1044,19 @@ def test_tick_pokes_the_server_on_its_interval(app, api, clock):
 
 def test_today_is_a_date(app):
     assert isinstance(app.today(), date)
+
+
+def test_a_fit_table_never_scrolls_the_cursor_walks_the_rows_that_show(app):
+    """render/table.js showWhatFits: a fit table shows the rows that fit and the cursor stays on them."""
+    p = app.panel("positions")
+    p["fit"] = True
+    app.size = (160, 24)                                                   # less room than its 30 rows
+    app.draw()
+    shown = [k for _, k in app.row_ys["positions"]]
+    assert shown and len(shown) < len(app.table_state(p)["rows"])          # the fixture has more rows than room
+    assert app.row_keys(p) == shown
+    app.focus = "positions"
+    app.set_cursor("positions", shown[0])
+    for _ in range(len(shown) + 5):
+        app.cursor(1)
+    assert app.table_state(p)["cursor"] == shown[-1]

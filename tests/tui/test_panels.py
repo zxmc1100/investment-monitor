@@ -333,3 +333,9 @@ def test_a_scatter_names_its_axes():
     rows = ["".join(c[0] for c in row) for row in r.cells]
     assert rows[-1].strip() == "VOLATILITY" and "EXPECTED RETURN" in rows[0]
     assert "%" in rows[-2]                                     # the ticks keep their row above the name
+
+
+def test_a_grow_row_takes_the_spare_height_not_the_table_rows():
+    """MKT's movers (`grow`, `fit`): their row takes what the others leave; a table row keeps its content's height."""
+    placed = P.place([{"id": "a", "span": 12, "type": "table"}, {"id": "m", "span": 12, "type": "table", "grow": True}])
+    assert P.row_heights(placed, {"a": 5, "m": 3}, 20) == [5, 15]

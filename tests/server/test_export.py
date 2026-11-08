@@ -142,7 +142,7 @@ def test_export_publishes_mkt_public_panels_only(tmp_path, monkeypatch, web):
     assert sorted(p.name for p in data.glob("*.json")) == ["MKT.json", "screens.json"]
     text = (data / "MKT.json").read_text(encoding="utf-8")
     pub = json.loads(text)
-    assert [p["id"] for p in pub["panels"]] == ["indices", "fx", "cmdty", "gainers", "losers", "spikes", "sectors"]
+    assert [p["id"] for p in pub["panels"]] == ["indices", "fx", "cmdty", "sectors", "gainers", "losers", "spikes"]
     for forbidden in ("FNTN.DE", "freenet", "€", '"names"', '"events"', '"last"', '"stale"'):
         assert forbidden not in text
     assert len(text) < 300_000

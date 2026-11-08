@@ -758,7 +758,7 @@ class App:
             g = Canvas(w, max(total, h))
             for p, x, y, pw, ph, lines in placed:
                 self.rects[p["id"]] = (x, y, pw, ph)
-                self.draw_one(g, p, x, y, pw, ph, lines, bool(p.get("fit")))  # a fit panel scrolls
+                self.draw_one(g, p, x, y, pw, ph, lines, False)
                 if x + pw < w:
                     g.fill(x + pw, y, 1, ph, style(RULE), "│")
             self.reveal(total, h)
@@ -1407,6 +1407,10 @@ class App:
         st["cursor"], st["reveal"] = key, True
 
     def row_keys(self, p: dict) -> list:
+        """The rows the cursor walks: a fit table's (MKT's movers, PORT's book) are the ones that show — it never
+        scrolls, as render/table.js showWhatFits — maximized, all of them."""
+        if p.get("fit") and not self.is_max(p) and self.row_ys.get(p["id"]):
+            return [k for _, k in self.row_ys[p["id"]]]
         return [r.get(p["key"]) for r in self.table_state(p)["rows"]]
 
     def cursor(self, d: int) -> None:

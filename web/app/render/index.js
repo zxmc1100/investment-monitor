@@ -29,6 +29,7 @@ export function renderPanel(panel, ui) {
   el.dataset.n = p.n;
   el.dataset.type = p.type;
   el.classList.toggle("fit", !!p.fit);             // takes its row's height, never sets it (terminal.css)
+  el.classList.toggle("grow", !!p.grow);           // its row takes the spare height, as a chart's (app.js fitRows)
   el.style.setProperty("--span", p.span ?? 12);
   el.style.setProperty("--rows", p.rows_span ?? 1);
   const key = ui.followKey(p);

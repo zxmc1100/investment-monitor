@@ -45,11 +45,20 @@ def panel(p, pid):
 
 def test_nine_panels_in_three_rows(ctx):
     p = build(ctx)
-    assert [q["id"] for q in p["panels"]] == ["indices", "fx", "cmdty", "gainers", "losers", "spikes",
-                                             "names", "sectors", "events"]
+    assert [q["id"] for q in p["panels"]] == ["indices", "fx", "cmdty", "names", "sectors", "events",
+                                             "gainers", "losers", "spikes"]
     assert [q["n"] for q in p["panels"]] == list(range(1, 10))
-    assert [q["span"] for q in p["panels"]] == [6, 3, 3, 4, 4, 4, 6, 3, 3]
+    assert [q["span"] for q in p["panels"]] == [6, 3, 3, 6, 3, 3, 4, 4, 4]
     json.dumps(p, allow_nan=False)
+
+
+def test_compact_the_movers_take_the_height_the_other_rows_leave(ctx):
+    """The boards and your rows keep their content's height; the movers, across the bottom, take what is left
+    (`grow`) with lists long enough to fill it, scrolling in a small window (`fit`)."""
+    p = build(ctx)
+    movers = [q for q in p["panels"] if q["id"] in ("gainers", "losers", "spikes")]
+    assert all(q["fit"] and q["grow"] for q in movers)
+    assert not any(q.get("grow") or q.get("fit") for q in p["panels"] if q not in movers)
 
 
 def test_board_rows_formats_and_changes(ctx):
@@ -109,7 +118,7 @@ def test_events_next_30_days_with_tomorrow_highlighted(ctx):
 def test_public_view_has_no_private_panels_or_watched_small_caps(ctx):
     pub = public_view(build(ctx))
     text = json.dumps(pub, allow_nan=False)
-    assert [q["id"] for q in pub["panels"]] == ["indices", "fx", "cmdty", "gainers", "losers", "spikes", "sectors"]
+    assert [q["id"] for q in pub["panels"]] == ["indices", "fx", "cmdty", "sectors", "gainers", "losers", "spikes"]
     assert "FNTN.DE" not in text and "freenet" not in text and "€" not in text and '"last"' not in text
     fx = next(q for q in pub["panels"] if q["id"] == "fx")
     assert next(r for r in fx["rows"] if r["name"] == "US 10Y")["_fmt"]["day"] == "bp+"

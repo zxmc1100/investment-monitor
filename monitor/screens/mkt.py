@@ -31,7 +31,9 @@ DEPS = ("monitor.screens.mkt", "monitor.screens.common", "monitor.screens.base",
         "monitor.portfolio.meta", "monitor.data.buffer", "monitor.data.market", "monitor.data.yahoo",
         "monitor.data.instruments", "monitor.config", "monitor.screens.identity")
 MON = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
-TOP, SPIKES, HORIZON_D, NAME_W = 15, 10, 30, 20
+# the movers' row takes all the height the other rows leave (`grow` + `fit`): lists long enough to fill a big
+# window, scrolling in a small one
+TOP, SPIKES, HORIZON_D, NAME_W = 40, 40, 30, 20
 NO_UNIVERSE = "NO TR UNIVERSE — movers rank its most liquid stocks: data/universe/ has no universe files"
 # MY NAMES reads the shared buffer unforced; the alert check refreshes every name each minute while a
 # tab is open, so a buffered quote older than three checks is a failing fetch: last-good + STALE.
@@ -242,13 +244,13 @@ def _movers(q: dict) -> list[dict]:
     ctx = {"text": _movers_ctx(q, newest), "vis": PUB}
     by_day = sorted((r for r in rows if r["day"] is not None), key=lambda r: (-r["day"], r["tkr"]))
     spikes = sorted((r for r in rows if r["volx"] is not None), key=lambda r: (-r["volx"], r["tkr"]))
-    base = {"type": "table", "span": 4, "vis": PUB, "key": "tkr", "cols": MOVER_COLS,
+    base = {"type": "table", "span": 4, "vis": PUB, "key": "tkr", "cols": MOVER_COLS, "fit": True, "grow": True,
             "context": ctx, "enter": "SEC {key}"}
     if not q["liquid_n"]:
         base["empty"] = NO_UNIVERSE                 # the body says it too, not just the header
-    return [{**base, "id": "gainers", "n": 4, "title": "GAINERS", "sort": ["day", "desc"], "rows": by_day[:TOP]},
-            {**base, "id": "losers", "n": 5, "title": "LOSERS", "sort": ["day", "asc"], "rows": by_day[::-1][:TOP]},
-            {**base, "id": "spikes", "n": 6, "title": "VOLUME SPIKES", "sort": ["volx", "desc"], "rows": spikes[:SPIKES]}]
+    return [{**base, "id": "gainers", "n": 7, "title": "GAINERS", "sort": ["day", "desc"], "rows": by_day[:TOP]},
+            {**base, "id": "losers", "n": 8, "title": "LOSERS", "sort": ["day", "asc"], "rows": by_day[::-1][:TOP]},
+            {**base, "id": "spikes", "n": 9, "title": "VOLUME SPIKES", "sort": ["volx", "desc"], "rows": spikes[:SPIKES]}]
 
 
 def _next_event(events: list[dict]) -> str | None:
@@ -291,7 +293,7 @@ def _my_names(q: dict, d: dict) -> dict:
             {"k": "volx", "label": "VOL×", "fmt": "mult", "vis": PRIV, "align": "r"},
             {"k": "pos52", "label": "52W POS", "fmt": "pct", "vis": PRIV, "align": "r"},
             {"k": "next", "label": "NEXT EVENT", "fmt": "text", "vis": PRIV}]
-    return {"id": "names", "n": 7, "title": "MY NAMES", "type": "table", "span": 6, "vis": PRIV,
+    return {"id": "names", "n": 4, "title": "MY NAMES", "type": "table", "span": 6, "vis": PRIV,
             "key": "tkr", "sort": ["mark", "asc"], "cols": cols, "rows": rows, "enter": "SEC {key}",
             "context": {"text": f"● {len(q['held'])} HELD · ★ {len(watched)} WATCHED", "vis": PRIV}}
 
@@ -335,7 +337,7 @@ def _my_sectors(q: dict, d: dict) -> dict:
             {"k": "e1m", "label": "1M", "fmt": "pct+", "vis": PUB, "align": "r", "lo": True},
             {"k": "eytd", "label": "YTD", "fmt": "pct+", "vis": PUB, "align": "r"},
             {"k": "myday", "label": "MY DAY", "fmt": "pct+", "vis": PUB, "align": "r"}]
-    return {"id": "sectors", "n": 8, "title": "MY SECTORS", "type": "table", "span": 3, "vis": PUB,
+    return {"id": "sectors", "n": 5, "title": "MY SECTORS", "type": "table", "span": 3, "vis": PUB,
             "key": "sector", "sort": ["wt", "desc"], "cols": cols, "rows": rows,
             "context": {"text": "ETF = LAST CLOSE, LISTING CCY", "vis": PUB}}
 
@@ -362,7 +364,7 @@ def _events(q: dict, d: dict) -> dict:
             {"k": "tkr", "label": "TKR", "fmt": "tkr", "vis": PRIV},
             {"k": "event", "label": "EVENT", "fmt": "text", "vis": PRIV},
             {"k": "when", "label": "IN", "fmt": "text", "vis": PRIV}]
-    return {"id": "events", "n": 9, "title": "EVENTS", "type": "table", "span": 3, "vis": PRIV,
+    return {"id": "events", "n": 6, "title": "EVENTS", "type": "table", "span": 3, "vis": PRIV,
             "key": "i", "sort": ["date", "asc"], "cols": cols, "rows": rows,
             "context": {"text": f"NEXT {HORIZON_D} DAYS · HELD + WATCHED", "vis": PRIV}}
 
@@ -375,7 +377,9 @@ def assemble(parts: dict, meta: dict) -> dict:
             "context": {"text": f"MARKETS · MOVERS AMONG THE {q['liquid_n']} MOST LIQUID TR STOCKS", "vis": PUB},
             "meta": {**meta, "stale": q["stale"], "movers_at": q["movers_at"]},
             "help": HELP,
-            "panels": [*board, *_movers(q), _my_names(q, d), _my_sectors(q, d), _events(q, d)]}
+            # compact: the boards · your names, sectors, events — each its content's height — · the movers across the
+            # bottom with all the height left
+            "panels": [*board, _my_names(q, d), _my_sectors(q, d), _events(q, d), *_movers(q)]}
 
 
 SCREEN = Screen(id="MKT", title="Market Overview", fkey=4, status="live", public=True,

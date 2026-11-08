@@ -347,7 +347,7 @@ def test_mkt_route_end_to_end_and_watch_recomputes_it(tmp_path, monkeypatch, web
         c = TestClient(create_app(eng, web_dir=web), base_url="http://127.0.0.1")
         assert c.get("/api/screen/MKT").status_code == 202
         assert eng.runner.wait_idle(30)
-        assert [p["id"] for p in c.get("/api/screen/MKT").json()["panels"]][-3:] == ["names", "sectors", "events"]
+        assert [p["id"] for p in c.get("/api/screen/MKT").json()["panels"]][3:6] == ["names", "sectors", "events"]
         c.post("/api/watchlist", json={"ticker": "FNTN.DE"})
         assert eng.runner.wait_idle(30)
         names = next(p for p in c.get("/api/screen/MKT").json()["panels"] if p["id"] == "names")

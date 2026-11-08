@@ -990,7 +990,7 @@ def row_heights(placed: list, needs: dict, room: int) -> list:
             h[r + i] += short // rows + (1 if i < short % rows else 0)
     grow = [False] * n
     for p, r, _, _, _ in placed:
-        grow[r] = grow[r] or (p.get("type") in GROWS and not p.get("fit"))
+        grow[r] = grow[r] or bool(p.get("grow")) or (p.get("type") in GROWS and not p.get("fit"))
     if n and not any(grow):
         grow[-1] = True
     spare = room - sum(h)
@@ -1034,8 +1034,8 @@ def layout(panels: list, w: int, room: int, ui) -> tuple:
             needs[pid] = head + SCATTER_MIN + 1
         else:
             needs[pid] = head + CHART_MIN + 1 + (1 if p.get("ranges") or p.get("horizons") or p.get("inv") else 0)
-        if p.get("fit") and cols > 1:
-            needs[pid] = head + 1  # terminal.css .panel.fit: its neighbours set the row; it scrolls in it
+        if p.get("fit") and cols > 1:  # terminal.css .panel.fit: its neighbours set the row; it shows what fits
+            needs[pid] = head + min(8, max(1, len(lines[pid] or []) or 1))
     h = row_heights(placed, needs, room)
     top = [sum(h[:i]) for i in range(len(h) + 1)]
     out = [

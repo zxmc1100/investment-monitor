@@ -60,6 +60,20 @@ export function textShares(cols, rows) {
   return Object.fromEntries(tx.map((c, i) => [c.k, Math.round((need[i] / sum) * 1000) / 10]));
 }
 
+// A `fit` table (MKT's movers, PORT's book) never scrolls: it shows the rows that fit whole in its panel, the rest
+// hidden — measured again on every resize (maximized it shows more). The cursor stays on a row that shows.
+function showWhatFits(body, t, st) {
+  const trs = [...t.tBodies[0]?.rows ?? []];
+  trs.forEach((tr) => { tr.hidden = false; });
+  const below = (t.tFoot?.offsetHeight ?? 0) + (body.querySelector(".more")?.offsetHeight ?? 0);
+  const limit = body.getBoundingClientRect().top + body.clientHeight - below + 0.5;
+  trs.forEach((tr) => { if (tr.getBoundingClientRect().bottom > limit) tr.hidden = true; });
+  const cur = trs.find((tr) => tr.classList.contains("cur"));
+  if (cur?.hidden && trs[0] && !trs[0].hidden) {
+    cur.classList.remove("cur"); trs[0].classList.add("cur"); st.cursor = trs[0].dataset.key;
+  }
+}
+
 export function table(body, p, ui) {
   const st = ui.tableState(p);
   const cols = p.picks ? pickCols(p.cols, ui.pickOf(p)) : p.cols;
@@ -98,7 +112,10 @@ export function table(body, p, ui) {
   // window drops SHRS / AVG instead of scrolling the table sideways.
   const t = body.querySelector("table.grid-table");
   if (t) {
-    const fit = () => { t.classList.remove("tight"); if (t.scrollWidth > body.clientWidth + 1) t.classList.add("tight"); };
+    const fit = () => {
+      t.classList.remove("tight"); if (t.scrollWidth > body.clientWidth + 1) t.classList.add("tight");
+      if (p.fit) showWhatFits(body, t, st);
+    };
     const ro = new ResizeObserver(fit);
     ro.observe(body);
     ui.onDispose(() => ro.disconnect());

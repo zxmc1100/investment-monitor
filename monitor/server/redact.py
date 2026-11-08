@@ -14,7 +14,7 @@ import copy
 PUBLIC = "public"
 _PANEL_KEYS = ("id", "n", "title", "type", "span", "rows_span", "key", "sort", "drives",
                "follows", "ranges", "range", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels",
-               "horizons", "horizon", "today_idx", "cursor", "picks", "pick", "xlabel", "ylabel", "fit")
+               "horizons", "horizon", "today_idx", "cursor", "picks", "pick", "xlabel", "ylabel", "fit", "grow")
 _NODE_KEYS = ("k", "label", "v", "v2", "fmt", "vis", "align", "op", "sep", "strong", "h", "body",
               "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide", "hi", "color", "dash", "nolegend", "at", "pick")
 _LISTS = {"kpi": "items", "ledger": "lines", "bars": "items", "scatter": "series"}
@@ -186,7 +186,7 @@ def _panel(p: dict) -> dict | None:
         elif k in ("ranges", "horizons", "picks"):
             if isinstance(val, list) and all(isinstance(v, str) for v in val):
                 out[k] = list(val)
-        elif k in ("rebase", "fit"):
+        elif k in ("rebase", "fit", "grow"):
             if isinstance(val, bool):
                 out[k] = val
         elif k in ("vlines", "vlabels"):                  # chart marks: epoch seconds / their labels
