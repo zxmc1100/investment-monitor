@@ -31,6 +31,7 @@ CURSOR, FLASH, FIELD, GHOST, NOTE_BG, DN_BG, TEXT = (
     "#dddddd",
 )
 BAR_BG, STRIP_BG, OVER_BG, SEL_BG = "#1a1a1a", "#0d0d0d", "#050505", "#2e1d07"
+STRIPE = "#161616"  # --stripe: every other row of a table, ledger or bar list
 CLS = {"up": UP, "dn": DN, "dim": DIM, "na": DIM, "am": AMBER, "": None}
 
 

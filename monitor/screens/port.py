@@ -51,7 +51,10 @@ HELP = [
      "growth, the time-weighted return and the gain."},
     {"h": "DAY", "vis": PUB, "body": "Last price vs previous close per position; the portfolio "
      "figure is the sum of shares x change over yesterday's value. Before the open it shows the "
-     "last session."},
+     "last session. The chips on POSITIONS' title (or ⌥P · Alt+P; p in the terminal client) show 1W, 1M or YTD "
+     "instead: each line's gain since the close before the period — its value now less its value then, plus its "
+     "sales and dividends since, less its buys since — over its value then plus those buys. TOTAL is the ROI "
+     "chart's ROI over the same period (1M = 31 days)."},
     {"h": "ROI vs SAME CASH ELSEWHERE", "vis": PUB, "body": "Every euro spent on a buy is "
      "virtually invested in each benchmark on the same day (USD benchmarks at that day's EUR/USD), "
      "less the same {fee} EUR order fee you paid (savings-plan buys are free). Your line counts "
@@ -98,13 +101,21 @@ HELP = [
      "the record; it is not an investment return, so ROI, XIRR and YTD leave it out."},
 ]
 
+# POSITIONS' period chips besides DAY: (chip, row key, days back; None = since 1 Jan) — the ROI chart's ranges
+# (ranges.rangeStart: 1M = 31 days), and a week.
+PERIODS = (("1W", "w1", 7), ("1M", "m1", 31), ("YTD", "ytd", None))
+
 POS_COLS = [
     {"k": "tkr", "label": "TKR", "fmt": "tkr", "vis": PUB},
     {"k": "name", "label": "NAME", "fmt": "text", "vis": PUB},
     {"k": "shrs", "label": "SHRS", "fmt": "num:4", "vis": PRIV, "align": "r", "lo": True},   # lo: gives way first
     {"k": "avg", "label": "AVG", "fmt": "num:2", "vis": PRIV, "align": "r", "lo": True},
     {"k": "last", "label": "LAST", "fmt": "num:2", "vis": PRIV, "align": "r"},
-    {"k": "day", "label": "DAY%", "fmt": "pct+:2", "vis": PUB, "align": "r"},
+    {"k": "day", "label": "DAY%", "fmt": "pct+:2", "vis": PUB, "align": "r", "pick": "DAY"},
+    {"k": "daye", "label": "DAY €", "fmt": "eur+", "vis": PRIV, "align": "r", "pick": "DAY"},
+    *({"k": k + e, "label": f"{name}{sign}", "fmt": fmt, "vis": vis, "align": "r", "pick": name}
+      for name, k, _ in PERIODS
+      for e, sign, fmt, vis in (("", "%", "pct+", PUB), ("e", " €", "eur+", PRIV))),
     {"k": "value", "label": "VALUE", "fmt": "eur", "vis": PRIV, "align": "r"},
     {"k": "wt", "label": "WT%", "fmt": "pct", "vis": PUB, "align": "r"},
     {"k": "pnl", "label": "P&L €", "fmt": "eur+", "vis": PRIV, "align": "r"},
@@ -239,10 +250,53 @@ def _splits(q: dict, key: str) -> dict[str, dict[str, float]]:
     return {t: r[key] for t, r in (q.get("ident") or {}).items() if r.get(key)}
 
 
+def _period_moves(q: dict, d: dict, today: date) -> dict[str, dict[str, tuple[float, float]]]:
+    """{period: {ticker: (gain €, base €)}}: each line's money over the period by the ROI chart's window formula
+    (ranges.windowRoi) — value now − value at the close before the period + its sales and dividends since − its buys
+    since, over the value then plus those buys. Summed over every line it is the portfolio's own window ROI (the ROI
+    chart's YOU). No close before the period (a younger book): everything counts, the ROI itself."""
+    av = d["asset_values"]
+    roi = d["roi_series"]
+    if today.weekday() >= 5 and not roi.empty:   # the ROI chart's last point: today, or a weekend's last session
+        today = min(roi.index[-1].date(), today)
+    idx = av["__total__"].index if isinstance(av.get("__total__"), pd.Series) else pd.DatetimeIndex([])
+    now = {p["ticker"]: p["position_value"] for p in q["positions"]}
+    flows = [(pd.Timestamp(t["date"]), t["ticker"], -t["price"] if t["action"] == "buy" else t["price"], t["action"] == "buy")
+             for t in q["txns"] if t["action"] in ("buy", "sell")]
+    flows += [(pd.Timestamp(x["date"]), x["ticker"], x["eur"], False) for x in q["dividends"]]
+    out = {}
+    for name, _, days in PERIODS:
+        start = pd.Timestamp(today - timedelta(days=days) if days else date(today.year, 1, 1))
+        before = idx[idx < start]
+        base_day = before[-1] if len(before) else None
+        moves = {}
+        for t, s in av.items():
+            if t.startswith("__") or not isinstance(s, pd.Series):
+                continue
+            v0 = float(s.loc[base_day]) if base_day is not None and pd.notna(s.loc[base_day]) else 0.0
+            cash = buys = 0.0
+            for when, tk, eur, buy in flows:
+                if tk == t and (base_day is None or when > base_day):
+                    cash += eur
+                    buys += -eur if buy else 0.0
+            moves[t] = (now.get(t, 0.0) - v0 + cash, v0 + buys)
+        out[name] = moves
+    return out
+
+
 def _positions(q: dict, d: dict) -> dict:
     quotes, positions = q["quotes"], q["positions"]
     value_sum = sum(p["position_value"] for p in positions)
     flagged = set(q["stale"]) | set(q["missing"])
+    today = date.fromisoformat(q["as_of"][:10]) if q.get("as_of") else date.today()
+    moves = _period_moves(q, d, today)
+
+    def period(t: str) -> dict:
+        row = {}
+        for name, k, _ in PERIODS:
+            gain, base = moves[name].get(t, (0.0, 0.0))
+            row[k], row[k + "e"] = (_num(gain / base * 100), _num(gain)) if base > 0 else (None, None)
+        return row
     rows = []
     for p in positions:
         t = p["ticker"]
@@ -251,10 +305,11 @@ def _positions(q: dict, d: dict) -> dict:
         row = {"tkr": t, "name": _name(q, t), "shrs": _num(p["shares"]),
                "avg": _num(p["avg_cost"]), "last": _num(last),
                "day": _num((last / prev - 1) * 100) if last and prev else None,
+               "daye": _num(p["shares"] * (last - prev)) if last and prev else None,   # as snapshot.marked's day_pnl
                "value": _num(p["position_value"]),
                "wt": _num(p["position_value"] / value_sum * 100) if value_sum else None,
                "pnl": _num(p["unrealized_pnl"]), "pnlp": _num(p["unrealized_pct"]),
-               "p1y": _spark(d["history"], t)}
+               "p1y": _spark(d["history"], t), **period(t)}
         if t in flagged:
             row["_stale"] = True
         rows.append(row)
@@ -264,17 +319,21 @@ def _positions(q: dict, d: dict) -> dict:
             continue
         cost = r["proceeds"] - r["pnl_eur"]
         rows.append({"tkr": t, "name": _name(q, t), "shrs": 0.0, "avg": None, "last": None,
-                     "day": None, "value": 0.0, "wt": 0.0, "pnl": _num(r["pnl_eur"]),
+                     "day": None, "daye": None, "value": 0.0, "wt": 0.0, "pnl": _num(r["pnl_eur"]),
                      "pnlp": _num(r["pnl_eur"] / cost * 100) if cost > 0 else None,
-                     "p1y": None, "_closed": True})
+                     "p1y": None, "_closed": True, **period(t)})
     unreal = sum(p["unrealized_pnl"] for p in positions)
     cost = sum(p["cost_basis"] for p in positions)
+    total = {"tkr": "TOTAL", "day": _num(q["day_pct"]), "daye": _num(q["day_pnl"]), "value": _num(value_sum), "wt": 100.0,
+             "pnl": _num(unreal), "pnlp": _num(unreal / cost * 100) if cost else None}
+    for name, k, _ in PERIODS:                 # every line, closed ones too: the portfolio's window ROI
+        gain, base = (sum(v) for v in zip((0.0, 0.0), *moves[name].values()))
+        total[k], total[k + "e"] = (_num(gain / base * 100), _num(gain)) if base > 0 else (None, None)
     return {"id": "positions", "n": 3, "title": "POSITIONS", "type": "table", "span": 7, "rows_span": 2,
             "vis": PUB, "key": "tkr", "sort": ["wt", "desc"], "drives": "posval",
+            "picks": ["DAY", *(name for name, _, _ in PERIODS)], "pick": "DAY",   # chips: which period's % / € pair shows
             "context": {"text": f"{len(positions)} OPEN", "vis": PUB},
-            "cols": _pos_cols(q), "rows": rows,
-            "total": {"tkr": "TOTAL", "day": _num(q["day_pct"]), "value": _num(value_sum), "wt": 100.0,
-                      "pnl": _num(unreal), "pnlp": _num(unreal / cost * 100) if cost else None}}
+            "cols": _pos_cols(q), "rows": rows, "total": total}
 
 
 def _at(s: pd.Series | None, day: date, v) -> pd.Series | None:

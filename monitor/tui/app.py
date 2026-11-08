@@ -57,6 +57,7 @@ BAR_W = 36
 # a Mac's Option+key types these unless the terminal sends it as Meta: the same key either way
 OPTION = {
     "®": "alt-r",
+    "π": "alt-p",
     "µ": "alt-m",
     "†": "alt-t",
     "¡": "alt-1",
@@ -103,6 +104,7 @@ def key_rows(top: int) -> list:
         ("< > · Shift+← →", "sort by previous / next column"),
         ("s · Shift+↑ ↓", "flip the sort · ascending / descending"),
         ("[ ] · { }", "a chart's range · its horizon (the focused chart, else the first that has them)"),
+        ("p · Alt+P", "POSITIONS' period: DAY · 1W · 1M · YTD — which % and € pair it shows (or its title's chips)"),
         (
             "m · Alt+R M T",
             "the ROI chart's view — ROI: the gain over every euro in it (default) · MWR: money-weighted (Modified "
@@ -1010,6 +1012,8 @@ class App:
             self.horizon_cycle(1 if k == "}" else -1)
         elif k in MODE_KEYS:
             self.set_mode(MODE_KEYS[k])
+        elif k in ("p", "alt-p"):
+            self.pick_cycle()
         elif k.startswith("alt-") and k[4:].isdigit() and k[4:] != "0":
             self.maximize(int(k[4:]))
 
@@ -1500,7 +1504,8 @@ class App:
         p = self.focused_table()
         if p:
             st = self.table_state(p)
-            st["sort"] = [C.next_sort_col(p.get("cols") or [], st["sort"][0], d, st.get("hidden") or set()), "desc"]
+            cols = P.pick_cols(p.get("cols") or [], self.pick_of(p)) if p.get("picks") else p.get("cols") or []
+            st["sort"] = [C.next_sort_col(cols, st["sort"][0], d, st.get("hidden") or set()), "desc"]
 
     def sort_flip(self) -> None:
         p = self.focused_table()
@@ -1736,6 +1741,24 @@ class App:
         for pid in ids:
             self.modes[pid] = mode
             self.cross.pop(pid, None)
+
+    def pick_of(self, p: dict):
+        return self.table_state(p).get("pick") or p.get("pick")
+
+    def set_pick(self, pid: str, k: str) -> None:
+        p = self.panel(pid)
+        st = self.table_state(p)
+        st["sort"] = [P.pick_sort(p.get("cols") or [], st["sort"][0], self.pick_of(p), k), st["sort"][1]]
+        st["pick"] = k
+
+    def pick_cycle(self) -> None:
+        """The focused table's period (POSITIONS: DAY 1W 1M YTD), else the first table's that has periods."""
+        tables = [p for p in self.panels() if p.get("picks")]
+        p = next((q for q in tables if q["id"] == self.focus), tables[0] if tables else None)
+        if p is None:
+            self.note("NO PERIODS HERE")
+            return
+        self.set_pick(p["id"], p["picks"][(p["picks"].index(self.pick_of(p)) + 1) % len(p["picks"])])
 
     def mode_cycle(self) -> None:
         here = self.modes_here()
@@ -2423,6 +2446,8 @@ class App:
             self.set_range(act[1], act[2])
         elif kind == "mode":
             self.modes[act[1]] = act[2]
+        elif kind == "pick":
+            self.set_pick(act[1], act[2])
         elif kind == "hz":
             self.horizons[act[1]] = act[2]
         elif kind == "head":

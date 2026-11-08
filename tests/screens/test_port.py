@@ -50,7 +50,35 @@ def test_value_weights_and_roi_reconcile(frozen, tmp_path):
     assert kpi(p, "summary", "VALUE") == pytest.approx(sum(r["value"] for r in open_rows))
     assert pos["total"]["value"] == pytest.approx(kpi(p, "summary", "VALUE"))
     assert sum(r["wt"] for r in open_rows) == pytest.approx(100.0)
+    assert sum(r["daye"] or 0 for r in open_rows) == pytest.approx(pos["total"]["daye"])
+    assert pos["total"]["daye"] == pytest.approx(kpi(p, "summary", "DAY P&L"))
+    assert all("daye" not in r for r in panel(public_view(p), "positions")["rows"])   # € amounts stay private
     assert kpi(p, "summary", "ROI") == pytest.approx(kpi(p, "summary", "TOTAL P&L") / 3990.0 * 100)
+
+
+@pytest.mark.parametrize("now", ["2026-06-30 14:00:00+00:00", "2026-07-04 14:00:00+00:00"])   # a Tuesday, a Saturday
+def test_period_chips_reconcile_to_the_roi_charts_window_roi(monkeypatch, tmp_path, now):
+    """POSITIONS' 1W / 1M / YTD pairs: each line's gain over the period by the window formula; their TOTAL is the ROI
+    chart's YOU over the same range (ranges.windowRoi on y, inv, cash from the close before the range, counted back
+    from the chart's last point — a weekend's is Friday)."""
+    from datetime import datetime, timezone
+    fakes_yf.install(monkeypatch)
+    with time_machine.travel(now, tick=False):
+        p = build(tmp_path)
+    pos, roi = panel(p, "positions"), panel(p, "roi")
+    assert pos["picks"] == ["DAY", "1W", "1M", "YTD"] and pos["pick"] == "DAY"
+    assert {c["pick"] for c in pos["cols"] if "pick" in c} == set(pos["picks"])
+    x, inv = roi["x"], roi["inv"]
+    you = roi["series"][0]
+    for name, k, days in port.PERIODS:
+        start = x[-1] - days * 86400 if days else datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()   # rangeStart
+        i, j = max(n for n, t in enumerate(x) if t < start), len(x) - 1
+        y0, yk, c0 = you["y"][i] / 100, you["y"][j] / 100, you["cash"][i] or 0
+        window = ((1 + yk) * inv[j] - c0) / (y0 * inv[i] - c0 + inv[j]) - 1
+        assert pos["total"][k] == pytest.approx(window * 100, abs=0.05), name
+        assert pos["total"][k + "e"] == pytest.approx(sum(r[k + "e"] or 0 for r in pos["rows"]), abs=0.01), name
+    pub = panel(public_view(p), "positions")
+    assert pub["picks"] == pos["picks"] and all("ytde" not in r and "ytd" in r for r in pub["rows"])
 
 
 def test_roi_lines_carry_their_time_weighted_growth_privately(frozen, tmp_path):
@@ -122,7 +150,8 @@ def test_public_view_leaks_nothing_private(frozen, tmp_path):
     s = json.dumps(pub)
     assert "4242.4242" not in s and "5237.07" not in s
     assert [q["id"] for q in pub["panels"]] == ["summary", "risk", "positions", "roi", "allocation"]
-    assert [c["k"] for c in panel(pub, "positions")["cols"]] == ["tkr", "name", "day", "wt", "pnlp", "p1y"]
+    assert [c["k"] for c in panel(pub, "positions")["cols"]] == ["tkr", "name", "day", "w1", "m1", "ytd", "wt", "pnlp",
+                                                                "p1y"]
     assert [i["k"] for i in panel(pub, "summary")["items"]] == ["DAY %", "ROI", "XIRR /YR", "YTD", "YTD TWR"]
     private = set()
     for q in p["panels"]:

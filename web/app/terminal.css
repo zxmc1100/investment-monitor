@@ -1,7 +1,7 @@
 /* Style A — classic Bloomberg. Black, amber labels, orange panel strips. */
 :root {
   --bg: #000; --fg: #fff; --amber: #ffa028; --cmd: #ffbf00; --up: #00e676; --dn: #ff3d3d;
-  --dim: #8a8a8a; --line: #2b2b2b; --cursor: #3a2a00; --flash: #ffa02855;
+  --dim: #8a8a8a; --line: #2b2b2b; --stripe: #161616; --row: calc(11px * 1.38); --cursor: #3a2a00; --flash: #ffa02855;
   --field: #111; --ghost: #222; --note-bg: #1a1200; --dn-bg: #1a0000;   /* form fields, quiet buttons, banners */
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   /* an iPad's status bar and home indicator (viewport-fit=cover): the page keeps out of them; 0 elsewhere */
@@ -63,6 +63,8 @@ body {
 .panel { grid-column: span var(--span); grid-row: span var(--rows); background: var(--bg); min-width: 0; display: flex; flex-direction: column; }
 .panel > .h { background: var(--amber); color: #000; font-weight: 700; padding: 0 6px; display: flex; gap: 8px; white-space: nowrap; }
 .panel > .h .ctx { margin-left: auto; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
+.panel > .h .picks { display: flex; gap: 2px; margin-left: 10px; font-weight: 400; }
+.panel > .h .picks span { padding: 0 4px; cursor: pointer; } .panel > .h .picks span.on { background: #000; color: var(--amber); }
 .panel.focus > .h { background: var(--cmd); }
 .panel > .body { flex: 1; min-height: 0; overflow: auto; }
 .panel.max { position: fixed; top: calc(env(safe-area-inset-top) + var(--max-top, 23px));
@@ -79,7 +81,9 @@ body {
 /* tables */
 table { border-collapse: collapse; width: 100%; }
 td, th { padding: 0 5px; white-space: nowrap; }
-th { color: var(--amber); font-weight: 400; text-align: left; border-bottom: 1px solid var(--line);
+/* rules inside tables are inset shadows, never borders: a border adds height and every row under it falls off the
+   one row grid all panels share (the stripes of neighbouring panels line up, as in a terminal) */
+th { color: var(--amber); font-weight: 400; text-align: left; box-shadow: inset 0 -1px var(--line);
   position: sticky; top: 0; background: var(--bg); cursor: pointer; user-select: none; }
 /* grid tables: free-text columns take what the numbers leave and ellipsize (title carries the full
    text); every other column shrinks to its content. Scoped to .grid-table — legends, ledgers, bars and
@@ -94,19 +98,29 @@ table.tight td.lo, table.tight th.lo { display: none; }
 table.tight td, table.tight th { padding: 0 3px; }
 th.r { text-align: right; } th.sorted { color: var(--cmd); }
 .grid-table tbody tr { cursor: pointer; }
-.grid-table tbody tr:hover td { background: #111; }
+/* Bloomberg banding: rows alternate black / grey (a ledger's group rules don't count) and the pattern runs on through
+   the empty space under the last row (the ::after filler; it starts black when the last row is grey). tui/panels.py
+   `band` paints the same. */
+.grid-table tbody tr:nth-child(even) td, .ledger tr:nth-child(even of :not(.sep)) td, .bars tr:nth-child(even) td {
+  background: var(--stripe); }
+.panel:is([data-type="table"], [data-type="ledger"], [data-type="bars"]) > .body { display: flex; flex-direction: column; }
+.panel:is([data-type="table"], [data-type="ledger"], [data-type="bars"]) > .body::after { content: ""; flex: 1 0 0;
+  background: repeating-linear-gradient(var(--band-a, var(--stripe)) 0 var(--row), var(--band-b, var(--bg)) var(--row) calc(2 * var(--row))); }
+.body:has(> table:last-child > tbody:last-child > tr:last-child:nth-child(even of :not(.sep)),
+  > .bars-compact > table > tbody > tr:last-child:nth-child(even)) { --band-a: var(--bg); --band-b: var(--stripe); }
+.grid-table tbody tr:hover td { background: #262626; }
 tr.cur td { background: var(--cursor) !important; }
 tr.cur td.flash { animation: flashcur 1.2s ease-out; }
 @keyframes flashcur { from { box-shadow: inset 0 0 0 999px var(--flash); } to { box-shadow: inset 0 0 0 999px transparent; } }
 tr.closed td { color: var(--dim); }
 tr.stale td:first-child::after { content: " ●"; color: var(--dn); }
-tr.tot td { border-top: 1px solid var(--line); color: var(--amber); }
-.more { color: var(--dim); padding: 1px 6px; cursor: pointer; } .more:hover { color: var(--amber); }
+tr.tot td { box-shadow: inset 0 1px var(--line); color: var(--amber); }
+.more { color: var(--dim); padding: 0 6px; cursor: pointer; } .more:hover { color: var(--amber); }
 .spark { display: block; } .spark polyline { fill: none; stroke-width: 1; }
 .spark.up polyline { stroke: var(--up); } .spark.dn polyline { stroke: var(--dn); }
 .ledger td.op { color: var(--dim); width: 2ch; } .ledger tr.strong td { color: var(--amber); }
 .ledger td:not(.op):not(.r) { white-space: normal; }   /* a narrow panel wraps a long label, never an amount */
-.ledger tr.sep td { height: 3px; border-bottom: 1px solid var(--line); }
+.ledger tr.sep { display: none; } .ledger tr.sep + tr td { box-shadow: inset 0 1px var(--line); }
 .bars td.bar { width: 45%; } .bars td.bar i { display: block; height: 7px; background: var(--amber); }
 
 /* charts */
@@ -189,7 +203,7 @@ svg.scatter .g { stroke: #1c1c1c; } svg.scatter .tx, svg.scatter .ty { fill: var
 svg.scatter .tx { text-anchor: middle; } svg.scatter .ty { text-anchor: end; } svg.scatter .lb { font: 10px var(--mono); }
 .grid-table th.hl, .grid-table td.hl { color: var(--cmd); }
 
-.heatmap { font-size: 10px; } .heatmap td, .heatmap th { padding: 0 4px; } .heatmap th { position: static; cursor: default; }
+.heatmap { font-size: 10px; } .heatmap td, .heatmap th { padding: 0 4px; line-height: var(--row); } .heatmap th { position: static; cursor: default; }
 .legend .asof td { color: var(--dim); padding-bottom: 2px; }
 /* ALLOCATION detail: shown only when the panel is maximized (Alt+n) */
 .panel:not(.max) .bars-detail { display: none; }

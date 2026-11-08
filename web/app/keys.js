@@ -46,6 +46,7 @@ export function keyAction(e, s) {
   // so the key is prevented and nothing reaches the command bar (a layout's dead key: bindKeys swallows its
   // accent). Never Ctrl: Ctrl+R / T / M are the browser's.
   if (e.altKey && !e.ctrlKey && !e.metaKey && MODE_KEYS[e.code]) return r("mode", true, MODE_KEYS[e.code]);
+  if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyP") return r("pick");   // a table's period (Mac: π)
   if (e.metaKey || e.ctrlKey || e.altKey || (s.overlay && !cancel)) return r("none", false);
   if (s.ac && (e.key === "ArrowDown" || e.key === "ArrowUp")) return r("acMove", true, e.key === "ArrowDown" ? 1 : -1);
   if (s.ac && e.key === "Tab") return r("acAccept");
@@ -120,6 +121,7 @@ export function bindKeys(k) {
       case "maximize": k.maximize(a.arg); break;
       case "history": k.history(a.arg); break;
       case "mode": k.mode(a.arg); break;
+      case "pick": k.pick(); break;
       case "acMove": k.acMove(a.arg); break;
       case "acAccept": k.acAccept(); break;
       case "drill": k.drill(); break;

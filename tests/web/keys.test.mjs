@@ -43,6 +43,8 @@ test("Option/Alt + an initial picks the ROI chart's view — ROI, MWR, TWR — a
   }
   assert.equal(keyAction(k("Dead", { code: "KeyT", altKey: true }), s).act, "mode");               // a dead-key layout
   assert.equal(keyAction(k("r", { code: "KeyR", altKey: true }), { ...s, field: "field" }).act, "field");   // a form keeps it
+  assert.deepEqual([keyAction(k("π", { code: "KeyP", altKey: true }), s).act, keyAction(k("π", { code: "KeyP", altKey: true }), s).prevent],
+    ["pick", true]);                                                                                // a table's period
   assert.equal(keyAction(k("R", { code: "KeyR", shiftKey: true }), s).act, "type");
   assert.equal(keyAction(k("r", { code: "KeyR", ctrlKey: true }), s).act, "none");                 // Ctrl+R: the browser's
   assert.equal(keyAction(k("t", { code: "KeyT", metaKey: true }), s).act, "none");                 // ⌘T: the browser's

@@ -40,6 +40,7 @@ from monitor.tui.term import (
     NOTE_BG,
     RULE,
     SEL_BG,
+    STRIPE,
     TEXT,
     UP,
     Canvas,
@@ -71,10 +72,10 @@ PLACEHOLDER = (
 class Line(list):
     """One row: segments (text, fg, bg, bold, act). `act` on a segment or the line: what a click there does; `bg` fills the
     row; `key` a table row's key; `cur` the cursor's row; `sticky` stays on top when scrolled; `caret` the x of the text
-    caret; `pop` (x, lines) a list floating under this row."""
+    caret; `pop` (x, lines) a list floating under this row; `rule` a ledger's group rule (outside the banding)."""
 
     act = bg = key = caret = pop = None
-    cur = sticky = False
+    cur = sticky = rule = False
 
 
 def seg(text, fg: str = FG, bg: str | None = None, bold: bool = False, act=None) -> tuple:
@@ -279,6 +280,18 @@ def col_widths(cols: list, rows: list, w: int, sort_col: str, extra_first: int =
     return shown, widths, gap
 
 
+def pick_cols(cols: list, pick) -> list:
+    """render/table.js pickCols: a table with period chips shows the chosen period's columns only."""
+    return [c for c in cols if not c.get("pick") or c["pick"] == pick]
+
+
+def pick_sort(cols: list, sort_key, old, new):
+    """render/table.js pickSort: a sort on one of the old period's columns moves to its twin in the new one."""
+    a, b = [c for c in cols if c.get("pick") == old], [c for c in cols if c.get("pick") == new]
+    i = next((n for n, c in enumerate(a) if c["k"] == sort_key), None)
+    return b[i]["k"] if i is not None and i < len(b) else sort_key
+
+
 def table_lines(p: dict, w: int, ui) -> list:
     st = ui.table_state(p)
     src, context = followed(p, ui.follow_key(p))
@@ -292,6 +305,8 @@ def table_lines(p: dict, w: int, ui) -> list:
         ]
     total = p.get("total")
     pid, cols = p["id"], p.get("cols") or []
+    if p.get("picks"):
+        cols = pick_cols(cols, ui.pick_of(p))
     every = [*rows, total] if total else rows
     stale = any(r.get("_stale") for r in rows)
     shown, widths, gap = col_widths(cols, every, w - 2, st["sort"][0], 2 if stale else 0)
@@ -363,7 +378,7 @@ def ledger_lines(p: dict, w: int, ui) -> list:
     out = []
     for ln in p.get("lines") or []:
         if ln.get("sep"):
-            out.append(line(seg("─" * w, RULE)))
+            out.append(line(seg("─" * w, RULE), rule=True))
             continue
         text, cls = fmt(ln.get("v"), ln.get("fmt"))
         fg = AMBER if ln.get("strong") else FG
@@ -1014,6 +1029,23 @@ def layout(panels: list, w: int, room: int, ui) -> tuple:
     return out, sum(h)
 
 
+BANDED = {"table", "ledger", "bars"}
+
+
+def band(lines: list, h: int) -> list:
+    """Bloomberg banding (terminal.css): under the header, rows alternate black / grey — a ledger's rules don't count —
+    and blank grey/black rows carry the pattern down to the panel's bottom. A row with its own bg (the cursor) keeps it."""
+    out = [*lines, *(line() for _ in range(h - len(lines)))]
+    n = 0
+    for ln in out:
+        if ln.sticky or ln.rule:
+            continue
+        if n % 2 and ln.bg is None:
+            ln.bg = STRIPE
+        n += 1
+    return out
+
+
 def draw_panel(v: Canvas, p: dict, lines: list | None, ui, windowed: bool = False) -> None:
     pid = p["id"]
     key = ui.follow_key(p)
@@ -1031,6 +1063,15 @@ def draw_panel(v: Canvas, p: dict, lines: list | None, ui, windowed: bool = Fals
         left = f" {p.get('n')}) {title}"
         ui.hit(v.ox, v.oy, v.ox + v.w, v.oy + 1, ("head", pid))
         x = v.put(0, 0, clip(left, v.w), style(BG, bg, True))
+        pick = ui.pick_of(p) if p.get("picks") else None
+        for i, k in enumerate(p.get("picks") or []):  # a table's period chips (POSITIONS: DAY 1W 1M YTD)
+            chip = f" {k} "
+            if x + (2 if i == 0 else 0) + tw(chip) > v.w - 2:
+                break
+            x += 2 if i == 0 else 0
+            nx = v.put(x, 0, chip, style(AMBER, BG) if k == pick else style(BG, bg))
+            ui.hit(v.ox + x, v.oy, v.ox + nx, v.oy + 1, ("pick", pid, k))
+            x = nx
         room = v.w - x - 2
         if ctx and room > 3:
             text = clip(ctx, room)
@@ -1040,9 +1081,13 @@ def draw_panel(v: Canvas, p: dict, lines: list | None, ui, windowed: bool = Fals
         body = v
     if p.get("type") == "chart":
         draw_chart(body, p, ui)
-    elif p.get("type") == "scatter":
+        return
+    if p.get("type") == "scatter":
         draw_scatter(body, p, ui)
-    elif windowed:
+        return
+    if p.get("type") in BANDED:
+        lines = band(lines or [], body.h)
+    if windowed:
         paint_window(body, lines or [], ui, pid)
     else:
         paint_lines(body, lines or [], ui, pid)

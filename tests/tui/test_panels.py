@@ -4,7 +4,7 @@ import json
 
 from monitor.tui import panels as P
 from monitor.tui.plot import chart_raster, scatter_raster, spark, time_axis
-from monitor.tui.term import AMBER, CURSOR, DN, UP, Canvas
+from monitor.tui.term import AMBER, CURSOR, DN, STRIPE, UP, Canvas
 from tests.tui.conftest import X, press, screen
 
 
@@ -141,6 +141,22 @@ def test_ledger_rule_and_strong(app):
     lines = P.ledger_lines(app.panel("acct"), 40, app)
     assert set(lines[1][0][0]) == {"─"}
     assert lines[2][1][1] == AMBER and "-€2.00" in lines[2][2][0]
+
+
+def test_banding_skips_header_and_rules_keeps_the_cursor_and_fills_the_panel():
+    head, a, rule, b, c = (
+        P.line(sticky=True),
+        P.line(),
+        P.line(rule=True),
+        P.line(bg=CURSOR, cur=True),
+        P.line(),
+    )
+    out = P.band([head, a, rule, b, c], 7)
+    assert [ln.bg for ln in out] == [None, None, None, CURSOR, None, STRIPE, None]
+
+
+def test_tables_paint_their_stripes(app):
+    assert any(st[1] == STRIPE for row in app.canvas.st for st in row)
 
 
 def test_bars_compact_then_detail_when_maximized(app):
@@ -282,3 +298,20 @@ def test_cells_outside_a_view_are_untouched():
     P.paint_lines(v, [P.line(P.seg("abcdefgh"))], type("U", (), {"hit": lambda *a: None, "row_ys": {}})(), "p")
     assert "".join(c.ch[0]) == " " * 10 and "".join(c.ch[1]) == "  abcd    " and "".join(c.ch[2]) == " " * 10
     assert UP != DN
+
+
+def test_period_chips_switch_the_pair_and_carry_the_sort(app):
+    p = app.panel("positions")
+    p["picks"], p["pick"] = ["DAY", "1W"], "DAY"
+    p["cols"][2:2] = [
+        {"k": "d", "label": "DAY%", "fmt": "pct+", "align": "r", "pick": "DAY"},
+        {"k": "w", "label": "WEEK%", "fmt": "pct+", "align": "r", "pick": "1W"},
+    ]
+    app.table_state(p)["sort"] = ["d", "desc"]
+    app.draw()
+    assert "DAY%" in screen(app) and "WEEK%" not in screen(app) and " DAY  1W " in screen(app)
+    press(app, "p")
+    assert "WEEK%" in screen(app) and "DAY%" not in screen(app)
+    assert app.table_state(p)["sort"] == ["w", "desc"]          # the sort moved to the new period's column
+    press(app, "π")
+    assert "DAY%" in screen(app)

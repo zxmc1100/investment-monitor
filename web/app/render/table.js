@@ -38,6 +38,16 @@ export const colClass = (c) => [c.align === "r" ? "r" : "", c.hl ? "hl" : "", is
   .filter(Boolean).join(" ");
 export const blankCell = (c) => `<td class="${colClass(c)}"></td>`;
 
+// A table with period chips (`picks`) shows the columns of the chosen period only; the rest always. Pure.
+export const pickCols = (cols, pick) => cols.filter((c) => !c.pick || c.pick === pick);
+
+// Another period: a sort on one of the old period's columns moves to the new one's column in the same place. Pure.
+export function pickSort(cols, sortKey, from, to) {
+  const old = cols.filter((c) => c.pick === from), now = cols.filter((c) => c.pick === to);
+  const i = old.findIndex((c) => c.k === sortKey);
+  return i >= 0 && now[i] ? now[i].k : sortKey;
+}
+
 // Two or more text columns share the width the numbers leave in proportion to the longest text
 // each holds (header and sort mark included, plus ~2ch of padding) — equal shares would clip a long
 // RULE while a short STATE sits half empty. {k: percent} for the text columns; {} for one. Pure.
@@ -52,6 +62,7 @@ export function textShares(cols, rows) {
 
 export function table(body, p, ui) {
   const st = ui.tableState(p);
+  const cols = p.picks ? pickCols(p.cols, ui.pickOf(p)) : p.cols;
   const src = followed(p, ui.followKey(p));
   const closed = src.rows.filter((r) => r._closed).length;
   const rows = sortRows(src.rows.filter((r) => st.showClosed || !r._closed), st.sort[0], st.sort[1]);
@@ -63,8 +74,8 @@ export function table(body, p, ui) {
     const f = fmt(r[c.k], cellFmt(r, c));
     return `<td class="${`${colClass(c)} ${f.cls}`.trim()}" data-cell="${esc(`${p.id}|${rowKey}|${c.k}`)}"${isTextCol(c) ? ` title="${esc(f.text)}"` : ""}>${esc(f.text)}</td>`;
   };
-  const share = textShares(p.cols, p.total ? [...rows, p.total] : rows);
-  const head = p.cols.map((c) => {
+  const share = textShares(cols, p.total ? [...rows, p.total] : rows);
+  const head = cols.map((c) => {
     const on = st.sort[0] === c.k;
     const w = Object.hasOwn(share, c.k) ? ` style="width:${share[c.k]}%"` : "";
     return `<th class="${`${colClass(c)} ${on ? "sorted" : ""}`.trim()}"${w} data-col="${esc(c.k)}">${esc(c.label)}${on ? (st.sort[1] === "desc" ? " ▼" : " ▲") : ""}</th>`;
@@ -72,10 +83,10 @@ export function table(body, p, ui) {
   const tbody = rows.map((r) => {
     const k = r[p.key];
     const cls = [k === st.cursor ? "cur" : "", r._closed ? "closed" : "", r._stale ? "stale" : "", r._hot ? "hot" : "", r._dn ? "dn" : ""].join(" ").trim();
-    return `<tr class="${cls}" data-key="${esc(k)}">${p.cols.map((c) => cell(r, c, k)).join("")}</tr>`;
+    return `<tr class="${cls}" data-key="${esc(k)}">${cols.map((c) => cell(r, c, k)).join("")}</tr>`;
   }).join("");
   const foot = p.total
-    ? `<tfoot><tr class="tot">${p.cols.map((c) => (c.k in p.total ? cell(p.total, c, "__total__") : blankCell(c))).join("")}</tr></tfoot>`
+    ? `<tfoot><tr class="tot">${cols.map((c) => (c.k in p.total ? cell(p.total, c, "__total__") : blankCell(c))).join("")}</tr></tfoot>`
     : "";
   const more = closed ? `<div class="more" data-act="closed">${st.showClosed ? "− HIDE" : "+ SHOW"} ${closed} CLOSED</div>` : "";
   body.innerHTML = `<table class="grid-table"><thead><tr>${head}</tr></thead><tbody>${tbody}</tbody>${foot}</table>${more}`;

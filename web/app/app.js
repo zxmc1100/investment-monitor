@@ -10,7 +10,7 @@ import { rank } from "./fuzzy.js";
 import { ASK_MS, bindKeys } from "./keys.js";
 import { askFull, framed, listen, switchTo } from "./peer.js";
 import { chartModes } from "./ranges.js";
-import { followsLater } from "./render/table.js";
+import { followsLater, pickCols, pickSort } from "./render/table.js";
 import { renderPanel } from "./render/index.js";
 import { changesHash, hashOf, keyOf, popBack, pushBack, routeOf } from "./route.js";
 import { fitHidden, metaBadges } from "./status.js";
@@ -37,6 +37,7 @@ function keyRows() {
     ["⌥R · ⌥M · ⌥T (Alt+)", "the ROI chart over the period shown or dragged — ROI: return on investment, the gain "
       + "over every euro in it (default) · MWR: money-weighted (Modified Dietz), each euro for the time it was in · "
       + "TWR: time-weighted, buys and sales moving no line — who performed best"],
+    ["⌥P (Alt+P)", "POSITIONS' period: DAY · 1W · 1M · YTD — which % and € pair it shows (or its title's chips)"],
     ["F1 or ?", "this help"],
     ["Esc", "leave a form field · clear bar · close overlay · restore panel · back from a security · leave full screen"],
   ];
@@ -229,6 +230,13 @@ function ui(pid) {
     },
     toggleClosed(id) { const t = S.tables[id]; t.showClosed = !t.showClosed; rerender(id); },
     followKey: (p) => (p.follows ? S.tables[p.follows]?.cursor ?? null : null),
+    pickOf: (p) => S.tables[p.id]?.pick ?? p.pick,
+    setPick(id, k) {
+      const p = S.payload?.panels.find((q) => q.id === id), t = ui(id).tableState(p);
+      t.sort = [pickSort(p.cols, t.sort[0], t.pick ?? p.pick, k), t.sort[1]];
+      t.pick = k;
+      rerender(id);
+    },
     chartRange: (id) => S.ranges[id],
     setRange(id, r) { S.ranges[id] = r; rerender(id); },
     chartMode: (id) => S.mode[id],
@@ -742,6 +750,13 @@ const keyHandlers = {
     }
   },
   help: () => showHelp(),
+  pick() {                                 // the focused table's period, else the first table that has periods
+    const all = (S.payload?.panels ?? []).filter((p) => p.picks?.length);
+    const p = all.find((q) => q.id === S.focus) ?? all[0];
+    if (!p) { notice("NO PERIODS HERE"); return; }
+    const u = ui(p.id);
+    u.setPick(p.id, p.picks[(p.picks.indexOf(u.pickOf(p)) + 1) % p.picks.length]);
+  },
   mode(m) {                                // every chart on the screen that offers the view
     const ids = (S.payload?.panels ?? []).filter((p) => p.type === "chart" && chartModes(p, p.series).includes(m))
       .map((p) => p.id);
@@ -779,7 +794,7 @@ const keyHandlers = {
     const t = ui(p.id).tableState(p);
     const hidden = new Set([...document.querySelectorAll(`#grid .panel[data-id="${CSS.escape(p.id)}"] th[data-col]`)]
       .filter((th) => getComputedStyle(th).display === "none").map((th) => th.dataset.col));
-    t.sort = [nextSortCol(p.cols, t.sort[0], d, hidden), "desc"];
+    t.sort = [nextSortCol(p.picks ? pickCols(p.cols, ui(p.id).pickOf(p)) : p.cols, t.sort[0], d, hidden), "desc"];
     rerender(p.id);
   },
   sortDir(dir) {

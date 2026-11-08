@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isTextCol } from "../../web/app/render/table.js";
+import { isTextCol, pickCols, pickSort } from "../../web/app/render/table.js";
 
 test("only free-text columns shrink and ellipsize; numbers, tickers, dates and sparks keep their width", () => {
   assert.equal(isTextCol({ k: "name", fmt: "text" }), true);
@@ -29,4 +29,12 @@ test("several text columns share the free width by how much text each holds, not
   assert.ok(s.text > s.last && s.last > s.state, JSON.stringify(s));            // longest text, widest share
   assert.ok(Math.abs(s.text + s.state + s.last - 100) < 0.5);
   assert.deepEqual(textShares(cols.slice(0, 2), rows), {});                      // one text column takes the rest by itself
+});
+
+test("period chips: a table shows the chosen period's columns, and a sort on one moves to its twin", () => {
+  const cols = [{ k: "tkr" }, { k: "day", pick: "DAY" }, { k: "daye", pick: "DAY" }, { k: "w1", pick: "1W" },
+    { k: "w1e", pick: "1W" }, { k: "wt" }];
+  assert.deepEqual(pickCols(cols, "1W").map((c) => c.k), ["tkr", "w1", "w1e", "wt"]);
+  assert.equal(pickSort(cols, "daye", "DAY", "1W"), "w1e");
+  assert.equal(pickSort(cols, "wt", "DAY", "1W"), "wt");                 // not a period column: stays
 });

@@ -27,8 +27,15 @@ export function renderPanel(p, ui) {
   const note = p.follows && p.series_by_key ? chartSource(p, key)?.note : null;   // EQUITY: NO CURVE FOR …
   const base = p.follows && p.rows_by_key ? followed(p, key).context : p.context?.text ?? "";
   const ctx = note ? `${note} · ${base}` : base;
-  el.innerHTML = (p.type === "banner" ? "" : `<div class="h"><span>${esc(p.n)}) ${esc(title)}</span><span class="ctx" title="${esc(ctx)}">${esc(ctx)}</span></div>`)
+  // a table's period chips (POSITIONS: DAY 1W 1M YTD) — which pair of columns it shows
+  const pick = p.picks ? ui.pickOf(p) : null;
+  const picks = p.picks ? `<span class="picks">${p.picks.map((k) => `<span class="${k === pick ? "on" : ""}" data-pick="${esc(k)}">${esc(k)}</span>`).join("")}</span>` : "";
+  el.innerHTML = (p.type === "banner" ? "" : `<div class="h"><span>${esc(p.n)}) ${esc(title)}</span>${picks}<span class="ctx" title="${esc(ctx)}">${esc(ctx)}</span></div>`)
     + `<div class="body"></div>`;                    // a banner is its own one line
+  el.querySelectorAll("[data-pick]").forEach((s) => s.addEventListener("click", (e) => {
+    e.stopPropagation();                             // a chip, not the title bar: no maximize on a tap
+    ui.setPick(p.id, s.dataset.pick);
+  }));
   const body = el.querySelector(".body");
   const render = RENDER[p.type];
   if (render) render(body, p, ui);
