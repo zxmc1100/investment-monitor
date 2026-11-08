@@ -495,7 +495,9 @@ class App:
         self.hits.append((x0, y0, x1, y1, act))
 
     def panels(self) -> list:
-        return (self.payload or {}).get("panels") or []
+        """The payload's panels, each panel with views (OPT's WHAT IF) as the view its chips chose."""
+        raw = (self.payload or {}).get("panels") or []
+        return [P.view_of(p, self.pick_of(p)) if p.get("views") else p for p in raw]
 
     def panel(self, pid) -> dict | None:
         return next((p for p in self.panels() if p["id"] == pid), None)
@@ -756,7 +758,7 @@ class App:
             g = Canvas(w, max(total, h))
             for p, x, y, pw, ph, lines in placed:
                 self.rects[p["id"]] = (x, y, pw, ph)
-                self.draw_one(g, p, x, y, pw, ph, lines, False)
+                self.draw_one(g, p, x, y, pw, ph, lines, bool(p.get("fit")))  # a fit panel scrolls
                 if x + pw < w:
                     g.fill(x + pw, y, 1, ph, style(RULE), "│")
             self.reveal(total, h)
@@ -1750,6 +1752,7 @@ class App:
         st = self.table_state(p)
         st["sort"] = [P.pick_sort(p.get("cols") or [], st["sort"][0], self.pick_of(p), k), st["sort"][1]]
         st["pick"] = k
+        self.gen += 1  # another view draws other data under the same id: no kept chart of the old one
 
     def pick_cycle(self) -> None:
         """The focused table's period (POSITIONS: DAY 1W 1M YTD), else the first table's that has periods."""

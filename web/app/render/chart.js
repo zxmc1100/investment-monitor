@@ -72,7 +72,9 @@ export function chart(body, p, ui) {
   const src = horizon ? { ...padded, ...cutHorizon(padded.x, padded.series, p.today_idx, HORIZON_MONTHS[horizon]) } : padded;
   // A period dragged on the chart is a range of its own ({from, to, prev}) until a named range or a
   // double-click; a following chart drops it when its row changes (another curve, other dates).
-  const key = ui.followKey(p), dflt = defaultRange(p), saved = ui.chartRange(p.id) ?? dflt;
+  // a named range this chart does not offer (left by another view of the panel: WHAT IF's FOLLOWED) is not its own
+  const key = ui.followKey(p), dflt = defaultRange(p), kept = ui.chartRange(p.id) ?? dflt;
+  const saved = typeof kept === "string" && kept !== dflt && !(p.ranges ?? []).includes(kept) ? dflt : kept;
   const range = typeof saved === "object" && saved.key !== key ? saved.prev ?? dflt : saved;
   const dragged = typeof range === "object";
   // The view (PORT's ROI chart: ranges.chartModes), each line measured from the close before the period shown or

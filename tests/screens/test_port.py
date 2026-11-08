@@ -28,7 +28,14 @@ def build(tmp_path, csv=FIX):
     return port.assemble({t: port.compute(t, ctx) for t in port.SCREEN.tiers}, dict(META))
 
 
+# the book's views (one panel beside POSITIONS, chips choosing): the panel each was before
+VIEWS = {"posval": "VALUE", "accounting": "ACCOUNTING", "allocation": "ALLOCATION", "activity": "ACTIVITY",
+         "dividends": "DIVIDENDS"}
+
+
 def panel(p, pid):
+    if pid in VIEWS:
+        return next(q for q in p["panels"] if q["id"] == "book")["views"][VIEWS[pid]]
     return next(q for q in p["panels"] if q["id"] == pid)
 
 
@@ -38,9 +45,23 @@ def kpi(p, pid, k):
 
 def test_panel_order_and_numbering(frozen, tmp_path):
     p = build(tmp_path)
-    assert [q["id"] for q in p["panels"]] == ["summary", "risk", "positions", "roi", "posval",
-                                              "accounting", "allocation", "activity", "dividends"]
-    assert [q["n"] for q in p["panels"]] == list(range(1, 10))
+    assert [q["id"] for q in p["panels"]] == ["summary", "risk", "positions", "book", "roi"]
+    assert [q["n"] for q in p["panels"]] == list(range(1, 6))
+
+
+def test_compact_the_book_beside_positions_and_the_roi_chart_across_the_bottom(frozen, tmp_path):
+    """SUMMARY | RISK · POSITIONS | the book (VALUE · ACCOUNTING · ALLOCATION · ACTIVITY · DIVIDENDS, one at a time,
+    `fit`: POSITIONS sets the row, a long view scrolls) · the ROI chart across the bottom with all the height left."""
+    from monitor.tui.panels import place
+    p = build(tmp_path)
+    at = {q["id"]: (r, c, span) for q, r, c, span, _ in place(p["panels"])}
+    assert at == {"summary": (0, 0, 6), "risk": (0, 6, 6), "positions": (1, 0, 7), "book": (1, 7, 5),
+                  "roi": (2, 0, 12)}
+    book = next(q for q in p["panels"] if q["id"] == "book")
+    assert book["picks"] == ["VALUE", "ACCOUNTING", "ALLOCATION", "ACTIVITY", "DIVIDENDS"] and book["pick"] == "VALUE"
+    assert set(book) == {"id", "n", "span", "vis", "picks", "pick", "views"}
+    assert all((v["id"], v["n"], v["span"], v["fit"]) == ("book", 4, 5, True) for v in book["views"].values())
+    assert panel(p, "posval")["follows"] == "positions" and panel(p, "posval")["title"] == "{key}"
 
 
 def test_value_weights_and_roi_reconcile(frozen, tmp_path):
@@ -149,7 +170,8 @@ def test_public_view_leaks_nothing_private(frozen, tmp_path):
     pub = public_view(p)
     s = json.dumps(pub)
     assert "4242.4242" not in s and "5237.07" not in s
-    assert [q["id"] for q in pub["panels"]] == ["summary", "risk", "positions", "roi", "allocation"]
+    assert [q["id"] for q in pub["panels"]] == ["summary", "risk", "positions", "book", "roi"]
+    assert list(next(q for q in pub["panels"] if q["id"] == "book")["views"]) == ["ALLOCATION"]   # the public view
     assert [c["k"] for c in panel(pub, "positions")["cols"]] == ["tkr", "name", "day", "w1", "m1", "ytd", "wt", "pnlp",
                                                                 "p1y"]
     assert [i["k"] for i in panel(pub, "summary")["items"]] == ["DAY %", "ROI", "XIRR /YR", "YTD", "YTD TWR"]
@@ -170,12 +192,12 @@ def test_public_view_leaks_nothing_private(frozen, tmp_path):
 
 
 def test_public_alt_keys_name_the_panel_they_mention(frozen, tmp_path):
-    """HELP and the ALLOCATION context say "Alt+7": the public view keeps panel numbers, so the key
-    still maximizes ALLOCATION there (private panels leave gaps, nothing is renumbered)."""
+    """HELP and the ALLOCATION context say "Alt+4": the public view keeps panel numbers, so the key still maximizes
+    the book — ALLOCATION its one public view — there (private panels leave gaps, nothing is renumbered)."""
     pub = public_view(build(tmp_path))
     numbers = {q["n"]: q["id"] for q in pub["panels"]}
     mentioned = {int(n) for n in re.findall(r"(?i)\balt\+(\d+)", json.dumps(pub))}
-    assert 7 in mentioned and numbers[7] == "allocation"
+    assert 4 in mentioned and numbers[4] == "book"
     assert mentioned <= set(numbers), f"ALT+n names a missing panel: {sorted(mentioned - set(numbers))}"
 
 
@@ -257,7 +279,7 @@ def test_allocation_detail_covers_every_sector_and_country(frozen, tmp_path):
     assert sum(r["v"] for r in p["sectors"]) == pytest.approx(100.0)
     assert sum(r["v"] for r in p["countries"]) == pytest.approx(100.0)
     assert sum(r["v"] for r in p["regions"]) == pytest.approx(100.0)
-    pub = next(q for q in public_view(build(tmp_path))["panels"] if q["id"] == "allocation")
+    pub = panel(public_view(build(tmp_path)), "allocation")
     assert {"sectors", "countries", "regions"} <= set(pub) and "€" not in json.dumps(pub)
 
 

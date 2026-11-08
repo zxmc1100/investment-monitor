@@ -55,13 +55,15 @@ def assemble(parts: dict, meta: dict) -> dict:
     return {"screen": "RISK", "title": "Risk & Correlation",
             "context": {"text": f"{len(m.universe)} ASSETS · 1Y DAILY", "vis": PUB},
             "meta": {**meta, "warn": parts["quote"].get("warn") or []}, "help": HELP,
-            "panels": [_summary(m, d["metrics"] or {}, value), _riskcap(m), _corr(m),
-                       _stress(d["stress"], value), _drawdown(d["roi"])]}
+            # compact: SUMMARY beside STRESS TESTS · RISK vs CAPITAL beside CORRELATION — pairs of one height — and
+            # DRAWDOWN, the one that grows, across the bottom
+            "panels": [_summary(m, d["metrics"] or {}, value), _stress(d["stress"], value), _riskcap(m), _corr(m),
+                       _drawdown(d["roi"])]}
 
 
 def _summary(m, metrics, value) -> dict:
     var, cvar = riskmodel.var_cvar(m)
-    return {"id": "summary", "n": 1, "title": "RISK SUMMARY", "type": "kpi", "span": 12, "vis": PUB,
+    return {"id": "summary", "n": 1, "title": "RISK SUMMARY", "type": "kpi", "span": 5, "vis": PUB,
             "context": {"text": "TODAY'S WEIGHTS · 1Y DAILY · DD = REALIZED PATH", "vis": PUB},
             "items": [kpi("VOL", m.cur.vol * 100, "pct", PUB), kpi("BETA SPX", m.beta_port, "num:2", PUB),
                       kpi("VaR95 1D", var, "pct+:2", PUB), kpi("CVaR95 1D", cvar, "pct+:2", PUB),
@@ -79,14 +81,14 @@ def _riskcap(m) -> dict:
             {"k": "cap", "label": "CAPITAL %", "fmt": "pct", "vis": PUB, "align": "r"},
             {"k": "risk", "label": "RISK %", "fmt": "pct", "vis": PUB, "align": "r"},
             {"k": "gap", "label": "GAP pp", "fmt": "pct+r", "vis": PUB, "align": "r"}]
-    return {"id": "riskcap", "n": 2, "title": "RISK vs CAPITAL", "type": "table", "span": 4, "vis": PUB,
+    return {"id": "riskcap", "n": 3, "title": "RISK vs CAPITAL", "type": "table", "span": 4, "vis": PUB,
             "key": "tkr", "sort": ["risk", "desc"], "cols": cols, "rows": rows}
 
 
 def _corr(m) -> dict:
     labels = list(m.universe)
     cells = [[num(round(float(m.corr.loc[a, b]), 2)) for b in labels] for a in labels]
-    return {"id": "corr", "n": 3, "title": "CORRELATION", "type": "heatmap", "span": 8, "vis": PUB,
+    return {"id": "corr", "n": 4, "title": "CORRELATION", "type": "heatmap", "span": 8, "vis": PUB,
             "labels": labels, "cells": cells, "fmt": "num:2",
             "context": {"text": "1Y DAILY RETURNS", "vis": PUB}}
 
@@ -103,13 +105,13 @@ def _stress(rows, value) -> dict:
             {"k": "est", "label": "ESTIMATED", "fmt": "text", "vis": PUB, "align": "r"}]
     # Keyed on the (unique, public) scenario label; the row's "key" field is not a column, so
     # the public build drops it.
-    return {"id": "stress", "n": 4, "title": "STRESS TESTS", "type": "table", "span": 7, "vis": PUB,
+    return {"id": "stress", "n": 2, "title": "STRESS TESTS", "type": "table", "span": 7, "vis": PUB,
             "key": "scn", "sort": ["port", "asc"], "cols": cols, "rows": out,
             "context": {"text": "TODAY'S WEIGHTS · β x SPX WHERE NO HISTORY", "vis": PUB}}
 
 
 def _drawdown(roi: pd.Series) -> dict:
-    base = {"id": "drawdown", "n": 5, "title": "DRAWDOWN", "type": "chart", "span": 5, "vis": PUB,
+    base = {"id": "drawdown", "n": 5, "title": "DRAWDOWN", "type": "chart", "span": 12, "vis": PUB,
             "yfmt": "pct+", "ranges": ["6M", "YTD", "1Y", "ALL"], "x": [], "series": []}
     if roi is None or roi.empty:
         return base

@@ -70,5 +70,5 @@ def test_port_builds_from_the_example_portfolio(tmp_path, monkeypatch):
     json.dumps(p, allow_nan=False)
     pos = next(q for q in p["panels"] if q["id"] == "positions")
     assert len([r for r in pos["rows"] if not r.get("_closed")]) == len(parse_portfolio(CSV)["holdings"])
-    acct = next(q for q in p["panels"] if q["id"] == "accounting")
+    acct = next(q for q in p["panels"] if q["id"] == "book")["views"]["ACCOUNTING"]   # a view of the book
     assert next(x for x in acct["lines"] if x.get("label", "").startswith("Interest"))["v"] > 0

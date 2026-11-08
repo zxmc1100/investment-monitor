@@ -55,7 +55,7 @@ from monitor.tui.trades import form_status, paste_summary
 
 COLS = 12
 NARROW = 100  # cells: below it every panel takes the whole width (terminal.css @media)
-GROWS = {"chart", "scatter", "heatmap"}
+GROWS = {"chart", "scatter"}  # app.js fitRows: a heatmap is fixed rows — grown, only blank lines
 LO_BELOW = 60  # a `lo` column gives way in a panel narrower than this (@container 420px)
 SPARK_W, MIN_TEXT = 8, 6
 CHART_MIN, SCATTER_MIN = 6, 8  # plot rows a chart keeps; terminal rows are dearer than 190px
@@ -278,6 +278,13 @@ def col_widths(cols: list, rows: list, w: int, sort_col: str, extra_first: int =
         for c in shown:
             widths[c["k"]] += spare
     return shown, widths, gap
+
+
+def view_of(p: dict, pick) -> dict:
+    """render/index.js viewOf: a panel with views (OPT's WHAT IF: AHEAD · FOLLOWED) is the one its chips chose."""
+    views = p.get("views") or {}
+    v = views.get(pick) or views.get(p.get("pick")) or next(iter(views.values()), None)
+    return {**v, "picks": p.get("picks"), "pick": p.get("pick"), "views": views} if v else p
 
 
 def pick_cols(cols: list, pick) -> list:
@@ -793,6 +800,8 @@ def _chart_model(p: dict, ui, key) -> dict | None:
         }
     dflt = default_range(p)
     saved = ui.ranges.get(pid, dflt)
+    if isinstance(saved, str) and saved != dflt and saved not in (p.get("ranges") or []):
+        saved = dflt  # a named range another view of the panel left (WHAT IF's FOLLOWED): not this chart's
     rng = (saved.get("prev") or dflt) if isinstance(saved, dict) and saved.get("key") != key else saved
     dragged = isinstance(rng, dict)
     modes = chart_modes(p, src["series"]) if src["x"] is p.get("x") else []
@@ -981,7 +990,7 @@ def row_heights(placed: list, needs: dict, room: int) -> list:
             h[r + i] += short // rows + (1 if i < short % rows else 0)
     grow = [False] * n
     for p, r, _, _, _ in placed:
-        grow[r] = grow[r] or p.get("type") in GROWS
+        grow[r] = grow[r] or (p.get("type") in GROWS and not p.get("fit"))
     if n and not any(grow):
         grow[-1] = True
     spare = room - sum(h)
@@ -1025,6 +1034,8 @@ def layout(panels: list, w: int, room: int, ui) -> tuple:
             needs[pid] = head + SCATTER_MIN + 1
         else:
             needs[pid] = head + CHART_MIN + 1 + (1 if p.get("ranges") or p.get("horizons") or p.get("inv") else 0)
+        if p.get("fit") and cols > 1:
+            needs[pid] = head + 1  # terminal.css .panel.fit: its neighbours set the row; it scrolls in it
     h = row_heights(placed, needs, room)
     top = [sum(h[:i]) for i in range(len(h) + 1)]
     out = [

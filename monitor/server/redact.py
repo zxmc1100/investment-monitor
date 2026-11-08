@@ -14,7 +14,7 @@ import copy
 PUBLIC = "public"
 _PANEL_KEYS = ("id", "n", "title", "type", "span", "rows_span", "key", "sort", "drives",
                "follows", "ranges", "range", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels",
-               "horizons", "horizon", "today_idx", "cursor", "picks", "pick", "xlabel", "ylabel")
+               "horizons", "horizon", "today_idx", "cursor", "picks", "pick", "xlabel", "ylabel", "fit")
 _NODE_KEYS = ("k", "label", "v", "v2", "fmt", "vis", "align", "op", "sep", "strong", "h", "body",
               "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide", "hi", "color", "dash", "nolegend", "at", "pick")
 _LISTS = {"kpi": "items", "ledger": "lines", "bars": "items", "scatter": "series"}
@@ -161,6 +161,15 @@ def _chart(p: dict, out: dict) -> dict | None:
 def _panel(p: dict) -> dict | None:
     if not _pub(p):
         return None
+    if isinstance(p.get("views"), dict):                  # views of one panel (OPT's WHAT IF): each redacted whole
+        views = {k: r for k, v in p["views"].items()
+                 if isinstance(k, str) and isinstance(v, dict) and "views" not in v and (r := _panel(v))}
+        picks = [k for k in p.get("picks") or [] if k in views]
+        if not picks:
+            return None
+        pick = p.get("pick") if p.get("pick") in picks else picks[0]
+        return {**{k: p[k] for k in ("id", "n", "span") if k in p}, "vis": PUBLIC, "picks": picks, "pick": pick,
+                "views": {k: views[k] for k in picks}}
     out = {}
     kind = p.get("type")
     for k in _PANEL_KEYS:
@@ -177,7 +186,7 @@ def _panel(p: dict) -> dict | None:
         elif k in ("ranges", "horizons", "picks"):
             if isinstance(val, list) and all(isinstance(v, str) for v in val):
                 out[k] = list(val)
-        elif k == "rebase":
+        elif k in ("rebase", "fit"):
             if isinstance(val, bool):
                 out[k] = val
         elif k in ("vlines", "vlabels"):                  # chart marks: epoch seconds / their labels

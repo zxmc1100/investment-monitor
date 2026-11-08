@@ -88,7 +88,8 @@ HELP = [
      "portfolio ROI series since the first trade; beta and alpha vs the cash-flow-matched S&P 500."},
     {"h": "ALLOCATION", "vis": PUB, "body": "Sector and country weights of the whole book. The MSCI "
      "World ETF is looked through with approximate index weights (marked *, rebalanced quarterly). "
-     "Alt+7 shows every sector and country with the positions behind each, and region totals."},
+     "Its view maximized (Alt+4) shows every sector and country with the positions behind each, and region "
+     "totals."},
     {"h": "STALE / NO PRICE", "vis": PUB, "body": "A failed quote keeps the last good price and "
      "marks the row red. A ticker never priced shows NO PRICE and is carried at cost until a "
      "quote arrives."},
@@ -329,8 +330,8 @@ def _positions(q: dict, d: dict) -> dict:
     for name, k, _ in PERIODS:                 # every line, closed ones too: the portfolio's window ROI
         gain, base = (sum(v) for v in zip((0.0, 0.0), *moves[name].values()))
         total[k], total[k + "e"] = (_num(gain / base * 100), _num(gain)) if base > 0 else (None, None)
-    return {"id": "positions", "n": 3, "title": "POSITIONS", "type": "table", "span": 7, "rows_span": 2,
-            "vis": PUB, "key": "tkr", "sort": ["wt", "desc"], "drives": "posval",
+    return {"id": "positions", "n": 3, "title": "POSITIONS", "type": "table", "span": 7,
+            "vis": PUB, "key": "tkr", "sort": ["wt", "desc"], "drives": "book",
             "picks": ["DAY", *(name for name, _, _ in PERIODS)], "pick": "DAY",   # chips: which period's % / € pair shows
             "context": {"text": f"{len(positions)} OPEN", "vis": PUB},
             "cols": _pos_cols(q), "rows": rows, "total": total}
@@ -379,7 +380,7 @@ def _live_points(q: dict, d: dict, today: date) -> dict[str, tuple[float, float 
 
 def _roi(q: dict, d: dict) -> dict:
     roi, bms = d["roi_series"], d["bm_series"]
-    out = {"id": "roi", "n": 4, "title": "ROI vs SAME CASH ELSEWHERE", "type": "chart", "span": 5,
+    out = {"id": "roi", "n": 5, "title": "ROI vs SAME CASH ELSEWHERE", "type": "chart", "span": 12,
            "vis": PUB, "context": {"text": "CASH-FLOW MATCHED", "vis": PUB}, "yfmt": "pct+",
            "legend": "rank", "ranges": ["1M", "6M", "YTD", "1Y", "ALL"], "range": "YTD", "x": [], "series": []}
     if roi.empty:
@@ -529,7 +530,7 @@ def _parts_text(parts) -> str:
 
 
 def _allocation(q: dict) -> dict:
-    """Compact view: top-6 sectors + Other. Maximized (Alt+7): every sector and country with the
+    """Compact view: top-6 sectors + Other. Maximized (Alt+4): every sector and country with the
     positions behind it, plus region totals — percentages of the book only (public)."""
     pos = q["positions"]
     total = sum(p["position_value"] for p in pos)
@@ -547,7 +548,7 @@ def _allocation(q: dict) -> dict:
                  "vis": PUB} for r in breakdown]
 
     return {"id": "allocation", "n": 7, "title": "ALLOCATION", "type": "bars", "span": 3, "vis": PUB,
-            "context": {"text": "SECTOR · ETF LOOK-THROUGH · ALT+7 DETAIL", "vis": PUB}, "items": items,
+            "context": {"text": "SECTOR · ETF LOOK-THROUGH · ALT+4 DETAIL", "vis": PUB}, "items": items,
             "sectors": rows(sectors), "countries": rows(countries),
             "regions": [{"label": r["label"], "v": _num(r["w"] * 100), "fmt": "pct", "vis": PUB}
                         for r in region_totals(countries)]}
@@ -578,8 +579,21 @@ def assemble(parts: dict, meta: dict) -> dict:
             "context": {"text": f"{len(q['positions'])} POS · EUR · SINCE {since}", "vis": PUB},
             "meta": {**meta, "as_of": q["as_of"], "stale": stale, "warn": q.get("warn") or []},
             "help": help_entries(),
-            "panels": [_summary(q, d), _risk(d), _positions(q, d), _roi(q, d), _posval(q, d),
-                       _accounting(q["acct"]), _allocation(q), _activity(q), _dividends(q)]}
+            # compact: SUMMARY | RISK · POSITIONS | the book's detail (one panel, chips) · the ROI chart across
+            # the bottom, all the height left
+            "panels": [_summary(q, d), _risk(d), _positions(q, d), _book(q, d), _roi(q, d)]}
+
+
+def _book(q: dict, d: dict) -> dict:
+    """4) Beside POSITIONS, one panel for the book's detail — VALUE (the cursor row's position value), ACCOUNTING,
+    ALLOCATION, ACTIVITY, DIVIDENDS — chosen by its title's chips: four panels side by side pushed the ROI chart off
+    the window. Each view a whole panel under this id and number. `fit`: POSITIONS sets the row's height and a long
+    view scrolls in it (terminal.css .panel.fit), so the ROI chart below keeps all the height left."""
+    views = {"VALUE": _posval(q, d), "ACCOUNTING": _accounting(q["acct"]), "ALLOCATION": _allocation(q),
+             "ACTIVITY": _activity(q), "DIVIDENDS": _dividends(q)}
+    views = {k: {**v, "id": "book", "n": 4, "span": 5, "fit": True, "title": "{key}" if k == "VALUE" else ""}
+             for k, v in views.items()}
+    return {"id": "book", "n": 4, "span": 5, "vis": PUB, "picks": list(views), "pick": "VALUE", "views": views}
 
 
 SCREEN = Screen(id="PORT", title="Portfolio Monitor", fkey=1, status="live", public=True,

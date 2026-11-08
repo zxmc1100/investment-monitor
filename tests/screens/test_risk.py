@@ -27,7 +27,8 @@ def panel(p, pid):
 
 
 def test_panels_and_strict_json(payload):
-    assert [q["id"] for q in payload["panels"]] == ["summary", "riskcap", "corr", "stress", "drawdown"]
+    assert [q["id"] for q in payload["panels"]] == ["summary", "stress", "riskcap", "corr", "drawdown"]
+    assert [q["n"] for q in payload["panels"]] == [1, 2, 3, 4, 5]                       # reading order
     json.dumps(payload, allow_nan=False)
 
 
@@ -60,7 +61,7 @@ def test_drawdown_never_positive(payload):
 def test_public_view_drops_euro_figures(payload):
     pub = json.dumps(public_view(payload))
     assert "VaR95 1D €" not in pub and '"loss"' not in pub
-    assert [q["id"] for q in public_view(payload)["panels"]] == ["summary", "riskcap", "corr", "stress", "drawdown"]
+    assert [q["id"] for q in public_view(payload)["panels"]] == ["summary", "stress", "riskcap", "corr", "drawdown"]
 
 
 def test_summary_context_and_help_explain_the_two_measurement_bases(payload):
@@ -84,3 +85,11 @@ def test_stress_table_keys_on_the_scenario_without_a_key_column(payload):
     pub = next(q for q in public_view(payload)["panels"] if q["id"] == "stress")
     assert [c["k"] for c in pub["cols"]] == ["scn", "port", "worst", "est"]
     assert len(pub["rows"]) == 8 and all(set(r) == {"scn", "port", "worst", "est"} for r in pub["rows"])
+
+
+def test_compact_pairs_of_one_height_and_the_drawdown_across_the_bottom(payload):
+    """SUMMARY beside STRESS TESTS, RISK vs CAPITAL beside CORRELATION, DRAWDOWN alone in the last row — the only one
+    that grows, so no table row is stretched into empty stripes."""
+    from monitor.tui.panels import place
+    at = {q["id"]: (r, c) for q, r, c, _, _ in place(payload["panels"])}
+    assert at == {"summary": (0, 0), "stress": (0, 5), "riskcap": (1, 0), "corr": (1, 4), "drawdown": (2, 0)}

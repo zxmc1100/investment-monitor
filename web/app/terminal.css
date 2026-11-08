@@ -67,6 +67,9 @@ body {
 .panel > .h .picks span { padding: 0 4px; cursor: pointer; } .panel > .h .picks span.on { background: #000; color: var(--amber); }
 .panel.focus > .h { background: var(--cmd); }
 .panel > .body { flex: 1; min-height: 0; overflow: auto; }
+/* a panel that takes its row's height and never sets it (PORT's book beside POSITIONS): a long view scrolls inside
+   it instead of pushing the chart below off the window. One column (narrow) has no neighbour to set it. */
+.panel.fit { contain: size; }
 .panel.max { position: fixed; top: calc(env(safe-area-inset-top) + var(--max-top, 23px));
   bottom: calc(env(safe-area-inset-bottom) + var(--max-bot, 21px)); left: env(safe-area-inset-left); right: env(safe-area-inset-right); z-index: 30; }
 .cold { grid-column: span 12; padding: 24px 12px; color: var(--dim); background: var(--bg); }
@@ -190,6 +193,7 @@ tr.tot td { box-shadow: inset 0 1px var(--line); color: var(--amber); }
 .ov-body tr.dim td { color: var(--dim); }
 
 @media (max-width: 900px) {
+  .panel.fit { contain: none; }
   .panel { grid-column: span 12; }
   #strip .hint, #fkeys .hint, #title { display: none; }
   #cmd { width: 150px; } #ac { min-width: 90vw; }

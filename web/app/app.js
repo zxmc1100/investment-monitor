@@ -11,7 +11,7 @@ import { ASK_MS, bindKeys } from "./keys.js";
 import { askFull, framed, listen, switchTo } from "./peer.js";
 import { chartModes } from "./ranges.js";
 import { followsLater, pickCols, pickSort } from "./render/table.js";
-import { renderPanel } from "./render/index.js";
+import { renderPanel, viewOf } from "./render/index.js";
 import { changesHash, hashOf, keyOf, popBack, pushBack, routeOf } from "./route.js";
 import { fitHidden, metaBadges } from "./status.js";
 import { nextSortCol } from "./tablesort.js";
@@ -166,6 +166,8 @@ async function poke() {
 
 function show(payload) {
   const prev = S.payload?.screen === payload.screen ? S.payload : null;
+  // a panel with views (render/index.js viewOf) becomes the view its chips chose: every path below sees a plain panel
+  payload.panels = (payload.panels ?? []).map((p) => (p.views ? viewOf(p, ui(p.id).pickOf(p)) : p));
   S.payload = payload;
   for (const p of payload.panels ?? []) {            // a preview checked against the old trades: check it again
     const st = S.forms[formKey(p.id)];
@@ -233,8 +235,9 @@ function ui(pid) {
     pickOf: (p) => S.tables[p.id]?.pick ?? p.pick,
     setPick(id, k) {
       const p = S.payload?.panels.find((q) => q.id === id), t = ui(id).tableState(p);
-      t.sort = [pickSort(p.cols, t.sort[0], t.pick ?? p.pick, k), t.sort[1]];
+      if (p.cols) t.sort = [pickSort(p.cols, t.sort[0], t.pick ?? p.pick, k), t.sort[1]];   // a table's columns
       t.pick = k;
+      if (p.views) S.payload.panels[S.payload.panels.indexOf(p)] = viewOf(p, k);    // another view: a plain panel again
       rerender(id);
     },
     chartRange: (id) => S.ranges[id],
@@ -449,16 +452,17 @@ function keepFocus() {
   };
 }
 
-// Spare height goes to rows holding a chart/frontier/heatmap; KPI and table rows keep their
-// content height (no grey band below the last row, no stretched number strips). A screen with
-// no chart row gives the spare height to its last row.
-const GROWS = new Set(["chart", "scatter", "heatmap"]);
+// Spare height goes to rows holding a chart or a frontier; KPI, table and heatmap rows keep their
+// content height (no grey band below the last row, no stretched number strips — a heatmap's cells are
+// fixed rows: grown, it only showed empty stripes, its row's tables too). A screen with no chart row
+// gives the spare height to its last row.
+const GROWS = new Set(["chart", "scatter"]);
 function fitRows(grid) {
   grid.style.gridTemplateRows = "";
   const rows = new Map();
   for (const el of grid.querySelectorAll(":scope > .panel")) {
     const t = el.offsetTop;
-    rows.set(t, (rows.get(t) ?? false) || GROWS.has(el.dataset.type));
+    rows.set(t, (rows.get(t) ?? false) || (GROWS.has(el.dataset.type) && !el.classList.contains("fit")));
   }
   const grow = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, g]) => g);
   if (!grow.length) return;
@@ -758,8 +762,8 @@ const keyHandlers = {
     u.setPick(p.id, p.picks[(p.picks.indexOf(u.pickOf(p)) + 1) % p.picks.length]);
   },
   mode(m) {                                // every chart on the screen that offers the view
-    const ids = (S.payload?.panels ?? []).filter((p) => p.type === "chart" && chartModes(p, p.series).includes(m))
-      .map((p) => p.id);
+    const shown = (S.payload?.panels ?? []).map((p) => viewOf(p, ui(p.id).pickOf(p)));   // a panel's chosen view
+    const ids = shown.filter((p) => p.type === "chart" && chartModes(p, p.series).includes(m)).map((p) => p.id);
     if (!ids.length) { notice(`NO CHART WITH ${m} HERE`); return; }
     for (const id of ids) { S.mode[id] = m; rerender(id); }
   },

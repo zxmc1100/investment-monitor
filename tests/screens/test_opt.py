@@ -35,8 +35,8 @@ def kv(p, pid):
 
 def test_panels_and_default_target(parts):
     p = opt.assemble(parts, dict(META))
-    assert [q["id"] for q in p["panels"]] == ["target", "weights", "portfolios", "frontier", "ahead", "followed",
-                                              "verdict", "ticket"]
+    assert [q["id"] for q in p["panels"]] == ["target", "weights", "portfolios", "frontier", "whatif", "verdict",
+                                              "ticket"]
     assert kv(p, "target")["TARGET"] == "HRP"
     hl = [c["k"] for c in panel(p, "weights")["cols"] if c.get("hl")]
     assert hl == ["hrp"]
@@ -81,8 +81,7 @@ def test_infeasible_target_shows_dash_and_empty_ticket(parts):
 def test_public_view_has_no_ticket_or_euros(parts):
     p = opt.assemble(parts, dict(META))
     pub = public_view(p)
-    assert [q["id"] for q in pub["panels"]] == ["target", "weights", "portfolios", "frontier", "ahead", "followed",
-                                                "verdict"]
+    assert [q["id"] for q in pub["panels"]] == ["target", "weights", "portfolios", "frontier", "whatif", "verdict"]
     s = json.dumps(pub)
     for r in panel(p, "ticket")["rows"]:
         assert str(r["now_eur"]) not in s
@@ -146,27 +145,40 @@ def test_help_fee_follows_settings(parts, monkeypatch):
 def test_panels_number_top_to_bottom_with_the_what_if(parts):
     p = opt.assemble(parts, dict(META))
     assert [(q["id"], q["n"]) for q in p["panels"]] == [("target", 1), ("weights", 2), ("portfolios", 3),
-        ("frontier", 4), ("ahead", 5), ("followed", 6), ("verdict", 7), ("ticket", 8)]
+        ("frontier", 4), ("whatif", 5), ("verdict", 6), ("ticket", 7)]
     json.dumps(p, allow_nan=False)
     assert len(json.dumps(p)) < 300_000
 
 
 def test_the_screen_fits_four_rows_in_reading_order(parts):
-    """One window: TARGET over PORTFOLIOS beside WEIGHTS · the FRONTIER (half the width) beside AHEAD and FOLLOWED ·
-    REBALANCE? beside TICKET — placed as the browser's grid (and the terminal client's) auto-places them, numbered in
-    that order."""
+    """One window: TARGET over PORTFOLIOS beside WEIGHTS · the FRONTIER beside WHAT IF (AHEAD · FOLLOWED, one at a
+    time) · REBALANCE? beside TICKET — placed as the browser's grid (and the terminal client's) auto-places them,
+    numbered in that order."""
     from monitor.tui.panels import place
     p = opt.assemble(parts, dict(META))
     at = {q["id"]: (r, c) for q, r, c, _, _ in place(p["panels"])}
-    assert at == {"target": (0, 0), "weights": (0, 5), "portfolios": (1, 0), "frontier": (2, 0), "ahead": (2, 6),
-                  "followed": (2, 9), "verdict": (3, 0), "ticket": (3, 5)}
+    assert at == {"target": (0, 0), "weights": (0, 5), "portfolios": (1, 0), "frontier": (2, 0), "whatif": (2, 7),
+                  "verdict": (3, 0), "ticket": (3, 5)}
+
+
+def test_what_if_is_one_panel_with_two_views_chosen_by_its_chips(parts):
+    """AHEAD and FOLLOWED side by side crowded the frontier: one panel, its title's chips choosing the view — each a
+    whole chart under the panel's id and number, AHEAD first (the panel itself), in the public view too."""
+    p = opt.assemble(parts, dict(META))
+    wi = panel(p, "whatif")
+    assert wi["picks"] == ["AHEAD", "FOLLOWED"] and wi["pick"] == "AHEAD"
+    assert {v["title"] for v in wi["views"].values()} == {"WHAT IF → {key}"}
+    assert all((v["id"], v["n"], v["span"], v["follows"]) == ("whatif", 5, 5, "portfolios") for v in wi["views"].values())
+    assert set(wi) == {"id", "n", "span", "vis", "picks", "pick", "views"}          # who it is; the views hold the data
+    pub = panel(public_view(p), "whatif")
+    assert pub["picks"] == ["AHEAD", "FOLLOWED"] and set(pub["views"]) == {"AHEAD", "FOLLOWED"}
 
 
 def test_followed_draws_you_equal_and_the_cursor_row_measured_like_port(parts):
     """FOLLOWED: YOUR line and EQUAL always, the cursor portfolio on top; `inv` and each line's `cash` let the chart
     measure a window by the ROI formula — private, as on PORT. PORTFOLIOS' FOLLOWED column is each line's last point."""
     p = opt.assemble(parts, dict(META))
-    f = panel(p, "followed")
+    f = panel(p, "whatif")["views"]["FOLLOWED"]
     assert f["follows"] == "portfolios" and f["range"] == "ALL" and "1M" in f["ranges"]
     assert [s["name"] for s in f["series"]] == ["YOU", "EQUAL"] and f["series"][0]["role"] == "primary"
     assert [s["name"] for s in f["series_by_key"]["HRP"]["series"]] == ["HRP"]
@@ -180,7 +192,7 @@ def test_followed_draws_you_equal_and_the_cursor_row_measured_like_port(parts):
     for k in config.PORTFOLIOS:
         assert rows[k]["past"] == pytest.approx(last(lines[k]), abs=0.01), k
     assert lines["YOU"]["cash"][-1] > 0                     # the fixture sells: its money out is in YOUR line
-    pub = panel(public_view(p), "followed")
+    pub = panel(public_view(p), "whatif")["views"]["FOLLOWED"]
     assert "inv" not in pub and not any("cash" in s for s in pub["series"])
     assert [s["name"] for s in pub["series_by_key"]["HRP"]["series"]] == ["HRP"]
 
@@ -190,7 +202,7 @@ def test_ahead_draws_keeping_and_switching_as_their_own_fans(parts):
     today on the same paths — keeping starts at 0, a switch below it by its costs; a portfolio with less volatility
     than yours has the narrower band (the frontier's trade-off over time)."""
     p = opt.assemble(parts, dict(META))
-    a, w, m = panel(p, "ahead"), parts["daily"]["whatif"], parts["daily"]["model"]
+    a, w, m = panel(p, "whatif")["views"]["AHEAD"], parts["daily"]["whatif"], parts["daily"]["model"]
     assert a["follows"] == "portfolios" and a["horizons"] == ["6M", "1Y", "3Y"] and a["horizon"] == "1Y"
     assert a["today_idx"] == 0 and len(a["x"]) == 37
     total = sum(parts["quote"]["values"].values())
@@ -210,7 +222,7 @@ def test_ahead_draws_keeping_and_switching_as_their_own_fans(parts):
             assert (wide(band) - wide(blk["series"][0])) * dvol > 0, k
     now = a["series_by_key"]["NOW"]["series"]
     assert [s["name"] for s in now] == ["NOW 90%", "NOW"] and a["series_by_key"]["NOW"]["note"] == "KEEP YOUR MIX"
-    pub = panel(public_view(p), "ahead")
+    pub = panel(public_view(p), "whatif")["views"]["AHEAD"]
     assert "lo" in pub["series_by_key"]["HRP"]["series"][0] and pub["today_idx"] == 0
 
 
@@ -255,8 +267,8 @@ def test_an_infeasible_portfolio_has_no_fan_and_says_so(parts, monkeypatch):
     monkeypatch.setitem(m.portfolios, "BLSAME", None)
     p = opt.assemble(parts, dict(META))
     assert panel(p, "verdict")["rows_by_key"]["BLSAME"]["context"].startswith("BLSAME INFEASIBLE")   # a string, as TICKET
-    assert panel(p, "ahead")["series_by_key"]["BLSAME"]["series"] == []
-    assert panel(p, "ahead")["series_by_key"]["BLSAME"]["note"] == "BLSAME INFEASIBLE"
+    ahead = panel(p, "whatif")["views"]["AHEAD"]
+    assert ahead["series_by_key"]["BLSAME"]["series"] == [] and ahead["series_by_key"]["BLSAME"]["note"] == "BLSAME INFEASIBLE"
     assert panel(p, "frontier")["series_by_key"]["BLSAME"] == {"series": [], "note": "BLSAME INFEASIBLE", "vis": "public"}
 
 
@@ -267,10 +279,10 @@ def test_a_what_if_failure_leaves_the_rest_of_opt(tmp_path, monkeypatch):
         ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=FIX, equity_log=None)
         parts = {t: opt.compute(t, ctx) for t in opt.SCREEN.tiers}
     p = opt.assemble(parts, dict(META))
-    assert panel(p, "followed")["context"]["text"] == "WHAT-IF UNAVAILABLE — ValueError"
-    assert panel(p, "ahead")["context"]["text"] == "WHAT-IF UNAVAILABLE — ValueError"
+    views = panel(p, "whatif")["views"]
+    assert {v["context"]["text"] for v in views.values()} == {"WHAT-IF UNAVAILABLE — ValueError"}
     assert "no history" not in json.dumps(p)                       # the message (a path, maybe) is logged, never shown
-    assert panel(p, "verdict")["rows"] == [] and panel(p, "ticket")["n"] == 8 and panel(p, "weights")["rows"]
+    assert panel(p, "verdict")["rows"] == [] and panel(p, "ticket")["n"] == 7 and panel(p, "weights")["rows"]
 
 
 def test_a_failed_what_if_keeps_the_last_good_one_marked_stale(tmp_path, monkeypatch):
@@ -285,8 +297,9 @@ def test_a_failed_what_if_keeps_the_last_good_one_marked_stale(tmp_path, monkeyp
     w = parts["daily"]["whatif"]
     assert w["stale"] == "ConnectionError" and set(w["ahead"]) == set(good["ahead"])
     p = opt.assemble(parts, dict(META))
-    assert panel(p, "followed")["context"]["text"].startswith("STALE — LAST GOOD")
-    assert panel(p, "ahead")["context"]["text"].startswith("STALE")
+    views = panel(p, "whatif")["views"]
+    assert views["FOLLOWED"]["context"]["text"].startswith("STALE — LAST GOOD")
+    assert views["AHEAD"]["context"]["text"].startswith("STALE")
     assert panel(p, "verdict")["rows_by_key"]["HRP"]["rows"]
 
 
@@ -318,7 +331,7 @@ def test_rebalance_and_ticket_share_a_row(parts):
 def test_the_what_if_charts_send_hundredths_of_a_percent(parts):
     """2 decimals of a % are more than the chart can show, and keep the payload far under its cap as history grows."""
     p = opt.assemble(parts, dict(META))
-    f, a = panel(p, "followed"), panel(p, "ahead")
+    f, a = panel(p, "whatif")["views"]["FOLLOWED"], panel(p, "whatif")["views"]["AHEAD"]
     blocks = [s for c in (f, a) for b in c["series_by_key"].values() for s in b["series"]] + f["series"]
     nums = [v for s in blocks for k in ("y", "lo", "hi", "cash") for v in s.get(k) or [] if v is not None] + f["inv"]
     assert nums and all(round(v, 2) == v for v in nums if v is not None)
@@ -330,5 +343,6 @@ def test_an_older_what_if_without_the_followed_cash_says_so(parts):
     for k in ("past_cash", "inv", "you_cash", "ahead"):
         w.pop(k)
     p = opt.assemble(parts, dict(META))
-    assert panel(p, "followed")["context"]["text"] == "WHAT-IF UNAVAILABLE — RECOMPUTING"
-    assert panel(p, "ahead")["series_by_key"] == {} and panel(p, "verdict")["rows_by_key"]["HRP"]["rows"]
+    views = panel(p, "whatif")["views"]
+    assert views["FOLLOWED"]["context"]["text"] == "WHAT-IF UNAVAILABLE — RECOMPUTING"
+    assert views["AHEAD"]["series_by_key"] == {} and panel(p, "verdict")["rows_by_key"]["HRP"]["rows"]

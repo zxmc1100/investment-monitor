@@ -140,10 +140,10 @@ def assemble(parts: dict, meta: dict) -> dict:
             "context": {"text": f"{len(uni)} ASSETS · TARGET {target} · COV {config.LOOKBACK_DAYS}D", "vis": PUB},
             "meta": {**meta, "warn": q.get("warn") or []},
             "help": [{**h, "body": h["body"].replace("{fee}", f"{config.ORDER_FEE_EUR:g}")} for h in HELP],
-            # one window: TARGET over PORTFOLIOS beside WEIGHTS · the FRONTIER (half the width, the row's height)
-            # beside AHEAD and FOLLOWED · REBALANCE? beside TICKET
+            # one window: TARGET over PORTFOLIOS beside WEIGHTS · the FRONTIER beside WHAT IF (AHEAD · FOLLOWED) ·
+            # REBALANCE? beside TICKET
             "panels": [_target(target, now, tgt, drift), _weights(m, now_w, target, q.get("names") or {}),
-                       _portfolios(m, now, now_w, target, w), _frontier(m, now, target), _ahead(w), _followed(w),
+                       _portfolios(m, now, now_w, target, w), _frontier(m, now, target), _whatif_panel(w),
                        _verdict(w, target), _ticket(m, q, values, total, tgt, target)]}
 
 
@@ -209,7 +209,7 @@ def _frontier(m, now, target) -> dict:
                                  "x": [_r4(now.vol), _r4(p.vol)], "y": [_r4(now.exp_ret), _r4(p.exp_ret)]}],
                      "note": f"NOW → {k}: VOL {(p.vol - now.vol) * 100:+.1f} · EXP RET* {(p.exp_ret - now.exp_ret) * 100:+.1f} PP",
                      "vis": PUB}
-    return {"id": "frontier", "n": 4, "title": "EFFICIENT FRONTIER", "type": "scatter", "span": 6, "vis": PUB,
+    return {"id": "frontier", "n": 4, "title": "EFFICIENT FRONTIER", "type": "scatter", "span": 7, "vis": PUB,
             "xfmt": "pct", "yfmt": "pct", "xlabel": "VOLATILITY (1Y, ANNUAL)", "ylabel": "EXPECTED RETURN* (BL, ANNUAL)",
             "context": {"text": "BL · 1Y COV", "vis": PUB},
             "series": series, "follows": "portfolios", "series_by_key": by_key}
@@ -257,10 +257,10 @@ def _r2(v):                         # hundredths: more than a chart shows, a thi
 def _followed(w: dict) -> dict:
     """FOLLOWED → {key}: your ROI line, the cursor portfolio's and EQUAL's had your money followed them — one
     question at a time, measured like PORT's ROI chart: any window by the ROI formula (`inv`, each line's `cash`)."""
-    base = {"id": "followed", "n": 6, "title": "FOLLOWED → {key}", "type": "chart", "span": 3, "vis": PUB,
+    base = {"id": "whatif", "n": 5, "title": "WHAT IF → {key}", "type": "chart", "span": 5, "vis": PUB,
             "yfmt": "pct+", "legend": "rank", "follows": "portfolios", "x": [], "series": [], "series_by_key": {},
             "ranges": ["1M", "6M", "YTD", "1Y", "ALL"], "range": "ALL"}
-    if "error" in w or "past_cash" not in w:          # a what-if kept from before this panel: nothing to draw yet
+    if "error" in w or "past_cash" not in w:          # a what-if kept from before this view: nothing to draw yet
         return {**base, "context": {"text": f"WHAT-IF UNAVAILABLE — {w.get('error', 'RECOMPUTING')}", "vis": PUB}}
     idx = thin_index(w["you"].index)
 
@@ -281,11 +281,20 @@ def _followed(w: dict) -> dict:
             "context": {"text": stale + "NO HINDSIGHT · JUDGE BY EQUAL", "vis": PUB}}
 
 
+def _whatif_panel(w: dict) -> dict:
+    """WHAT IF → {key}: AHEAD (the cursor portfolio from today on) and FOLLOWED (it had your money followed it) as
+    two views of one panel, chosen by its title's chips — side by side they crowded the frontier. Each view is a
+    whole chart; the panel carries only who it is and its views (clients draw the chosen one: render/index.js
+    viewOf, tui panels.view_of) — repeating the first view's data doubled the payload."""
+    views = {"AHEAD": _ahead(w), "FOLLOWED": _followed(w)}
+    return {"id": "whatif", "n": 5, "span": 5, "vis": PUB, "picks": list(views), "pick": "AHEAD", "views": views}
+
+
 def _ahead(w: dict) -> dict:
     """AHEAD → {key}: the frontier played out — your mix kept (grey) and the cursor portfolio switched to (its
     colour), each its median and 90 % band of % change from today on the same simulated paths (a switch starts below
     0 by its costs). A lower, narrower fan: less risk, less return. Path by path: REBALANCE?."""
-    base = {"id": "ahead", "n": 5, "title": "AHEAD → {key}", "type": "chart", "span": 3, "vis": PUB,
+    base = {"id": "whatif", "n": 5, "title": "WHAT IF → {key}", "type": "chart", "span": 5, "vis": PUB,
             "yfmt": "pct+", "legend": "rank", "follows": "portfolios", "x": [], "series": [], "series_by_key": {}}
     if "error" in w or not w.get("ahead"):
         return {**base, "context": {"text": f"WHAT-IF UNAVAILABLE — {w.get('error', 'RECOMPUTING')}", "vis": PUB}}
@@ -321,7 +330,7 @@ def _verdict(w: dict, target: str) -> dict:
             {"k": "risk", "label": "RISK", "fmt": "text", "vis": PUB}]
     # rows in horizon order (`_i`), not the key's alphabet (1Y < 3Y < 6M); a following block's context is a plain
     # string, as TICKET's (rows_by_key never reaches the public view, so its euros stay private)
-    base = {"id": "verdict", "n": 7, "title": "REBALANCE? → {key}", "type": "table", "span": 5, "vis": PUB,
+    base = {"id": "verdict", "n": 6, "title": "REBALANCE? → {key}", "type": "table", "span": 5, "vis": PUB,
             "key": "h", "sort": ["_i", "asc"], "cols": cols, "rows": [], "follows": "portfolios"}
     if "error" in w:
         return {**base, "rows_by_key": {}, "context": {"text": f"WHAT-IF UNAVAILABLE — {w['error']}", "vis": PUB}}
@@ -374,7 +383,7 @@ def _ticket(m, q, values, total, tgt, target) -> dict:
         else:
             rows, ctx = _trades(m, q, values, total, p)
             by_key[k] = {"rows": rows, "context": ctx}
-    base = {"id": "ticket", "n": 8, "title": "TICKET → {key}", "type": "table", "span": 7, "vis": PRIV,
+    base = {"id": "ticket", "n": 7, "title": "TICKET → {key}", "type": "table", "span": 7, "vis": PRIV,
             "key": "tkr", "sort": ["d_eur", "desc"], "cols": cols, "rows": [],
             "follows": "portfolios", "rows_by_key": by_key}
     if tgt is None:
