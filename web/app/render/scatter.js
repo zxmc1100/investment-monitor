@@ -3,8 +3,9 @@ import { esc } from "../dom.js";
 import { fmt } from "../fmt.js";
 import { extent, lin, niceTicks } from "../scale.js";
 
-const ROLE = { cloud: "#5a3a10", frontier: "#ffa028", now: "#ffffff", target: "#00e676", port: "#4fc3f7" };
-const W = 640, H = 230, L = 46, R = 70, T = 8, B = 22;
+const ROLE = { cloud: "#5a3a10", frontier: "#ffa028", now: "#ffffff", target: "#00e676", port: "#4fc3f7",
+  asset: "#8a8a8a", move: "#ffbf00" };
+const L = 46, R = 70, T = 8, B = 22;          // margins; R leaves a label room right of the last dot
 
 // Marker labels: each tries spots around its own dot (right, left, above, below, then one line
 // further out) and takes the first that overlaps no placed label or marker and sits closer to its own
@@ -55,24 +56,49 @@ export function tickDecimals(ticks) {
   return d;
 }
 
-export function scatter(body, p) {
-  const all = p.series ?? [];
+// Drawn at the panel's own size (measured, again on every resize) — a fixed viewBox scaled to fit left the plot
+// letterboxed in a big panel, its labels tiny. A scatter following a table (OPT's frontier → PORTFOLIOS) adds the
+// cursor row's series (the move from NOW to it).
+export function scatter(body, p, ui) {
+  const extra = p.follows ? p.series_by_key?.[ui?.followKey?.(p)]?.series ?? [] : [];
+  const all = [...(p.series ?? []), ...extra];
   const xs = extent(all.flatMap((s) => s.x ?? [])), ys = extent(all.flatMap((s) => s.y ?? []));
   if (!xs || !ys) { body.innerHTML = `<div class="empty">NO DATA</div>`; return; }
+  let drawn = "";
+  const draw = () => {
+    const W = Math.max(320, Math.round(body.clientWidth || 640)), H = Math.max(160, Math.round(body.clientHeight || 230));
+    if (drawn === `${W}x${H}`) return;
+    drawn = `${W}x${H}`;
+    body.innerHTML = svg(all, xs, ys, p, W, H);
+  };
+  draw();
+  if (ui?.onDispose && typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(draw);
+    ro.observe(body);
+    ui.onDispose(() => ro.disconnect());
+  }
+}
+
+function svg(all, xs, ys, p, W, H) {
   const pad = ([lo, hi], f) => [lo - (hi - lo) * f, hi + (hi - lo) * f];   // no dot on the frame
   const [xd, yd] = [pad(xs, 0.04), pad(ys, 0.08)];
-  const sx = lin(xd, [L, W - R]), sy = lin(yd, [H - B, T]);
-  const xt = niceTicks(...xd, 6), yt = niceTicks(...yd, 5);
+  const bot = H - B - (p.xlabel ? 13 : 0);                                  // the plot's bottom: an x title below its ticks
+  const sx = lin(xd, [L, W - R]), sy = lin(yd, [bot, T]);
+  const xt = niceTicks(...xd, Math.max(4, Math.round(W / 110))), yt = niceTicks(...yd, Math.max(3, Math.round(H / 55)));
   const xf = (v) => esc(fmt(v, `${(p.xfmt ?? "num").split(":")[0]}:${tickDecimals(xt)}`).text);
   const yf = (v) => esc(fmt(v, `${(p.yfmt ?? "num").split(":")[0]}:${tickDecimals(yt)}`).text);
-  const grid = xt.map((t) => `<line class="g" x1="${sx(t)}" x2="${sx(t)}" y1="${T}" y2="${H - B}"/><text class="tx" x="${sx(t)}" y="${H - 6}">${xf(t)}</text>`).join("")
+  const grid = xt.map((t) => `<line class="g" x1="${sx(t)}" x2="${sx(t)}" y1="${T}" y2="${bot}"/><text class="tx" x="${sx(t)}" y="${bot + 16}">${xf(t)}</text>`).join("")
     + yt.map((t) => `<line class="g" x1="${L}" x2="${W - R}" y1="${sy(t)}" y2="${sy(t)}"/><text class="ty" x="${L - 4}" y="${sy(t) + 3}">${yf(t)}</text>`).join("");
   const pts = (s) => (s.x ?? []).map((x, i) => [x, s.y?.[i]]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
   const color = (s) => ROLE[s.role] ?? "#bdbdbd";
-  const marks = all.map((s) => {
+  const ordered = [...all.filter((s) => s.kind !== "marker"), ...all.filter((s) => s.kind === "marker")];   // dots on top
+  const marks = ordered.map((s) => {
     const c = color(s), ps = pts(s);
-    if (s.kind === "line") return `<polyline fill="none" stroke="${c}" stroke-width="1.5" points="${ps.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(" ")}"/>`;
-    const r = s.kind === "marker" ? 4 : 1.4;
+    if (s.kind === "line") {
+      const dash = s.role === "move" ? ' stroke-dasharray="5 3"' : "";
+      return `<polyline fill="none" stroke="${c}" stroke-width="1.5"${dash} points="${ps.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(" ")}"/>`;
+    }
+    const r = s.kind !== "marker" ? 1.4 : s.role === "asset" ? 3 : 4;
     return ps.map(([x, y]) => `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="${r}" fill="${c}"/>`).join("");
   }).join("");
   const marks2 = all.filter((s) => s.kind === "marker").flatMap((s) =>
@@ -81,5 +107,9 @@ export function scatter(body, p) {
     text: g.members.map((m) => m.name).join(" · "), members: g.members })))
     .map((l) => `<text class="lb" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}">${l.members.map((m, i) =>
       `${i ? '<tspan fill="#9e9e9e"> · </tspan>' : ""}<tspan fill="${m.c}">${esc(m.name)}</tspan>`).join("")}</text>`).join("");
-  body.innerHTML = `<svg class="scatter" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${grid}${marks}${labels}</svg>`;
+  // axis names: x centred under its ticks; y in the plot's top-left corner (on a frontier always empty: no mix earns
+  // that much for that little risk)
+  const axes = (p.xlabel ? `<text class="ax" x="${((L + W - R) / 2).toFixed(1)}" y="${H - 3}" text-anchor="middle">${esc(p.xlabel)}</text>` : "")
+    + (p.ylabel ? `<text class="ax" x="${L + 6}" y="${T + 11}">${esc(p.ylabel)}</text>` : "");
+  return `<svg class="scatter" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${grid}${marks}${labels}${axes}</svg>`;
 }

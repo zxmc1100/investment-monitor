@@ -9,11 +9,12 @@ from datetime import datetime
 
 from monitor.tui.fmt import fmt, time_ticks
 from monitor.tui.ranges import extent, nice_ticks, tick_decimals
-from monitor.tui.term import BG, DIM, blend
+from monitor.tui.term import AMBER, BG, DIM, blend
 
 PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9575cd", "#26a69a", "#bdbdbd"]
 ROLE = {"primary": "#ffffff", "buy": "#00e676", "sell": "#ff3d3d"}
-SCATTER = {"cloud": "#5a3a10", "frontier": "#ffa028", "now": "#ffffff", "target": "#00e676", "port": "#4fc3f7"}
+SCATTER = {"cloud": "#5a3a10", "frontier": "#ffa028", "now": "#ffffff", "target": "#00e676", "port": "#4fc3f7",
+           "asset": "#8a8a8a", "move": "#ffbf00"}
 AXIS_FMT = {"eur": "eur:0", "eur+": "eur+:0", "pct": "pct:0", "pct+": "pct+:0"}
 GRID = "#242424"
 MARK = "#5a5a5a"
@@ -261,7 +262,10 @@ def place_labels(groups: list, w: int, h: int, taken: set) -> list:
     return out
 
 
-def scatter_raster(series: list, w: int, h: int, xfmt: str | None, yfmt: str | None) -> Raster | None:
+def scatter_raster(series: list, w: int, h: int, xfmt: str | None, yfmt: str | None,
+                   xlabel: str | None = None, ylabel: str | None = None) -> Raster | None:
+    """render/scatter.js in cells: axis names too — x on its own row under the ticks (room allowing), y in the plot's
+    top-left corner."""
     xs = extent(v for s in series for v in s.get("x") or [])
     ys = extent(v for s in series for v in s.get("y") or [])
     if not xs or not ys or w < 14 or h < 4:
@@ -273,7 +277,8 @@ def scatter_raster(series: list, w: int, h: int, xfmt: str | None, yfmt: str | N
     yd, xd = tick_decimals(yt), tick_decimals(xt)
     ytext = [fmt(t, f"{(yfmt or 'num').split(':')[0]}:{yd}")[0] for t in yt]
     left = max((len(t) for t in ytext), default=4) + 1
-    pw, ph = w - left, h - 1
+    titled = bool(xlabel) and h >= 8
+    pw, ph = w - left, h - 1 - titled
     d = Dots(pw, ph)
     sx = lambda v: round((v - x0) / (x1 - x0) * (pw * 2 - 1))
     sy = lambda v: round((y1 - v) / (y1 - y0) * (ph * 4 - 1))
@@ -331,4 +336,11 @@ def scatter_raster(series: list, w: int, h: int, xfmt: str | None, yfmt: str | N
             for j, c in enumerate(text):
                 cells[ph][col + j] = (c, DIM, BG)
             end = col + len(text) + 2
+    if titled:
+        text = xlabel[:pw]
+        for j, c in enumerate(text, start=left + (pw - len(text)) // 2):
+            cells[h - 1][j] = (c, AMBER, BG)
+    if ylabel and ph > 2:
+        for j, c in enumerate(ylabel[: max(0, pw - 2)], start=left + 1):
+            cells[0][j] = (c, AMBER, BG)
     return Raster(cells, left, pw, ph, [])

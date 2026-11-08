@@ -65,7 +65,7 @@ export function plotData(x, series, colorOf) {
 export function chart(body, p, ui) {
   const raw = chartSource(p, ui.followKey(p));
   if (!raw?.x || raw.x.length < 2 || !raw.series?.length) { body.innerHTML = `<div class="empty">NO DATA</div>`; return; }
-  // A chart with a future (OPT's PAST & FUTURE): its future lines and bands padded to the x (ranges.expandAt), then
+  // A chart with a future (OPT's AHEAD): its future lines and bands padded to the x (ranges.expandAt), then
   // cut to the horizon chip — before any range or drag, so today's index still holds.
   const horizon = p.horizons ? (p.horizons.includes(ui.chartHorizon(p.id)) ? ui.chartHorizon(p.id) : p.horizon) : null;
   const padded = { ...raw, series: expandAt(raw.series, raw.x.length) };
@@ -90,7 +90,8 @@ export function chart(body, p, ui) {
     : roiWin ? windowRoi(sliced.series, inv, inception) : p.rebase ? rebase(sliced.series) : sliced.series;
   const isoAt = (i) => new Date(x[i] * 1000).toISOString().slice(0, 10);
   const lines = series.filter((s) => s.kind !== "markers" && s.kind !== "band" && !s.nolegend);
-  const rest = legendRest(x.length, p.horizons ? p.today_idx : null, sliced.start);   // a future's: today
+  // at rest a chart with a past and a future reads today; a future alone (OPT's AHEAD) its horizon's end
+  const rest = legendRest(x.length, p.horizons && p.today_idx ? p.today_idx : null, sliced.start);
   const todayAt = p.horizons ? p.today_idx - sliced.start : null;                     // past it: the projections
   const legend = p.legend === "rank"
     ? [...lines].sort((a, b) => (valueAt(b.y, rest) ?? -Infinity) - (valueAt(a.y, rest) ?? -Infinity)) : [];

@@ -112,6 +112,8 @@ def test_a_sale_takes_the_same_euros_out_pro_rata_and_roi_keeps_it_as_cash(monke
     txns = [tx("2025-01-06", "XXX.F", "buy", 1000.0), tx("2025-01-08", "XXX.F", "sell", 300.0)]
     roi = W.follow(flat(), FLAT_DAYS, txns, equal_schedule(), fee=1.0)
     assert roi.loc["2025-01-10"] == pytest.approx(0.0)                    # 700 held + 300 out on 1000 in
+    same, cash = W.follow(flat(), FLAT_DAYS, txns, equal_schedule(), fee=1.0, with_cash=True)
+    assert same.equals(roi) and cash.loc["2025-01-07"] == 0.0 and cash.loc["2025-01-10"] == pytest.approx(300.0)
 
 
 def test_a_weekend_trade_applies_the_next_business_day_and_money_in_a_sold_line_is_still_followed(monkeypatch):
@@ -222,12 +224,13 @@ def test_build_starts_every_alternative_from_your_value_less_its_costs(monkeypat
     you = pd.Series(np.linspace(0, 10, len(days)), index=days)
     w = W.build(model, {"AAA.F": 1100.0}, px, {"AAA.F": 1e10, "BBB.F": 1e10}, book, you, [],
                 funds=set(), today=date(2026, 6, 30))
-    assert set(w["bands"]) == {"NOW", "EQUAL"} and set(w["verdicts"]) == {"EQUAL"}
-    roi0 = (1100.0 / 1000.0 - 1) * 100
-    assert w["bands"]["NOW"][:, 0] == pytest.approx([roi0] * 5)
+    assert set(w["ahead"]) == {"NOW", "EQUAL"} and set(w["verdicts"]) == {"EQUAL"}
+    assert w["ahead"]["NOW"][:, 0] == pytest.approx([0.0] * 5)              # your mix: 0 % from today, today
     cost = w["costs"]["EQUAL"]["total"]
-    assert cost > 0 and w["bands"]["EQUAL"][2, 0] == pytest.approx(((1100.0 - cost) / 1000.0 - 1) * 100)
-    assert list(w["past"]["EQUAL"].index) == list(days)
+    assert cost > 0 and w["ahead"]["EQUAL"][:, 0] == pytest.approx([-cost / 1100.0 * 100] * 5)   # a switch: its costs
+    assert (np.diff(w["ahead"]["NOW"], axis=0) >= 0).all()                  # percentiles in order, every month
+    assert list(w["past"]["EQUAL"].index) == list(days) == list(w["past_cash"]["EQUAL"].index)
+    assert w["inv"].iloc[-1] == pytest.approx(1000.0) and w["you_cash"].iloc[-1] == 0.0
 
 
 def test_money_bought_before_any_weights_waits_as_cash_not_lost(monkeypatch):

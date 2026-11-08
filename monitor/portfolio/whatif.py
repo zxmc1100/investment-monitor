@@ -14,7 +14,7 @@ import pandas as pd
 
 from monitor import config
 from monitor.portfolio import riskmodel as R
-from monitor.portfolio.analytics import bench_buy_events
+from monitor.portfolio.analytics import bench_buy_events, daily_flows
 from monitor.portfolio.ledger import DUST, _signed_shares
 from monitor.portfolio.optimizer import annualize, to_returns
 
@@ -86,7 +86,7 @@ MIN_TRADE_EUR = 1.0              # smaller trades are not orders
 
 def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict],
            schedule: list[tuple[pd.Timestamp, pd.Series]], *, fee: float,
-           band: float = REBALANCE_BAND) -> pd.Series:
+           band: float = REBALANCE_BAND, with_cash: bool = False):
     """ROI % on `days` of your money had it followed `schedule` — the benchmarks' cash-flow matching
     (analytics.build_roi_timeseries): every buy puts the same euros in on its date (the `<=` business-day pointer,
     less the same single order fee, analytics.bench_buy_events), split by the weights in force; every sale takes
@@ -95,7 +95,8 @@ def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict
     dividends are reinvested. At each schedule date the new weights take over: when any line is more than `band`
     off them, the whole portfolio goes back to target, `fee` per order of at least MIN_TRADE_EUR. Money with no
     weights to follow yet (bought before any line of today's had traded) waits as cash, in the value, until the first
-    weights invest it. ROI = (value + cash out) / money in − 1, PORT's formula; NaN before the first buy."""
+    weights invest it. ROI = (value + cash out) / money in − 1, PORT's formula; NaN before the first buy.
+    `with_cash`: (ROI, the cash paid out to each day) — what a window's ROI needs (ranges.windowRoi)."""
     px = prices.reindex(prices.index.union(days)).ffill().reindex(days)
     buys = bench_buy_events(transactions)
     sells = sorted((t["date"], float(t["price"])) for t in transactions if t["action"] == "sell")
@@ -105,6 +106,7 @@ def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict
     invested = cash_out = idle = 0.0
     si = bi = ci = 0
     out: dict[pd.Timestamp, float] = {}
+    paid_out: dict[pd.Timestamp, float] = {}
 
     def value(p: pd.Series) -> float:
         return float((units * p).fillna(0.0).sum()) + idle
@@ -143,7 +145,9 @@ def follow(prices: pd.DataFrame, days: pd.DatetimeIndex, transactions: list[dict
             cash_out += paid
         if invested > 0:
             out[d] = (value(p) + cash_out) / invested * 100 - 100
-    return pd.Series(out, dtype=float).reindex(days)
+            paid_out[d] = cash_out
+    roi = pd.Series(out, dtype=float).reindex(days)
+    return (roi, pd.Series(paid_out, dtype=float).reindex(days)) if with_cash else roi
 
 
 FUND_EXEMPT = 0.30               # Teilfreistellung: 30 % of an equity fund's gain or loss is tax-free
@@ -225,20 +229,24 @@ def verdict(now: np.ndarray, alt: np.ndarray, month: int) -> dict:
 
 def build(model, values: dict[str, float], history: pd.DataFrame, caps: dict[str, float], book: dict,
           you: pd.Series, dividends: list[dict], *, funds: set[str], today: date) -> dict:
-    """Everything OPT's panels 5 and 6 show, from the RiskModel (today's portfolios, μ = BL, Σ = 1y), the buffered
-    position `values`, the 5y adjusted `history`, market `caps`, the ledger `book`, your ROI line `you` (PORT's
-    walk — its index is the chart's past) and the paid `dividends`."""
+    """Everything OPT's FOLLOWED, AHEAD and REBALANCE? show, from the RiskModel (today's portfolios, μ = BL, Σ = 1y),
+    the buffered position `values`, the 5y adjusted `history`, market `caps`, the ledger `book`, your ROI line `you`
+    (PORT's walk — its index is the past) and the paid `dividends`.
+
+    past / past_cash: each portfolio's ROI % had your money followed it, and the cash it paid out (sales) to each day;
+    inv / you_cash: the money put in to each day (every line's) and yours paid out (sales, dividends) — with them the
+    chart measures any window by the ROI formula, as PORT's. ahead: percentiles 5 25 50 75 95 per month (0 = today)
+    of each portfolio's own change in % of your value today (NOW: keeping your mix, from 0; a switch from its costs
+    below 0), on the same paths — the verdicts compare them path by path."""
     uni = list(model.universe)
     px = history[uni]
     last = px.ffill().iloc[-1]
     shares = {t: caps[t] / float(last[t]) for t in uni if caps.get(t) and float(last.get(t) or 0) > 0}
     sched = month_weights(px, shares, book["transactions"], month_starts(you.index[0], you.index[-1]))
-    past = {k: follow(px, you.index, book["transactions"], sched[k], fee=config.ORDER_FEE_EUR)
+    runs = {k: follow(px, you.index, book["transactions"], sched[k], fee=config.ORDER_FEE_EUR, with_cash=True)
             for k in config.PORTFOLIOS if sched[k]}
+    flows = daily_flows(book["transactions"], dividends, you.index)
 
-    invested = sum(float(t["price"]) for t in book["transactions"] if t["action"] == "buy")
-    cash_out = (sum(float(t["price"]) for t in book["transactions"] if t["action"] == "sell")
-                + sum(float(d["eur"]) for d in dividends))
     vals = np.array([float(values.get(t, 0.0)) for t in uni])
     total = float(vals.sum())
     held = book.get("holdings", {})
@@ -257,12 +265,9 @@ def build(model, values: dict[str, float], history: pd.DataFrame, caps: dict[str
                                 tax_rate=config.DIVIDEND_TAX, fee=config.ORDER_FEE_EUR)
         starts[k] = np.asarray(p.weights, float) * (total - costs[k]["total"])
     sims = simulate(np.asarray(model.mu_bl, float), model.cov.values, starts)
-    to_roi = (lambda v: (v + cash_out) / invested * 100 - 100) if invested else (lambda v: v * np.nan)
-    bands = {k: to_roi(np.percentile(v, [5, 25, 50, 75, 95], axis=0)) for k, v in sims.items()}
+    q = [5, 25, 50, 75, 95]
+    ahead = {k: np.percentile(v / total * 100 - 100, q, axis=0) for k, v in sims.items()} if total > 0 else {}
     verdicts = {k: {h: verdict(sims["NOW"], sims[k], m) for h, m in HORIZONS.items()} for k in sims if k != "NOW"}
-    you_now = float(you.dropna().iloc[-1]) if you.notna().any() else float("nan")
-    eq_now = float(past["EQUAL"].dropna().iloc[-1]) if "EQUAL" in past and past["EQUAL"].notna().any() else float("nan")
-    check = {k: {"vs_you": float(s.dropna().iloc[-1]) - you_now, "vs_equal": float(s.dropna().iloc[-1]) - eq_now}
-             for k, s in past.items() if s.notna().any()}
-    return {"past": past, "you": you, "bands": bands, "verdicts": verdicts, "costs": costs,
-            "past_check": check, "today": today}
+    return {"past": {k: r for k, (r, _) in runs.items()}, "past_cash": {k: c for k, (_, c) in runs.items()},
+            "you": you, "inv": flows["buy"].cumsum(), "you_cash": (flows["sell"] + flows["dividend"]).cumsum(),
+            "ahead": ahead, "verdicts": verdicts, "costs": costs, "today": today}

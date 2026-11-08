@@ -315,3 +315,21 @@ def test_period_chips_switch_the_pair_and_carry_the_sort(app):
     assert app.table_state(p)["sort"] == ["w", "desc"]          # the sort moved to the new period's column
     press(app, "π")
     assert "DAY%" in screen(app)
+
+
+def test_a_future_alone_rests_its_legend_at_the_horizons_end(app):
+    """OPT's AHEAD has no past: at rest its legend reads the horizon's end (the outcome), not today (all 0)."""
+    p = {"id": "ahead", "type": "chart", "legend": "rank", "horizons": ["6M", "1Y"], "horizon": "6M", "today_idx": 0,
+         "x": [1_700_000_000 + k * 2_629_800 for k in range(13)],
+         "series": [{"name": "ALT", "kind": "line", "y": [float(k) for k in range(13)]}]}
+    m = P.chart_model(p, app)
+    assert len(m["x"]) == 7 and m["rest"] == 6 and m["legend"][0]["name"] == "ALT"
+
+
+def test_a_scatter_names_its_axes():
+    """The frontier's axis names: x on its own row under the ticks, y in the plot's top-left corner."""
+    s = [{"name": "F", "kind": "line", "role": "frontier", "x": [10.0, 30.0], "y": [8.0, 16.0]}]
+    r = scatter_raster(s, 60, 12, "pct", "pct", "VOLATILITY", "EXPECTED RETURN")
+    rows = ["".join(c[0] for c in row) for row in r.cells]
+    assert rows[-1].strip() == "VOLATILITY" and "EXPECTED RETURN" in rows[0]
+    assert "%" in rows[-2]                                     # the ticks keep their row above the name

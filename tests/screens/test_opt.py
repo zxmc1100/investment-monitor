@@ -3,6 +3,7 @@ import dataclasses
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 import time_machine
 
@@ -34,8 +35,8 @@ def kv(p, pid):
 
 def test_panels_and_default_target(parts):
     p = opt.assemble(parts, dict(META))
-    assert [q["id"] for q in p["panels"]] == ["target", "weights", "frontier", "portfolios", "path", "verdict",
-                                              "ticket"]
+    assert [q["id"] for q in p["panels"]] == ["target", "weights", "portfolios", "frontier", "ahead", "followed",
+                                              "verdict", "ticket"]
     assert kv(p, "target")["TARGET"] == "HRP"
     hl = [c["k"] for c in panel(p, "weights")["cols"] if c.get("hl")]
     assert hl == ["hrp"]
@@ -80,7 +81,8 @@ def test_infeasible_target_shows_dash_and_empty_ticket(parts):
 def test_public_view_has_no_ticket_or_euros(parts):
     p = opt.assemble(parts, dict(META))
     pub = public_view(p)
-    assert [q["id"] for q in pub["panels"]] == ["target", "weights", "frontier", "portfolios", "path", "verdict"]
+    assert [q["id"] for q in pub["panels"]] == ["target", "weights", "portfolios", "frontier", "ahead", "followed",
+                                                "verdict"]
     s = json.dumps(pub)
     for r in panel(p, "ticket")["rows"]:
         assert str(r["now_eur"]) not in s
@@ -143,24 +145,93 @@ def test_help_fee_follows_settings(parts, monkeypatch):
 
 def test_panels_number_top_to_bottom_with_the_what_if(parts):
     p = opt.assemble(parts, dict(META))
-    assert [(q["id"], q["n"]) for q in p["panels"]] == [("target", 1), ("weights", 2), ("frontier", 3),
-        ("portfolios", 4), ("path", 5), ("verdict", 6), ("ticket", 7)]
+    assert [(q["id"], q["n"]) for q in p["panels"]] == [("target", 1), ("weights", 2), ("portfolios", 3),
+        ("frontier", 4), ("ahead", 5), ("followed", 6), ("verdict", 7), ("ticket", 8)]
     json.dumps(p, allow_nan=False)
     assert len(json.dumps(p)) < 300_000
 
 
-def test_the_path_chart_follows_the_cursor_with_bands_and_dotted_futures(parts):
-    path = panel(opt.assemble(parts, dict(META)), "path")
-    assert path["follows"] == "portfolios" and path["horizons"] == ["6M", "1Y", "3Y"] and path["horizon"] == "1Y"
-    names = [s["name"] for s in path["series"]]
-    assert names[0] == "YOU" and "EQUAL" in names and any(s.get("dash") for s in path["series"])
-    blk = path["series_by_key"]["HRP"]["series"]
-    assert [s["kind"] for s in blk] == ["band", "band", "band", "band"]
-    n = len(path["x"])
-    assert path["today_idx"] == n - 1 - 36
-    assert all(s["at"] == path["today_idx"] and len(s["lo"]) == len(s["hi"]) == 37 for s in blk)
-    ahead = [s for s in path["series"] if s.get("dash")]
-    assert ahead and all(s["at"] == path["today_idx"] and len(s["y"]) == 37 for s in ahead)
+def test_the_screen_fits_four_rows_in_reading_order(parts):
+    """One window: TARGET over PORTFOLIOS beside WEIGHTS · the FRONTIER (half the width) beside AHEAD and FOLLOWED ·
+    REBALANCE? beside TICKET — placed as the browser's grid (and the terminal client's) auto-places them, numbered in
+    that order."""
+    from monitor.tui.panels import place
+    p = opt.assemble(parts, dict(META))
+    at = {q["id"]: (r, c) for q, r, c, _, _ in place(p["panels"])}
+    assert at == {"target": (0, 0), "weights": (0, 5), "portfolios": (1, 0), "frontier": (2, 0), "ahead": (2, 6),
+                  "followed": (2, 9), "verdict": (3, 0), "ticket": (3, 5)}
+
+
+def test_followed_draws_you_equal_and_the_cursor_row_measured_like_port(parts):
+    """FOLLOWED: YOUR line and EQUAL always, the cursor portfolio on top; `inv` and each line's `cash` let the chart
+    measure a window by the ROI formula — private, as on PORT. PORTFOLIOS' FOLLOWED column is each line's last point."""
+    p = opt.assemble(parts, dict(META))
+    f = panel(p, "followed")
+    assert f["follows"] == "portfolios" and f["range"] == "ALL" and "1M" in f["ranges"]
+    assert [s["name"] for s in f["series"]] == ["YOU", "EQUAL"] and f["series"][0]["role"] == "primary"
+    assert [s["name"] for s in f["series_by_key"]["HRP"]["series"]] == ["HRP"]
+    assert f["series_by_key"]["NOW"]["series"] == [] == f["series_by_key"]["EQUAL"]["series"]
+    n = len(f["x"])
+    assert len(f["inv"]) == n and all(len(s["y"]) == len(s["cash"]) == n for s in f["series"])
+    lines = {s["name"]: s for s in f["series"] + [b for k in config.PORTFOLIOS for b in f["series_by_key"][k]["series"]]}
+    rows = {r["id"]: r for r in panel(p, "portfolios")["rows"]}
+    last = lambda s: next(v for v in reversed(s["y"]) if v is not None)
+    assert rows["NOW"]["past"] == pytest.approx(last(lines["YOU"]), abs=0.01)
+    for k in config.PORTFOLIOS:
+        assert rows[k]["past"] == pytest.approx(last(lines[k]), abs=0.01), k
+    assert lines["YOU"]["cash"][-1] > 0                     # the fixture sells: its money out is in YOUR line
+    pub = panel(public_view(p), "followed")
+    assert "inv" not in pub and not any("cash" in s for s in pub["series"])
+    assert [s["name"] for s in pub["series_by_key"]["HRP"]["series"]] == ["HRP"]
+
+
+def test_ahead_draws_keeping_and_switching_as_their_own_fans(parts):
+    """AHEAD: your mix kept and the cursor portfolio switched to, each its median and 90 % band of % change from
+    today on the same paths — keeping starts at 0, a switch below it by its costs; a portfolio with less volatility
+    than yours has the narrower band (the frontier's trade-off over time)."""
+    p = opt.assemble(parts, dict(META))
+    a, w, m = panel(p, "ahead"), parts["daily"]["whatif"], parts["daily"]["model"]
+    assert a["follows"] == "portfolios" and a["horizons"] == ["6M", "1Y", "3Y"] and a["horizon"] == "1Y"
+    assert a["today_idx"] == 0 and len(a["x"]) == 37
+    total = sum(parts["quote"]["values"].values())
+    vals = np.array([parts["quote"]["values"].get(t, 0.0) for t in m.universe])
+    now_vol = m.perf(vals / vals.sum()).vol
+    for k in config.PORTFOLIOS:
+        blk = a["series_by_key"][k]
+        assert [(s["name"], s["kind"]) for s in blk["series"]] == [("NOW 90%", "band"), (f"{k} 90%", "band"),
+                                                                   ("NOW", "line"), (k, "line")]
+        keep, band, med = blk["series"][2], blk["series"][1], blk["series"][3]
+        assert keep["y"][0] == 0.0 and "note" not in blk          # the title names it: AHEAD → {key}
+        assert med["y"][0] == pytest.approx(-w["costs"][k]["total"] / total * 100, abs=0.01)
+        assert all(lo <= y <= hi for lo, y, hi in zip(band["lo"], med["y"], band["hi"]))
+        dvol = m.portfolios[k].vol - now_vol
+        if abs(dvol) > 0.01:
+            wide = lambda s: s["hi"][12] - s["lo"][12]
+            assert (wide(band) - wide(blk["series"][0])) * dvol > 0, k
+    now = a["series_by_key"]["NOW"]["series"]
+    assert [s["name"] for s in now] == ["NOW 90%", "NOW"] and a["series_by_key"]["NOW"]["note"] == "KEEP YOUR MIX"
+    pub = panel(public_view(p), "ahead")
+    assert "lo" in pub["series_by_key"]["HRP"]["series"][0] and pub["today_idx"] == 0
+
+
+def test_the_frontier_shows_every_holding_and_the_move_to_the_cursor_row(parts):
+    """The FRONTIER: each holding alone (its volatility, its BL return), and — following PORTFOLIOS — a line from
+    NOW to the cursor row with what the move changes on the title."""
+    p = opt.assemble(parts, dict(META))
+    f, m = panel(p, "frontier"), parts["daily"]["model"]
+    assets = [s for s in f["series"] if s.get("role") == "asset"]
+    assert [s["name"] for s in assets] == list(m.universe)
+    i = list(m.universe).index(assets[0]["name"])
+    assert assets[0]["x"][0] == pytest.approx(float(np.sqrt(m.cov.values[i, i])) * 100, abs=1e-2)   # in %, as all
+    assert assets[0]["y"][0] == pytest.approx(float(m.mu_bl[i]) * 100, abs=1e-2)
+    assert f["follows"] == "portfolios" and f["series_by_key"]["NOW"] == {"series": [], "note": "YOUR MIX", "vis": "public"}
+    now = next(s for s in f["series"] if s["name"] == "NOW")
+    hrp, move = m.portfolios["HRP"], f["series_by_key"]["HRP"]["series"][0]
+    assert move["role"] == "move" and move["x"] == [now["x"][0], pytest.approx(hrp.vol * 100, abs=1e-2)]
+    assert move["y"] == [now["y"][0], pytest.approx(hrp.exp_ret * 100, abs=1e-2)]
+    assert f["series_by_key"]["HRP"]["note"].startswith("NOW → HRP: VOL ")
+    pub = panel(public_view(p), "frontier")                       # named axes, in the public view too
+    assert (pub["xlabel"], pub["ylabel"]) == ("VOLATILITY (1Y, ANNUAL)", "EXPECTED RETURN* (BL, ANNUAL)")
 
 
 def test_the_verdict_follows_the_cursor_and_keeps_euros_private(parts):
@@ -174,21 +245,19 @@ def test_the_verdict_follows_the_cursor_and_keeps_euros_private(parts):
     assert {r["verdict"] for r in v["rows_by_key"]["HRP"]["rows"]} <= {"WORTH IT", "MARGINAL", "NOT WORTH IT"}
     pub = panel(public_view(p), "verdict")
     assert {c["k"] for c in pub["cols"]} == {"h", "p", "be", "verdict", "risk"} and "€" not in json.dumps(pub)
-    pub_path = panel(public_view(p), "path")
-    assert "lo" in pub_path["series_by_key"]["HRP"]["series"][0]
-    assert (pub_path["horizons"], pub_path["horizon"], pub_path["today_idx"]) == (
-        ["6M", "1Y", "3Y"], "1Y", panel(p, "path")["today_idx"])
 
 
 def test_an_infeasible_portfolio_has_no_fan_and_says_so(parts, monkeypatch):
     m = parts["daily"]["model"]
     w = parts["daily"]["whatif"]
     w["verdicts"].pop("BLSAME", None)
-    w["bands"].pop("BLSAME", None)
+    w["ahead"].pop("BLSAME", None)
     monkeypatch.setitem(m.portfolios, "BLSAME", None)
     p = opt.assemble(parts, dict(META))
     assert panel(p, "verdict")["rows_by_key"]["BLSAME"]["context"].startswith("BLSAME INFEASIBLE")   # a string, as TICKET
-    assert panel(p, "path")["series_by_key"]["BLSAME"]["series"] == []
+    assert panel(p, "ahead")["series_by_key"]["BLSAME"]["series"] == []
+    assert panel(p, "ahead")["series_by_key"]["BLSAME"]["note"] == "BLSAME INFEASIBLE"
+    assert panel(p, "frontier")["series_by_key"]["BLSAME"] == {"series": [], "note": "BLSAME INFEASIBLE", "vis": "public"}
 
 
 def test_a_what_if_failure_leaves_the_rest_of_opt(tmp_path, monkeypatch):
@@ -198,9 +267,10 @@ def test_a_what_if_failure_leaves_the_rest_of_opt(tmp_path, monkeypatch):
         ctx = Ctx(force=True, buffer_dir=tmp_path / "buffer", portfolio_csv=FIX, equity_log=None)
         parts = {t: opt.compute(t, ctx) for t in opt.SCREEN.tiers}
     p = opt.assemble(parts, dict(META))
-    assert panel(p, "path")["context"]["text"] == "WHAT-IF UNAVAILABLE — ValueError"
+    assert panel(p, "followed")["context"]["text"] == "WHAT-IF UNAVAILABLE — ValueError"
+    assert panel(p, "ahead")["context"]["text"] == "WHAT-IF UNAVAILABLE — ValueError"
     assert "no history" not in json.dumps(p)                       # the message (a path, maybe) is logged, never shown
-    assert panel(p, "verdict")["rows"] == [] and panel(p, "ticket")["n"] == 7 and panel(p, "weights")["rows"]
+    assert panel(p, "verdict")["rows"] == [] and panel(p, "ticket")["n"] == 8 and panel(p, "weights")["rows"]
 
 
 def test_a_failed_what_if_keeps_the_last_good_one_marked_stale(tmp_path, monkeypatch):
@@ -213,9 +283,10 @@ def test_a_failed_what_if_keeps_the_last_good_one_marked_stale(tmp_path, monkeyp
         monkeypatch.setattr(opt.whatif, "build", lambda *a, **k: (_ for _ in ()).throw(ConnectionError("throttled")))
         parts = {t: opt.compute(t, ctx) for t in opt.SCREEN.tiers}
     w = parts["daily"]["whatif"]
-    assert w["stale"] == "ConnectionError" and set(w["bands"]) == set(good["bands"])
+    assert w["stale"] == "ConnectionError" and set(w["ahead"]) == set(good["ahead"])
     p = opt.assemble(parts, dict(META))
-    assert panel(p, "path")["context"]["text"].startswith("STALE — LAST GOOD")
+    assert panel(p, "followed")["context"]["text"].startswith("STALE — LAST GOOD")
+    assert panel(p, "ahead")["context"]["text"].startswith("STALE")
     assert panel(p, "verdict")["rows_by_key"]["HRP"]["rows"]
 
 
@@ -235,7 +306,7 @@ def test_the_public_verdict_follows_the_public_cursor_and_carries_no_euros(parts
 
 
 def test_the_help_says_the_backtest_pays_no_tax(parts):
-    body = next(h["body"] for h in opt.assemble(parts, dict(META))["help"] if h["h"] == "PAST & FUTURE")
+    body = next(h["body"] for h in opt.assemble(parts, dict(META))["help"] if h["h"] == "FOLLOWED")
     assert "no tax" in body
 
 
@@ -244,9 +315,20 @@ def test_rebalance_and_ticket_share_a_row(parts):
     assert panel(p, "verdict")["span"] + panel(p, "ticket")["span"] == 12
 
 
-def test_the_path_chart_sends_hundredths_of_a_percent(parts):
+def test_the_what_if_charts_send_hundredths_of_a_percent(parts):
     """2 decimals of a % are more than the chart can show, and keep the payload far under its cap as history grows."""
-    path = panel(opt.assemble(parts, dict(META)), "path")
-    nums = [v for s in path["series"] for v in s["y"] if v is not None]
-    nums += [v for b in path["series_by_key"].values() for s in b["series"] for v in s["lo"] + s["hi"] if v is not None]
-    assert nums and all(round(v, 2) == v for v in nums)
+    p = opt.assemble(parts, dict(META))
+    f, a = panel(p, "followed"), panel(p, "ahead")
+    blocks = [s for c in (f, a) for b in c["series_by_key"].values() for s in b["series"]] + f["series"]
+    nums = [v for s in blocks for k in ("y", "lo", "hi", "cash") for v in s.get(k) or [] if v is not None] + f["inv"]
+    assert nums and all(round(v, 2) == v for v in nums if v is not None)
+
+
+def test_an_older_what_if_without_the_followed_cash_says_so(parts):
+    """A last-good what-if kept from before FOLLOWED existed has no cash per line: it says so instead of failing."""
+    w = parts["daily"]["whatif"]
+    for k in ("past_cash", "inv", "you_cash", "ahead"):
+        w.pop(k)
+    p = opt.assemble(parts, dict(META))
+    assert panel(p, "followed")["context"]["text"] == "WHAT-IF UNAVAILABLE — RECOMPUTING"
+    assert panel(p, "ahead")["series_by_key"] == {} and panel(p, "verdict")["rows_by_key"]["HRP"]["rows"]

@@ -45,14 +45,25 @@ HELP = [
      "rebalance would move."},
     {"h": "TICKET", "vis": PRIV, "body": "The trades that would reach the target at live prices, "
      "about €{fee} fee per order. Informational only — not financial advice."},
-    {"h": "PAST & FUTURE", "vis": PUB, "body": "Left of TODAY: your ROI line, and each portfolio had your money "
-     "followed it since your first trade — the same euros on the same days, weights re-estimated each month on "
-     "the year before it (never after), back to target when a line drifts more than 2.5 pp (€{fee} per order), "
-     "dividends reinvested, no tax (realized rebalancing gains of a book this size mostly stay within the "
-     "allowance). Right of TODAY, dotted: each portfolio's median from your value today (switching "
-     "costs paid), Monte Carlo on Black-Litterman expected returns and the 1-year covariance; the cursor row and "
-     "NOW get their 50 % and 90 % bands. 6M · 1Y · 3Y cut the future. The universe is the stocks you hold today, "
-     "which flatters every line — compare the optimizers with EQUAL. Not financial advice."},
+    {"h": "FOLLOWED", "vis": PUB, "body": "Had your money followed a portfolio since your first trade: the same euros "
+     "on the same days, weights re-estimated each month on the year before it (never after), back to target when a "
+     "line drifts more than 2.5 pp (€{fee} per order), dividends reinvested, no tax. PORTFOLIOS' FOLLOWED column is "
+     "the ROI it would show today (NOW: your real ROI); the FOLLOWED chart draws it for the cursor row against YOUR "
+     "line and EQUAL — 1M … ALL measure each window by the ROI formula, as PORT's ROI chart (⌥R · ⌥M: ROI, MWR). The "
+     "universe is the stocks you hold today, which flatters every line: judge an optimizer by EQUAL, not by YOU."},
+    {"h": "EFFICIENT FRONTIER", "vis": PUB, "body": "Expected return (Black-Litterman) against volatility. The curve: "
+     "the most return each level of risk can have from your holdings (long-only, capped as the optimizers); the "
+     "cloud: random mixes of them; grey dots: each holding alone; white: NOW, your mix. The cursor row of PORTFOLIOS "
+     "gets a line from NOW to it and, on the title, what the move changes — a dot straight above NOW is more return "
+     "for the same risk, one to its left the same return for less. Expected returns are the model's, not a "
+     "forecast: read the picture as a ranking."},
+    {"h": "AHEAD", "vis": PUB, "body": "The frontier played out: keeping your mix (grey) and switching to the cursor "
+     f"portfolio today (its colour), each its median and 90 % band of change from today on the same {whatif.MC_PATHS} "
+     "simulated paths (Monte Carlo on Black-Litterman expected returns and the 1-year covariance, buy and hold). A "
+     "switch starts below 0 by its costs. A lower, narrower fan is less risk for less return; fans that overlap "
+     "almost entirely are not worth a switch. REBALANCE? compares them path by path. 6M · 1Y · 3Y: how far ahead. "
+     "The model that picked a portfolio also scores it, so it favours it — FOLLOWED is the reality check. Not "
+     "financial advice."},
     {"h": "REBALANCE?", "vis": PUB, "body": "The cursor portfolio against keeping your mix, on the same simulated "
      "paths: P(AHEAD) the share of paths it ends above; MEDIAN Δ and WORST 5% Δ in euros; BREAK-EVEN the month "
      "the median difference turns positive. COSTS: €{fee} per order plus tax on the gains its sales realize (FIFO; "
@@ -124,19 +135,20 @@ def assemble(parts: dict, meta: dict) -> dict:
     now = m.perf(now_w)
     tgt = m.portfolios.get(target)
     drift = float(np.abs(tgt.weights - now_w).sum() / 2) if tgt is not None else None
+    w = parts["daily"].get("whatif") or {"error": "not computed yet"}
     return {"screen": "OPT", "title": "Optimizer",
             "context": {"text": f"{len(uni)} ASSETS · TARGET {target} · COV {config.LOOKBACK_DAYS}D", "vis": PUB},
             "meta": {**meta, "warn": q.get("warn") or []},
             "help": [{**h, "body": h["body"].replace("{fee}", f"{config.ORDER_FEE_EUR:g}")} for h in HELP],
+            # one window: TARGET over PORTFOLIOS beside WEIGHTS · the FRONTIER (half the width, the row's height)
+            # beside AHEAD and FOLLOWED · REBALANCE? beside TICKET
             "panels": [_target(target, now, tgt, drift), _weights(m, now_w, target, q.get("names") or {}),
-                       _frontier(m, now, target), _portfolios(m, now, now_w, target),
-                       _path(parts["daily"].get("whatif") or {"error": "not computed yet"}, target),
-                       _verdict(parts["daily"].get("whatif") or {"error": "not computed yet"}, target),
-                       _ticket(m, q, values, total, tgt, target)]}
+                       _portfolios(m, now, now_w, target, w), _frontier(m, now, target), _ahead(w), _followed(w),
+                       _verdict(w, target), _ticket(m, q, values, total, tgt, target)]}
 
 
 def _target(target, now, tgt, drift) -> dict:
-    return {"id": "target", "n": 1, "title": "TARGET", "type": "kpi", "span": 12, "vis": PUB,
+    return {"id": "target", "n": 1, "title": "TARGET", "type": "kpi", "span": 5, "vis": PUB,
             "items": [kpi("TARGET", target, "text", PUB), kpi("DRIFT", _pct(drift), "pct", PUB),
                       kpi("VOL NOW", _pct(now.vol), "pct", PUB),
                       kpi("VOL TGT", _pct(tgt.vol) if tgt else None, "pct", PUB),
@@ -166,7 +178,7 @@ def _weights(m, now_w, target, names: dict) -> dict:
         rows.append(row)
     total = {"tkr": "TOTAL", "now": 100.0, "mkt": 100.0,
              **{k: (100.0 if m.portfolios.get(K) else None) for k, K in zip(keys, config.PORTFOLIOS)}}
-    return {"id": "weights", "n": 2, "title": "WEIGHTS", "type": "table", "span": 12, "vis": PUB,
+    return {"id": "weights", "n": 2, "title": "WEIGHTS", "type": "table", "span": 7, "rows_span": 2, "vis": PUB,
             "key": "tkr", "sort": ["now", "desc"], "cols": cols, "rows": rows, "total": total,
             "context": {"text": f"TARGET {target} HIGHLIGHTED", "vis": PUB}}
 
@@ -180,92 +192,123 @@ def _frontier(m, now, target) -> dict:
                "x": [_r4(v) for v, _ in m.cloud], "y": [_r4(r) for _, r in m.cloud]},
               {"name": "FRONTIER", "kind": "line", "role": "frontier", "vis": PUB,
                "x": [_r4(v) for v, _ in m.frontier], "y": [_r4(r) for _, r in m.frontier]},
+              # each holding on its own: why the optimizers weigh it as they do
+              *({"name": t, "kind": "marker", "role": "asset", "vis": PUB, "x": [_r4(v)], "y": [_r4(r)]}
+                for t, v, r in zip(m.universe, np.sqrt(np.diag(m.cov.values)), m.mu_bl)),
               {"name": "NOW", "kind": "marker", "role": "now", "vis": PUB, "x": [_r4(now.vol)], "y": [_r4(now.exp_ret)]}]
+    by_key = {"NOW": {"series": [], "note": "YOUR MIX", "vis": PUB}}
     for k in config.PORTFOLIOS:
         p = m.portfolios.get(k)
-        if p is not None:
-            series.append({"name": k, "kind": "marker", "role": "target" if k == target else "port", "vis": PUB,
-                           "x": [_r4(p.vol)], "y": [_r4(p.exp_ret)]})
-    return {"id": "frontier", "n": 3, "title": "EFFICIENT FRONTIER", "type": "scatter", "span": 7, "vis": PUB,
-            "xfmt": "pct", "yfmt": "pct", "context": {"text": "VOL vs EXP RET* (BL)", "vis": PUB},
-            "series": series}
+        if p is None:
+            by_key[k] = {"series": [], "note": f"{k} INFEASIBLE", "vis": PUB}
+            continue
+        series.append({"name": k, "kind": "marker", "role": "target" if k == target else "port", "vis": PUB,
+                       "x": [_r4(p.vol)], "y": [_r4(p.exp_ret)]})
+        # the cursor row: the move from your mix to it, and what it changes
+        by_key[k] = {"series": [{"name": "MOVE", "kind": "line", "role": "move", "vis": PUB,
+                                 "x": [_r4(now.vol), _r4(p.vol)], "y": [_r4(now.exp_ret), _r4(p.exp_ret)]}],
+                     "note": f"NOW → {k}: VOL {(p.vol - now.vol) * 100:+.1f} · EXP RET* {(p.exp_ret - now.exp_ret) * 100:+.1f} PP",
+                     "vis": PUB}
+    return {"id": "frontier", "n": 4, "title": "EFFICIENT FRONTIER", "type": "scatter", "span": 6, "vis": PUB,
+            "xfmt": "pct", "yfmt": "pct", "xlabel": "VOLATILITY (1Y, ANNUAL)", "ylabel": "EXPECTED RETURN* (BL, ANNUAL)",
+            "context": {"text": "BL · 1Y COV", "vis": PUB},
+            "series": series, "follows": "portfolios", "series_by_key": by_key}
 
 
-def _portfolios(m, now, now_w, target) -> dict:
+def _last(s) -> float | None:
+    return num(float(s.dropna().iloc[-1])) if s is not None and s.notna().any() else None
+
+
+def _portfolios(m, now, now_w, target, w: dict) -> dict:
+    # FOLLOWED: the reality check next to the model's own numbers — the ROI your money would have now had it followed
+    # each since your first trade (NOW: your real ROI)
+    past = w.get("past") or {}
     rows = [{"id": "NOW", "name": "Current", "vol": _pct(now.vol), "dvol": 0.0, "ret": _pct(now.exp_ret),
-             "sharpe": num(now.sharpe), "turn": 0.0}]
+             "sharpe": num(now.sharpe), "turn": 0.0, "past": _last(w.get("you"))}]
     for k in config.PORTFOLIOS:
         p = m.portfolios.get(k)
         rows.append({"id": k, "name": riskmodel.LABELS[k] + ("" if p else " (infeasible)"),
                      "vol": _pct(p.vol) if p else None, "dvol": _pct(p.vol - now.vol) if p else None,
                      "ret": _pct(p.exp_ret) if p else None, "sharpe": num(p.sharpe) if p else None,
-                     "turn": _pct(float(np.abs(p.weights - now_w).sum() / 2)) if p else None})
+                     "turn": _pct(float(np.abs(p.weights - now_w).sum() / 2)) if p else None,
+                     "past": _last(past.get(k))})
     cols = [{"k": "id", "label": "ID", "fmt": "tkr", "vis": PUB},
             {"k": "name", "label": "PORTFOLIO", "fmt": "text", "vis": PUB},
             {"k": "vol", "label": "VOL", "fmt": "pct", "vis": PUB, "align": "r"},
             {"k": "dvol", "label": "Δ VOL", "fmt": "pct+", "vis": PUB, "align": "r"},
             {"k": "ret", "label": "EXP RET*", "fmt": "pct+", "vis": PUB, "align": "r"},
             {"k": "sharpe", "label": "SHARPE*", "fmt": "num:2", "vis": PUB, "align": "r"},
-            {"k": "turn", "label": "TURNOVER", "fmt": "pct", "vis": PUB, "align": "r"}]
+            {"k": "turn", "label": "TURNOVER", "fmt": "pct", "vis": PUB, "align": "r"},
+            {"k": "past", "label": "FOLLOWED", "fmt": "pct+", "vis": PUB, "align": "r", "hl": True}]
     # The cursor starts on your TARGET and drives the private TICKET; Enter makes the row your TARGET.
-    return {"id": "portfolios", "n": 4, "title": "PORTFOLIOS", "type": "table", "span": 5, "vis": PUB,
+    return {"id": "portfolios", "n": 3, "title": "PORTFOLIOS", "type": "table", "span": 5, "vis": PUB,
             "key": "id", "sort": ["vol", "asc"], "cols": cols, "rows": rows,
             "cursor": target, "enter": "TARGET {key}"}
 
 
 COLORS = {"NOW": "#ffffff", "MINVAR": "#4fc3f7", "RP": "#e040fb", "HRP": "#00e676", "BLSHARPE": "#ffeb3b",
           "BLSAME": "#ff7043", "EQUAL": "#bdbdbd"}
-PATH_CONTEXT = ("PAST: YOUR MONEY HAD IT FOLLOWED EACH, MONTHLY, NO HINDSIGHT · FUTURE: BL μ, 1Y COV, "
-                f"{whatif.MC_PATHS} PATHS · UNIVERSE = TODAY'S HOLDINGS — COMPARE WITH EQUAL")
 
 
-def _path(w: dict, target: str) -> dict:
-    base = {"id": "path", "n": 5, "title": "PAST & FUTURE", "type": "chart", "span": 12, "vis": PUB,
-            "yfmt": "pct+", "legend": "rank", "follows": "portfolios", "x": [], "series": [], "series_by_key": {}}
-    if "error" in w:
-        return {**base, "context": {"text": f"WHAT-IF UNAVAILABLE — {w['error']}", "vis": PUB}}
-    you, months = w["you"], whatif.MC_MONTHS
-    idx = thin_index(you.index)
-    future = [pd.Timestamp(w["today"]) + pd.DateOffset(months=k) for k in range(1, months + 1)]
-    pad = [None] * months
-    today_idx = len(idx) - 1
+def _r2(v):                         # hundredths: more than a chart shows, a third of the bytes
+    return num(round(float(v), 2)) if v is not None and v == v else None
 
-    def pct(v):                     # hundredths of a %: more than the chart shows, a third of the bytes
-        return num(round(float(v), 2)) if v is not None and v == v else None
 
-    def past(name, s, color, role="port"):
-        return {"name": name, "role": role, "kind": "line", "vis": PUB, "color": color,
-                "y": [pct(v) for v in s.reindex(idx)] + pad}
+def _followed(w: dict) -> dict:
+    """FOLLOWED → {key}: your ROI line, the cursor portfolio's and EQUAL's had your money followed them — one
+    question at a time, measured like PORT's ROI chart: any window by the ROI formula (`inv`, each line's `cash`)."""
+    base = {"id": "followed", "n": 6, "title": "FOLLOWED → {key}", "type": "chart", "span": 3, "vis": PUB,
+            "yfmt": "pct+", "legend": "rank", "follows": "portfolios", "x": [], "series": [], "series_by_key": {},
+            "ranges": ["1M", "6M", "YTD", "1Y", "ALL"], "range": "ALL"}
+    if "error" in w or "past_cash" not in w:          # a what-if kept from before this panel: nothing to draw yet
+        return {**base, "context": {"text": f"WHAT-IF UNAVAILABLE — {w.get('error', 'RECOMPUTING')}", "vis": PUB}}
+    idx = thin_index(w["you"].index)
 
-    # the future lines and bands carry their own points only, from x index `at` (today) — the browser pads them
-    # (ranges.expandAt); null-padded to the whole x, 28 bands pushed the payload past 300 KB
-    def ahead(name, med, color):
-        return {"name": f"{name} →", "role": "port", "kind": "line", "vis": PUB, "color": color, "dash": True,
-                "nolegend": True, "at": today_idx, "y": [pct(v) for v in med]}
+    def line(name, roi, cash, role="port"):
+        # `cash`: what the line paid out to each day — private, as on PORT (it tells when money moved)
+        return {"name": name, "role": role, "kind": "line", "vis": PUB,
+                "color": COLORS["NOW"] if name == "YOU" else COLORS[name],
+                "y": [_r2(v) for v in roi.reindex(idx)], "cash": [_r2(v) for v in cash.reindex(idx).fillna(0.0)]}
 
-    def band(name, lo, hi, color):
-        return {"name": name, "kind": "band", "vis": PUB, "color": color, "at": today_idx,
-                "lo": [pct(v) for v in lo], "hi": [pct(v) for v in hi]}
-
-    series = [past("YOU", you, COLORS["NOW"], role="primary")]
-    series += [past(k, w["past"][k], COLORS[k]) for k in config.PORTFOLIOS if k in w["past"]]
-    series += [ahead(k, w["bands"][k][2], COLORS[k]) for k in ["NOW", *config.PORTFOLIOS] if k in w["bands"]]
-    by_key = {}
-    for k in ["NOW", *config.PORTFOLIOS]:
-        b = w["bands"].get(k)
-        if b is None:
-            by_key[k] = {"series": [], "vis": PUB}
-            continue
-        now = w["bands"]["NOW"]
-        fans = [band(f"{k} 90%", b[0], b[4], COLORS[k]), band(f"{k} 50%", b[1], b[3], COLORS[k])]
-        if k != "NOW":
-            fans += [band("NOW 90%", now[0], now[4], COLORS["NOW"]), band("NOW 50%", now[1], now[3], COLORS["NOW"])]
-        by_key[k] = {"series": fans, "vis": PUB}
-    today = epoch([pd.Timestamp(w["today"])])[0]
+    shared = [line("YOU", w["you"], w["you_cash"], role="primary")]
+    if "EQUAL" in w["past"]:
+        shared.append(line("EQUAL", w["past"]["EQUAL"], w["past_cash"]["EQUAL"]))
+    by_key = {k: {"series": [line(k, w["past"][k], w["past_cash"][k])] if k in w["past"] and k != "EQUAL" else [],
+                  "vis": PUB} for k in ["NOW", *config.PORTFOLIOS]}
     stale = f"STALE — LAST GOOD {w['today']:%d %b %y}".upper() + f" ({w['stale']}) · " if w.get("stale") else ""
-    return {**base, "x": epoch(idx) + epoch(future), "series": series, "series_by_key": by_key,
-            "horizons": list(whatif.HORIZONS), "horizon": "1Y", "today_idx": today_idx,
-            "vlines": [today], "vlabels": ["TODAY"], "context": {"text": stale + PATH_CONTEXT, "vis": PUB}}
+    return {**base, "x": epoch(idx), "series": shared, "series_by_key": by_key,
+            "inv": [_r2(v) for v in w["inv"].reindex(idx)],
+            "context": {"text": stale + "NO HINDSIGHT · JUDGE BY EQUAL", "vis": PUB}}
+
+
+def _ahead(w: dict) -> dict:
+    """AHEAD → {key}: the frontier played out — your mix kept (grey) and the cursor portfolio switched to (its
+    colour), each its median and 90 % band of % change from today on the same simulated paths (a switch starts below
+    0 by its costs). A lower, narrower fan: less risk, less return. Path by path: REBALANCE?."""
+    base = {"id": "ahead", "n": 5, "title": "AHEAD → {key}", "type": "chart", "span": 3, "vis": PUB,
+            "yfmt": "pct+", "legend": "rank", "follows": "portfolios", "x": [], "series": [], "series_by_key": {}}
+    if "error" in w or not w.get("ahead"):
+        return {**base, "context": {"text": f"WHAT-IF UNAVAILABLE — {w.get('error', 'RECOMPUTING')}", "vis": PUB}}
+    a = w["ahead"]
+    months = len(a["NOW"][0]) - 1
+    x = epoch([pd.Timestamp(w["today"]) + pd.DateOffset(months=k) for k in range(months + 1)])
+
+    def band(name, b, color):
+        return {"name": f"{name} 90%", "kind": "band", "vis": PUB, "color": color,
+                "lo": [_r2(v) for v in b[0]], "hi": [_r2(v) for v in b[4]]}
+
+    def median(name, b, color, role):
+        return {"name": name, "role": role, "kind": "line", "vis": PUB, "color": color, "y": [_r2(v) for v in b[2]]}
+
+    keep = [band("NOW", a["NOW"], COLORS["NOW"]), median("NOW", a["NOW"], COLORS["NOW"], "primary")]
+    by_key = {"NOW": {"series": keep, "vis": PUB, "note": "KEEP YOUR MIX"}}
+    for k in config.PORTFOLIOS:
+        by_key[k] = ({"series": [keep[0], band(k, a[k], COLORS[k]), keep[1], median(k, a[k], COLORS[k], "port")],
+                      "vis": PUB} if k in a else
+                     {"series": [], "vis": PUB, "note": f"{k} INFEASIBLE"})
+    stale = f"STALE ({w['stale']}) · " if w.get("stale") else ""
+    return {**base, "x": x, "series_by_key": by_key, "horizons": list(whatif.HORIZONS), "horizon": "1Y",
+            "today_idx": 0, "context": {"text": f"{stale}% FROM TODAY · MEDIAN · 90%", "vis": PUB}}
 
 
 def _verdict(w: dict, target: str) -> dict:
@@ -278,7 +321,7 @@ def _verdict(w: dict, target: str) -> dict:
             {"k": "risk", "label": "RISK", "fmt": "text", "vis": PUB}]
     # rows in horizon order (`_i`), not the key's alphabet (1Y < 3Y < 6M); a following block's context is a plain
     # string, as TICKET's (rows_by_key never reaches the public view, so its euros stay private)
-    base = {"id": "verdict", "n": 6, "title": "REBALANCE? → {key}", "type": "table", "span": 5, "vis": PUB,
+    base = {"id": "verdict", "n": 7, "title": "REBALANCE? → {key}", "type": "table", "span": 5, "vis": PUB,
             "key": "h", "sort": ["_i", "asc"], "cols": cols, "rows": [], "follows": "portfolios"}
     if "error" in w:
         return {**base, "rows_by_key": {}, "context": {"text": f"WHAT-IF UNAVAILABLE — {w['error']}", "vis": PUB}}
@@ -292,10 +335,8 @@ def _verdict(w: dict, target: str) -> dict:
                  "down": num(round(v[h]["downside"], 2)),
                  "be": f"{v[h]['break_even']} MO" if v[h]["break_even"] else "—",
                  "verdict": v[h]["label"], "risk": v[h]["risk"]} for i, h in enumerate(whatif.HORIZONS)]
-        c, chk = w["costs"][k], w["past_check"].get(k, {})
-        text = (f"COSTS €{c['total']:.0f} (FEES €{c['fees']:.0f} + TAX €{c['tax']:.0f})"
-                + (f" · FOLLOWED: {chk['vs_you']:+.1f} pp vs YOU, {chk['vs_equal']:+.1f} pp vs EQUAL" if chk else ""))
-        by_key[k] = {"rows": rows, "context": text}
+        c = w["costs"][k]
+        by_key[k] = {"rows": rows, "context": f"COSTS €{c['total']:.0f} (FEES €{c['fees']:.0f} + TAX €{c['tax']:.0f})"}
     own = by_key.get(target, {"rows": [], "context": ""})
     return {**base, "rows": own["rows"], "context": {"text": own["context"], "vis": PRIV}, "rows_by_key": by_key}
 
@@ -333,7 +374,7 @@ def _ticket(m, q, values, total, tgt, target) -> dict:
         else:
             rows, ctx = _trades(m, q, values, total, p)
             by_key[k] = {"rows": rows, "context": ctx}
-    base = {"id": "ticket", "n": 7, "title": "TICKET → {key}", "type": "table", "span": 7, "vis": PRIV,
+    base = {"id": "ticket", "n": 8, "title": "TICKET → {key}", "type": "table", "span": 7, "vis": PRIV,
             "key": "tkr", "sort": ["d_eur", "desc"], "cols": cols, "rows": [],
             "follows": "portfolios", "rows_by_key": by_key}
     if tgt is None:

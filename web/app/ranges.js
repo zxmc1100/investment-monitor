@@ -157,7 +157,7 @@ export function expandAt(series, n) {
     : s));
 }
 
-// The future of a chart that has one (OPT's PAST & FUTURE): `todayIdx` the last past point; a horizon keeps that
+// The future of a chart that has one (OPT's AHEAD, today its first point): `todayIdx` the last past point; a horizon keeps that
 // many months after it. Every per-point array of a series is cut alike (y, and a band's lo / hi).
 export const HORIZON_MONTHS = { "6M": 6, "1Y": 12, "3Y": 36 };
 export function cutHorizon(x, series, todayIdx, months) {

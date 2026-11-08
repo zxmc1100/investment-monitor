@@ -201,6 +201,7 @@ tr.tot td { box-shadow: inset 0 1px var(--line); color: var(--amber); }
 svg.scatter { width: 100%; height: 100%; }
 svg.scatter .g { stroke: #1c1c1c; } svg.scatter .tx, svg.scatter .ty { fill: var(--dim); font: 10px var(--mono); }
 svg.scatter .tx { text-anchor: middle; } svg.scatter .ty { text-anchor: end; } svg.scatter .lb { font: 10px var(--mono); }
+svg.scatter .ax { fill: var(--amber); font: 10px var(--mono); }   /* axis names */
 .grid-table th.hl, .grid-table td.hl { color: var(--cmd); }
 
 .heatmap { font-size: 10px; } .heatmap td, .heatmap th { padding: 0 4px; line-height: var(--row); } .heatmap th { position: static; cursor: default; }

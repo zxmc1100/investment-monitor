@@ -817,7 +817,7 @@ def _chart_model(p: dict, ui, key) -> dict | None:
         else sliced["series"]
     )
     lines = [s for s in series if s.get("kind") not in ("markers", "band") and not s.get("nolegend")]
-    today = p.get("today_idx") if p.get("horizons") else None
+    today = p.get("today_idx") if p.get("horizons") and p.get("today_idx") else None  # a future alone: its end
     rest = legend_rest(len(x), today, sliced["start"])
     legend = []
     if p.get("legend") == "rank":
@@ -930,9 +930,13 @@ def draw_chart(v: Canvas, p: dict, ui) -> None:
 
 
 def draw_scatter(v: Canvas, p: dict, ui) -> None:
-    memo = ("scatter", p["id"], ui.gen, v.w, v.h)
+    """render/scatter.js: a scatter following a table adds the cursor row's series (OPT's frontier: the move to it)."""
+    key = ui.follow_key(p) if p.get("follows") else None
+    extra = ((p.get("series_by_key") or {}).get(key) or {}).get("series") or [] if key is not None else []
+    memo = ("scatter", p["id"], ui.gen, v.w, v.h, js_str(key) if key is not None else None)
     if memo not in ui.memo:
-        ui.memo[memo] = scatter_raster(p.get("series") or [], v.w, v.h, p.get("xfmt"), p.get("yfmt"))
+        ui.memo[memo] = scatter_raster([*(p.get("series") or []), *extra], v.w, v.h, p.get("xfmt"), p.get("yfmt"),
+                                       p.get("xlabel"), p.get("ylabel"))
     raster = ui.memo[memo]
     if raster is None:
         v.put(1, 0, "NO DATA", style(DIM))
