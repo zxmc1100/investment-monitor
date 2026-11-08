@@ -5,7 +5,8 @@
 // any other key closes it unanswered. Backspace never deletes a trade; Del does only right after a cursor move.
 // A finger (an iPad) gets taps for what it has no key for: tapAction. The F-key bar itself: tabbar.js.
 import { bindBar } from "./tabbar.js";
-const NAV = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10, Home: -1e9, End: 1e9 };
+export const NAV_PAGE = 10;                                 // PgDn / PgUp: ten rows — a paged table's page (app.js)
+const NAV = { ArrowDown: 1, ArrowUp: -1, PageDown: NAV_PAGE, PageUp: -NAV_PAGE, Home: -1e9, End: 1e9 };
 const QUIET = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Enter", "Escape"]);
 const ONCE = new Set(["Enter", "Delete", "Backspace"]);     // a held key repeats: these act once per press
 const MODE_KEYS = { KeyR: "ROI", KeyM: "MWR", KeyT: "TWR" };   // Option/Alt + the view's initial

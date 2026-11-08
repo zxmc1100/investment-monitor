@@ -7,7 +7,7 @@ import { changed } from "./diff.js";
 import { $, esc } from "./dom.js";
 import { fmtClock, fmtDate, fmtStamp } from "./fmt.js";
 import { rank } from "./fuzzy.js";
-import { ASK_MS, bindKeys } from "./keys.js";
+import { ASK_MS, bindKeys, NAV_PAGE } from "./keys.js";
 import { askFull, framed, listen, switchTo } from "./peer.js";
 import { chartModes } from "./ranges.js";
 import { followsLater, pickCols, pickSort } from "./render/table.js";
@@ -28,7 +28,8 @@ function keyRows() {
     ["Del", "delete the cursor row on TRADES — right after ↑↓ or a click on it, with an empty bar (asks first)"],
     ["Tab", "autocomplete (list open) · cycle panel focus (bar empty)"],
     [`1–${top}`, "jump to screen (bar empty)"],
-    ["↑ ↓ PgUp PgDn Home End", "move the row cursor"],
+    ["↑ ↓ PgUp PgDn Home End", "move the row cursor — a long list (MKT's movers, PORT's book) comes in pages: PgUp PgDn "
+      + "turn one, its title's chips (1 · 2 · …) go to one"],
     ["Shift+← →", "sort by previous / next column"],
     ["Shift+↑ ↓", "sort ascending / descending"],
     ["Alt+↑ ↓", "command history"],
@@ -782,10 +783,10 @@ const keyHandlers = {
   cursor(d) {
     const p = focusedTable();
     if (!p) return;
-    const keys = [...document.querySelectorAll(`#grid .panel[data-id="${CSS.escape(p.id)}"] tbody tr:not([hidden])`)]
-      .map((tr) => tr.dataset.key);                // a fit table's rows that show (render/table.js showWhatFits)
+    const keys = [...document.querySelectorAll(`#grid .panel[data-id="${CSS.escape(p.id)}"] tbody tr`)].map((tr) => tr.dataset.key);
     if (!keys.length) return;
     const t = ui(p.id).tableState(p);
+    if (p.fit && t.per && Math.abs(d) === NAV_PAGE) d = Math.sign(d) * t.per;   // a paged table: PgDn / PgUp turn a page
     ui(p.id).setCursor(p.id, keys[Math.max(0, Math.min(keys.length - 1, keys.indexOf(String(t.cursor)) + d))]);
   },
   focusPanel(d) {

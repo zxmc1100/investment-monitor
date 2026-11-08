@@ -1046,17 +1046,22 @@ def test_today_is_a_date(app):
     assert isinstance(app.today(), date)
 
 
-def test_a_fit_table_never_scrolls_the_cursor_walks_the_rows_that_show(app):
-    """render/table.js showWhatFits: a fit table shows the rows that fit and the cursor stays on them."""
+def test_a_fit_table_never_scrolls_or_cuts_its_rows_come_in_pages(app):
+    """render/table.js paginate: a fit table shows a page of what fits, the cursor's; arrows carry the page with
+    them, PgDn turns one, the title's chips go to one — every row reachable, none scrolled."""
     p = app.panel("positions")
     p["fit"] = True
     app.size = (160, 24)                                                   # less room than its 30 rows
-    app.draw()
-    shown = [k for _, k in app.row_ys["positions"]]
-    assert shown and len(shown) < len(app.table_state(p)["rows"])          # the fixture has more rows than room
-    assert app.row_keys(p) == shown
     app.focus = "positions"
-    app.set_cursor("positions", shown[0])
-    for _ in range(len(shown) + 5):
-        app.cursor(1)
-    assert app.table_state(p)["cursor"] == shown[-1]
+    app.draw()
+    info = app.pages["positions"]
+    keys = app.row_keys(p)
+    assert info["pages"] > 1 and info["page"] == 0 and len(keys) == 30   # the cursor walks every row
+    assert [k for _, k in app.row_ys["positions"]] == keys[: info["per"]]
+    press(app, "pgdn")
+    assert app.pages["positions"]["page"] == 1 and app.table_state(p)["cursor"] == keys[info["per"]]
+    assert [k for _, k in app.row_ys["positions"]][0] == keys[info["per"]]
+    app.do_act(("page", "positions", 0), 0)
+    app.draw()
+    assert app.pages["positions"]["page"] == 0 and app.table_state(p)["cursor"] == keys[0]
+    assert A.P.page_of(40, 26, 26) == {"per": 26, "pages": 2, "page": 1}   # render/table.js pageOf

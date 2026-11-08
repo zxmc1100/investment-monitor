@@ -60,18 +60,40 @@ export function textShares(cols, rows) {
   return Object.fromEntries(tx.map((c, i) => [c.k, Math.round((need[i] / sum) * 1000) / 10]));
 }
 
-// A `fit` table (MKT's movers, PORT's book) never scrolls: it shows the rows that fit whole in its panel, the rest
-// hidden — measured again on every resize (maximized it shows more). The cursor stays on a row that shows.
-function showWhatFits(body, t, st) {
+// Rows per page and the page the cursor is on: `per` whole rows fit; the cursor's page shows. Pure.
+export function pageOf(n, per, cursorAt) {
+  const size = Math.max(1, per), pages = Math.max(1, Math.ceil(n / size));
+  return { per: size, pages, page: Math.min(pages - 1, Math.floor(Math.max(0, cursorAt) / size)) };
+}
+
+// A `fit` table (MKT's movers, PORT's book) never scrolls and never cuts: its rows come in pages of what fits whole
+// in its panel — the title's chips (the usual menu: 1 · 2 · …) go to a page, PgDn / PgUp turn one, and the cursor
+// carries the page with it. Measured again on every resize (maximized: fewer, longer pages).
+function paginate(body, t, st, p, ui) {
   const trs = [...t.tBodies[0]?.rows ?? []];
   trs.forEach((tr) => { tr.hidden = false; });
   const below = (t.tFoot?.offsetHeight ?? 0) + (body.querySelector(".more")?.offsetHeight ?? 0);
-  const limit = body.getBoundingClientRect().top + body.clientHeight - below + 0.5;
-  trs.forEach((tr) => { if (tr.getBoundingClientRect().bottom > limit) tr.hidden = true; });
-  const cur = trs.find((tr) => tr.classList.contains("cur"));
-  if (cur?.hidden && trs[0] && !trs[0].hidden) {
-    cur.classList.remove("cur"); trs[0].classList.add("cur"); st.cursor = trs[0].dataset.key;
+  const room = body.clientHeight - (t.tHead?.offsetHeight ?? 0) - below;
+  const { per, pages, page } = pageOf(trs.length, Math.floor((room + 0.5) / (trs[0]?.offsetHeight || 1)),
+    trs.findIndex((tr) => tr.classList.contains("cur")));
+  st.per = per;
+  trs.forEach((tr, i) => { tr.hidden = Math.floor(i / per) !== page; });
+  if (!t.tFoot && !body.querySelector(".more")) {        // the filler carries the banding on from the page's last row
+    const grey = (Math.min(trs.length, (page + 1) * per) - 1) % 2 === 1;
+    body.style.setProperty("--band-a", grey ? "var(--bg)" : "var(--stripe)");
+    body.style.setProperty("--band-b", grey ? "var(--stripe)" : "var(--bg)");
   }
+  const head = body.parentElement?.querySelector(":scope > .h");
+  head?.querySelector(".pages")?.remove();
+  if (!head || pages < 2) return;
+  const chips = document.createElement("span");
+  chips.className = "picks pages";
+  chips.innerHTML = Array.from({ length: pages }, (_, k) => `<span class="${k === page ? "on" : ""}" data-page="${k}">${k + 1}</span>`).join("");
+  chips.querySelectorAll("[data-page]").forEach((c) => c.addEventListener("click", (e) => {
+    e.stopPropagation();                                 // a chip, not the title bar: no maximize on a tap
+    ui.setCursor(p.id, trs[Number(c.dataset.page) * per]?.dataset.key);
+  }));
+  head.insertBefore(chips, head.querySelector(".ctx"));
 }
 
 export function table(body, p, ui) {
@@ -114,14 +136,14 @@ export function table(body, p, ui) {
   if (t) {
     const fit = () => {
       t.classList.remove("tight"); if (t.scrollWidth > body.clientWidth + 1) t.classList.add("tight");
-      if (p.fit) showWhatFits(body, t, st);
+      if (p.fit) paginate(body, t, st, p, ui);
     };
     const ro = new ResizeObserver(fit);
     ro.observe(body);
     ui.onDispose(() => ro.disconnect());
   }
   if (st.reveal) {                                   // only when the cursor moved, not on every refresh
-    st.reveal = false;
-    requestAnimationFrame(() => body.querySelector("tr.cur")?.scrollIntoView({ block: "nearest" }));
+    st.reveal = false;                               // a fit table pages instead (paginate): never scrolled
+    if (!p.fit) requestAnimationFrame(() => body.querySelector("tr.cur")?.scrollIntoView({ block: "nearest" }));
   }
 }

@@ -85,7 +85,7 @@ def key_rows(top: int) -> list:
         ("j k · ↓ ↑", "row cursor (5j: five rows)"),
         ("gg G · Home End", "first / last row (12G: row 12)"),
         ("Ctrl-D Ctrl-U", "half a page"),
-        ("Ctrl-F Ctrl-B · PgDn PgUp", "a page"),
+        ("Ctrl-F Ctrl-B · PgDn PgUp", "a page — a long list in pages (MKT's movers, PORT's book): its next, its previous"),
         ("H M L", "the top, middle, bottom row in view"),
         ("Ctrl-E Ctrl-Y", "scroll the page a line"),
         ("zz zt zb", "the cursor row to the middle, top, bottom of the view"),
@@ -197,6 +197,7 @@ class App:
         self.gen = 0
         self.flashes: dict = {}
         self.row_ys: dict = {}
+        self.pages: dict = {}  # a paged (fit) table: its page size and pages (panels.page_lines)
         self.pscroll: dict = {}
         self.plots: dict = {}
         self.rects: dict = {}
@@ -738,7 +739,7 @@ class App:
 
     def draw_grid(self, c: Canvas, top: int, h: int) -> None:
         w = c.w
-        self.row_ys, self.plots, self.rects = {}, {}, {}
+        self.row_ys, self.plots, self.rects, self.pages = {}, {}, {}, {}
         if self.cold is not None:
             for i, t in enumerate(wrap(self.cold, w - 4)):
                 c.put(2, top + 1 + i, t, style(DIM))
@@ -908,7 +909,9 @@ class App:
         chart = self.focused_chart()
         n = self.take(None)
         step = n or 1
-        page = max(1, self.grid_h - 2)
+        fp = self.focused_table()
+        paged = self.pages.get(fp["id"]) if fp and fp.get("fit") else None
+        page = paged["per"] if paged else max(1, self.grid_h - 2)  # a paged table: PgDn turns its page
         if k in ("j", "down"):
             self.cursor(step)
         elif k in ("k", "up"):
@@ -1407,10 +1410,6 @@ class App:
         st["cursor"], st["reveal"] = key, True
 
     def row_keys(self, p: dict) -> list:
-        """The rows the cursor walks: a fit table's (MKT's movers, PORT's book) are the ones that show — it never
-        scrolls, as render/table.js showWhatFits — maximized, all of them."""
-        if p.get("fit") and not self.is_max(p) and self.row_ys.get(p["id"]):
-            return [k for _, k in self.row_ys[p["id"]]]
         return [r.get(p["key"]) for r in self.table_state(p)["rows"]]
 
     def cursor(self, d: int) -> None:
@@ -2455,6 +2454,10 @@ class App:
             self.modes[act[1]] = act[2]
         elif kind == "pick":
             self.set_pick(act[1], act[2])
+        elif kind == "page":  # a paged table's chip: its page's first row
+            firsts = (self.pages.get(act[1]) or {}).get("firsts") or []
+            if act[2] < len(firsts):
+                self.set_cursor(act[1], firsts[act[2]])
         elif kind == "hz":
             self.horizons[act[1]] = act[2]
         elif kind == "head":

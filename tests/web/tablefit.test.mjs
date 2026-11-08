@@ -38,3 +38,12 @@ test("period chips: a table shows the chosen period's columns, and a sort on one
   assert.equal(pickSort(cols, "daye", "DAY", "1W"), "w1e");
   assert.equal(pickSort(cols, "wt", "DAY", "1W"), "wt");                 // not a period column: stays
 });
+
+test("a fit table's pages: what fits whole per page, the page the cursor is on — never cut", async () => {
+  const { pageOf } = await import("../../web/app/render/table.js");
+  assert.deepEqual(pageOf(40, 26, 0), { per: 26, pages: 2, page: 0 });
+  assert.deepEqual(pageOf(40, 26, 26), { per: 26, pages: 2, page: 1 });    // row 27 is on page 2
+  assert.deepEqual(pageOf(40, 26, 39), { per: 26, pages: 2, page: 1 });
+  assert.deepEqual(pageOf(10, 26, 3), { per: 26, pages: 1, page: 0 });     // it all fits: one page, no chips
+  assert.deepEqual(pageOf(40, 0, -1), { per: 1, pages: 40, page: 0 });     // no room measured yet, no cursor
+});

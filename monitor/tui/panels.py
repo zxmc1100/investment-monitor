@@ -1061,9 +1061,30 @@ def band(lines: list, h: int) -> list:
     return out
 
 
+def page_of(n: int, per: int, cursor_at: int) -> dict:
+    """render/table.js pageOf: `per` whole rows a page, the page the cursor is on."""
+    size = max(1, per)
+    pages = max(1, -(-n // size))
+    return {"per": size, "pages": pages, "page": min(pages - 1, max(0, cursor_at) // size)}
+
+
+def page_lines(lines: list, h: int, ui, pid: str) -> tuple:
+    """A fit table (MKT's movers, PORT's book) never scrolls and never cuts: its rows in pages of what fits under its
+    header, the cursor's page shown. ui.pages[pid]: the page size and each page's first row (title chips, PgDn)."""
+    head = lines[:1] if lines and lines[0].sticky else []
+    body = lines[len(head) :]
+    pg = page_of(len(body), h - len(head), next((i for i, ln in enumerate(body) if ln.cur), 0))
+    per = pg["per"]
+    ui.pages[pid] = {**pg, "firsts": [body[i].key for i in range(0, len(body), per)]}
+    return [*head, *body[pg["page"] * per : (pg["page"] + 1) * per]], pg
+
+
 def draw_panel(v: Canvas, p: dict, lines: list | None, ui, windowed: bool = False) -> None:
     pid = p["id"]
     key = ui.follow_key(p)
+    pg = None
+    if lines is not None and p.get("fit") and p.get("type") == "table" and not windowed:
+        lines, pg = page_lines(lines, v.h - 1, ui, pid)
     if p.get("type") != "banner":
         title = str(p.get("title") or "").replace("{key}", js_str(key) if key is not None else "—")
         note = (chart_source(p, key) or {}).get("note") if p.get("follows") and p.get("series_by_key") else None
@@ -1086,6 +1107,14 @@ def draw_panel(v: Canvas, p: dict, lines: list | None, ui, windowed: bool = Fals
             x += 2 if i == 0 else 0
             nx = v.put(x, 0, chip, style(AMBER, BG) if k == pick else style(BG, bg))
             ui.hit(v.ox + x, v.oy, v.ox + nx, v.oy + 1, ("pick", pid, k))
+            x = nx
+        for k in range(pg["pages"] if pg and pg["pages"] > 1 else 0):  # a paged table's pages: the usual menu
+            chip = f" {k + 1} "
+            if x + (2 if k == 0 else 0) + tw(chip) > v.w - 2:
+                break
+            x += 2 if k == 0 else 0
+            nx = v.put(x, 0, chip, style(AMBER, BG) if k == pg["page"] else style(BG, bg))
+            ui.hit(v.ox + x, v.oy, v.ox + nx, v.oy + 1, ("page", pid, k))
             x = nx
         room = v.w - x - 2
         if ctx and room > 3:
