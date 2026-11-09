@@ -39,8 +39,8 @@ def panel(p, pid):
     return next(q for q in p["panels"] if q["id"] == pid)
 
 
-def kpi(p, pid, k):
-    return next(i["v"] for i in panel(p, pid)["items"] if i["k"] == k)
+def kpi(p, pid, k, key="v"):
+    return next(i[key] for i in panel(p, pid)["items"] if i["k"] == k)
 
 
 def test_panel_order_and_numbering(frozen, tmp_path):
@@ -72,9 +72,9 @@ def test_value_weights_and_roi_reconcile(frozen, tmp_path):
     assert pos["total"]["value"] == pytest.approx(kpi(p, "summary", "VALUE"))
     assert sum(r["wt"] for r in open_rows) == pytest.approx(100.0)
     assert sum(r["daye"] or 0 for r in open_rows) == pytest.approx(pos["total"]["daye"])
-    assert pos["total"]["daye"] == pytest.approx(kpi(p, "summary", "DAY P&L"))
+    assert pos["total"]["daye"] == pytest.approx(kpi(p, "summary", "DAY", "eur"))
     assert all("daye" not in r for r in panel(public_view(p), "positions")["rows"])   # € amounts stay private
-    assert kpi(p, "summary", "ROI") == pytest.approx(kpi(p, "summary", "TOTAL P&L") / 3990.0 * 100)
+    assert kpi(p, "summary", "TOTAL") == pytest.approx(kpi(p, "summary", "TOTAL", "eur") / 3990.0 * 100)   # ROI
 
 
 @pytest.mark.parametrize("now", ["2026-06-30 14:00:00+00:00", "2026-07-04 14:00:00+00:00"])   # a Tuesday, a Saturday
@@ -161,6 +161,20 @@ def _numbers(node, out):
     return out
 
 
+def test_summary_and_risk_line_up_six_a_row(frozen, tmp_path):
+    """Three rows of six columns each — big, normal, small, so the two panels' rows line up in height too — a € + %
+    pair (`eur`) one cell two columns wide; every lone € figure private."""
+    p = build(tmp_path)
+    for q in (panel(p, "summary"), panel(p, "risk")):
+        assert q["kcols"] == 6
+        for size in ("big", None, "small"):
+            assert sum(2 if "eur" in i else 1 for i in q["items"] if i.get("size") == size) == 6, (q["id"], size)
+        assert [i.get("size") for i in q["items"]] == sorted((i.get("size") for i in q["items"]),
+                                                            key=["big", None, "small"].index)
+        assert all(i["vis"] != "public" for i in q["items"] if i["fmt"].startswith("eur"))
+    assert {i.get("size") for i in panel(public_view(p), "summary")["items"]} == {"big", None}   # redact keeps it
+
+
 def test_public_view_leaks_nothing_private(frozen, tmp_path):
     canary = tmp_path / "canary.csv"
     canary.write_text("Date,Ticker,Action,Shares,Price,PricePerShare\n"
@@ -174,7 +188,8 @@ def test_public_view_leaks_nothing_private(frozen, tmp_path):
     assert list(next(q for q in pub["panels"] if q["id"] == "book")["views"]) == ["ALLOCATION"]   # the public view
     assert [c["k"] for c in panel(pub, "positions")["cols"]] == ["tkr", "name", "day", "w1", "m1", "ytd", "wt", "pnlp",
                                                                 "p1y"]
-    assert [i["k"] for i in panel(pub, "summary")["items"]] == ["DAY %", "ROI", "XIRR /YR", "YTD", "YTD TWR"]
+    assert [i["k"] for i in panel(pub, "summary")["items"]] == ["DAY", "TOTAL", "XIRR /YR", "YTD", "YTD TWR"]
+    assert not any("eur" in i for q in pub["panels"] for i in q.get("items", []))      # a pair's € half stays home
     private = set()
     for q in p["panels"]:
         private.update(y["gain"] for y in q.get("years", []) if isinstance(y.get("gain"), float))
@@ -356,8 +371,8 @@ def test_accounting_shows_bonus_and_interest_and_still_reconciles(frozen, tmp_pa
 def test_interest_never_moves_roi_or_total_pnl(frozen, tmp_path):
     base = build(tmp_path, _with(tmp_path))
     paid = build(tmp_path, _with(tmp_path, interest=[("2026-01-01", "50.00")]))
-    for k in ("ROI", "TOTAL P&L", "XIRR /YR", "YTD", "YTD TWR"):
-        assert kpi(paid, "summary", k) == pytest.approx(kpi(base, "summary", k)), k
+    for k, key in (("TOTAL", "v"), ("TOTAL", "eur"), ("XIRR /YR", "v"), ("YTD", "v"), ("YTD TWR", "v")):
+        assert kpi(paid, "summary", k, key) == pytest.approx(kpi(base, "summary", k, key)), k
 
 
 def test_posval_draws_a_bonus_as_a_buy(frozen, tmp_path):
@@ -376,7 +391,7 @@ def test_summary_has_both_ytds_and_a_year_table(frozen, tmp_path):
     p = build(tmp_path)
     s = panel(p, "summary")
     keys = [i["k"] for i in s["items"]]
-    assert keys.index("YTD TWR") == keys.index("YTD") + 1
+    assert keys.index("YTD TWR") == keys.index("YTD") + 1                   # beside it
     years = s["years"]
     assert [y["label"] for y in years] == ["2026", "2025"]                  # newest first
     assert all(y["fmt"] == "pct+" and y["vis"] == "public" and {"v", "v2", "first", "end", "gain"} <= set(y)
@@ -508,7 +523,7 @@ def test_todays_roi_point_is_the_live_roi_kpi_and_its_live_twr_step(frozen, tmp_
     p = port.assemble(parts, dict(META))
     you = panel(p, "roi")["series"][0]
     q, d = parts["quote"], parts["daily"]
-    assert you["y"][-1] == pytest.approx(kpi(p, "summary", "ROI"), abs=1e-9)
+    assert you["y"][-1] == pytest.approx(kpi(p, "summary", "TOTAL"), abs=1e-9)
     assert you["y"][-1] != pytest.approx(float(d["roi_series"].iloc[-1]), abs=0.01)    # not the daily close
     today = date(2026, 6, 30)
     before = d["twr"][d["twr"].index < pd.Timestamp(today)].iloc[-1]

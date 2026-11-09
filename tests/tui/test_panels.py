@@ -341,6 +341,26 @@ def test_a_grow_row_takes_the_spare_height_not_the_table_rows():
     assert P.row_heights(placed, {"a": 5, "m": 3}, 20) == [5, 15]
 
 
+def test_kpi_size_is_bold_when_big_and_dim_when_small(app):
+    """render/kpi.js sets big / small type sizes; a terminal has one: big is bold, small dim, plain values too."""
+    items = [{"k": "B", "v": 1.0, "fmt": "num:0", "size": "big"}, {"k": "N", "v": 1.0, "fmt": "num:0"},
+             {"k": "S", "v": 1.0, "fmt": "num:0", "size": "small"}, {"k": "U", "v": 1.0, "fmt": "pct+", "size": "small"}]
+    labels, values = P.kpi_lines({"id": "k", "items": items}, 80, app)
+    assert [(s[1], s[3]) for s in labels[1:]] == [(P.AMBER, True), (P.AMBER, False), (P.DIM, False), (P.DIM, False)]
+    assert [(s[1], s[3]) for s in values[1:]] == [(P.FG, True), (P.FG, True), (P.DIM, False), (P.UP, False)]
+
+
+def test_a_kpi_pair_shows_euros_then_percent_across_two_cells(app):
+    """render/kpi.js `eur`: one figure in € and %, its cell two columns wide — four columns hold the pair and two."""
+    items = [{"k": "A", "v": 1.0, "fmt": "num:0"}, {"k": "DAY", "v": 0.59, "fmt": "pct+:2", "eur": 54.22},
+             {"k": "B", "v": 2.0, "fmt": "num:0"}, {"k": "C", "v": 3.0, "fmt": "num:0"}]
+    lines = P.kpi_lines({"id": "k", "items": items}, 82, app)       # four 20-cell columns
+    text = ["".join(s[0] for s in ln) for ln in lines]
+    assert len(lines) == 4                                          # A DAY·· B | C
+    assert text[0].index("B") - text[0].index("DAY") == 40
+    assert "+€54.22 (+0.59%)" in text[1] and [s[1] for s in lines[1] if "€" in s[0] or "%" in s[0]] == [P.UP, P.UP]
+
+
 def test_a_kpi_strip_takes_a_column_per_kpi_room_allowing(app):
     """render/kpi.js `kcols`: MOM's BOOK across the window is one row of ten, not three of four."""
     items = [{"k": f"K{i}", "v": float(i), "fmt": "num:0"} for i in range(10)]

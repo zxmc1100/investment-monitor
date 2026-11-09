@@ -22,7 +22,7 @@ from monitor.data.buffer import (cached_dividends, cached_events, cached_market_
                                  cached_price_history, cached_quotes, never_quoted)
 from monitor.data.instruments import BENCHMARKS
 from monitor.portfolio import equity_log
-from monitor.portfolio.analytics import build_roi_timeseries, compute_quant_metrics, twr_index, xirr
+from monitor.portfolio.analytics import build_roi_timeseries, compute_quant_metrics, daily_flows, twr_index, xirr
 from monitor.portfolio.dividends import cash, combine, withholding_rates
 from monitor.portfolio.ledger import compute_portfolio_summary, load_interest, load_paid_dividends, parse_portfolio
 
@@ -195,6 +195,13 @@ def daily_tier(book: dict, *, force: bool = False, buffer_dir: Path | None = Non
     roi_series, bm_series, asset_values = build_roi_timeseries(
         txns, dividends=divs, never_priced=never_quoted(book["holdings"], buffer_dir=buffer_dir))
     metrics = compute_quant_metrics(roi_series, bm_series.get("S&P 500"))
+    total = asset_values.get("__total__")
+    if metrics and isinstance(total, pd.Series):
+        # total P&L at each close (ROI numerator − buys so far) below its best close so far: euros given back
+        pnl = (total - daily_flows(txns, divs, total.index)["buy"].cumsum()).dropna()
+        dd = pnl - pnl.cummax()
+        metrics["max_drawdown_eur"] = round(float(dd.min()), 2) if len(dd) else None
+        metrics["current_drawdown_eur"] = round(float(dd.iloc[-1]), 2) if len(dd) else None
     held = sorted(book["holdings"])
     history = (cached_price_history(held, period="5y", force=force, buffer_dir=buffer_dir)
                if held else pd.DataFrame())

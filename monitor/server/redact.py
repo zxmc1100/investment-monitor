@@ -16,7 +16,7 @@ _PANEL_KEYS = ("id", "n", "title", "type", "span", "rows_span", "key", "sort", "
                "follows", "ranges", "range", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels",
                "horizons", "horizon", "today_idx", "cursor", "picks", "pick", "xlabel", "ylabel", "fit", "grow", "kcols")
 _NODE_KEYS = ("k", "label", "v", "v2", "fmt", "vis", "align", "op", "sep", "strong", "h", "body",
-              "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide", "hi", "color", "dash", "nolegend", "at", "pick")
+              "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide", "hi", "color", "dash", "nolegend", "at", "pick", "size")
 _LISTS = {"kpi": "items", "ledger": "lines", "bars": "items", "scatter": "series"}
 # Maximized detail lists. PORT SUMMARY `years` nodes carry a euro `gain`, which is not on
 # _NODE_KEYS — the public view keeps the year's percentages (v, v2) and drops it.

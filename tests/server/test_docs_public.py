@@ -13,7 +13,7 @@ DATA = Path(__file__).resolve().parents[2] / "docs" / "data"
 FILES = sorted(DATA.glob("*.json")) if DATA.exists() else []
 PRIVATE_COLS = {"shrs", "avg", "last", "value", "pnl", "amt", "now_eur", "tgt_eur", "d_eur", "shares", "loss", "side",
                 "mark"}
-FORBIDDEN_KEYS = PRIVATE_COLS | {"stale", "code_version", "_closed"}
+FORBIDDEN_KEYS = PRIVATE_COLS | {"stale", "code_version", "_closed", "eur"}   # eur: a KPI pair's €
 PRIVATE_PANELS = {"posval", "accounting", "activity", "ticket", "names", "events"}
 PRIVATE_KPIS = {"VALUE", "DAY P&L", "TOTAL P&L", "REALIZED", "UNREALIZED", "VaR95 1D €"}
 

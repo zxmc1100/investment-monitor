@@ -10,6 +10,8 @@ key removed the payload hashed to the previous golden, so again no pinned number
 Regenerated again when asset_values gained "__bmlast__" (each benchmark's state at the last close before
 today, for PORT's live point) and the EM benchmark moved from EUNM.F to EUNM.DE: a field-by-field diff of the
 canonical JSON showed only the new key and the Emerging Markets line (bm_series, __twr__) changed.
+Regenerated again when metrics gained "max_drawdown_eur" and "current_drawdown_eur" (MAX DD € / CUR DD €):
+with those keys removed the payload hashed to the previous golden.
 
 Regenerate ONLY when a change to the numbers is intended:  UPDATE_GOLDEN=1 pytest <this file>
 (DUMP_GOLDEN=<path> writes the canonical JSON for a diff)."""

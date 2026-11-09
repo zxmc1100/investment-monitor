@@ -169,23 +169,31 @@ def kpi_lines(p: dict, w: int, ui) -> list:
     cw = max(1, (w - 2) // n)
     out, row = [], []
 
+    def cells(it) -> int:  # render/kpi.js `eur`: a € + % pair takes two cells
+        return min(2, n) if "eur" in it else 1
+
     def flush():
         if row:
-            out.append(line(seg(" "), *[seg(pad(it["k"], cw), AMBER) for it in row]))
+            # `size` (render/kpi.js): no type sizes here — big is bold, small dim (its plain values too)
+            out.append(line(seg(" "), *[seg(pad(it["k"], cw * cells(it)), DIM if it.get("size") == "small" else AMBER,
+                                            None, it.get("size") == "big") for it in row]))
             # a value longer than its cell (TOP CORR's names) wraps in it, as the browser's does
             texts = [fmt(it.get("v"), it.get("fmt")) for it in row]
-            rows = [wrap(t, max(1, cw - 1)) for t, _ in texts]
+            texts = [(f"({t})", c) if "eur" in it else (t, c) for it, (t, c) in zip(row, texts)]   # € (%), broker-style
+            eurs = [fmt(it["eur"], "eur+") if "eur" in it else ("", "") for it in row]
+            rows = [wrap(t, max(1, cw * cells(it) - 1 - (tw(e) + 1 if e else 0)))
+                    for it, (t, _), (e, _c) in zip(row, texts, eurs)]
             for i in range(max(map(len, rows))):
                 vals = [seg(" ")]
-                for it, (_t, cls), lines in zip(row, texts, rows):
-                    vals.append(
-                        seg(
-                            pad(lines[i] if i < len(lines) else "", cw),
-                            cls_fg(cls),
-                            ui.flash_bg(f"{p['id']}|{it['k']}|v"),
-                            True,
-                        )
-                    )
+                for it, (_t, cls), (e, ecls), lines in zip(row, texts, eurs, rows):
+                    plain = DIM if it.get("size") == "small" else FG
+                    look = (ui.flash_bg(f"{p['id']}|{it['k']}|v"), it.get("size") != "small")
+                    width = cw * cells(it)
+                    if e:  # the € first, then the (%)
+                        lead = (e + " ") if i == 0 else " " * (tw(e) + 1)
+                        vals.append(seg(clip(lead, width), cls_fg(ecls, plain), *look))
+                        width = max(0, width - tw(lead))
+                    vals.append(seg(pad(lines[i] if i < len(lines) else "", width), cls_fg(cls, plain), *look))
                 out.append(line(*vals))
             row.clear()
 
@@ -196,8 +204,10 @@ def kpi_lines(p: dict, w: int, ui) -> list:
             text, cls = fmt(it.get("v"), it.get("fmt"))
             out += [line(seg(" " + t, cls_fg(cls))) for t in wrap(text, w - 2)]
             continue
+        if sum(map(cells, row)) + cells(it) > n:
+            flush()
         row.append(it)
-        if len(row) == n:
+        if sum(map(cells, row)) == n:
             flush()
     flush()
     if p.get("years") and ui.is_max(p):

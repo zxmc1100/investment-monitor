@@ -155,6 +155,19 @@ def test_quote_tier_reports_interest_outside_roi(env, tmp_path):
     assert a["total_pnl"] == pytest.approx(a0["total_pnl"]) and a["simple_roi"] == pytest.approx(a0["simple_roi"])
 
 
+def test_current_drawdown_eur_is_total_pnl_below_its_best_close(env):
+    from monitor.portfolio.analytics import daily_flows
+    book = S.load_book(FIX)
+    d = S.daily_tier(book, buffer_dir=env)
+    roi = d["roi_series"]
+    inv = daily_flows(book["transactions"], S.dividends(book, buffer_dir=env), roi.index)["buy"].cumsum()
+    pnl = roi / 100 * inv                                   # P&L = ROI × buys: the same euros, from the % side
+    m = d["metrics"]
+    assert m["current_drawdown_eur"] == pytest.approx(pnl.iloc[-1] - pnl.max(), abs=0.01)
+    assert m["max_drawdown_eur"] == pytest.approx((pnl - pnl.cummax()).min(), abs=0.01)
+    assert m["max_drawdown_eur"] <= m["current_drawdown_eur"] <= 0
+
+
 def test_daily_tier_adds_holdings_value_and_keeps_ytd(env):
     book = S.load_book(FIX)
     d = S.daily_tier(book, buffer_dir=env)

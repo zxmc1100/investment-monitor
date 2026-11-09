@@ -17,10 +17,15 @@ export function yearsTable(rows) {
 
 export function kpi(body, p) {
   body.classList.add("kpi");
-  // `kcols`: as many columns as it has KPIs, so a full-width strip is one row (MOM's BOOK) — else four
+  // `kcols`: columns a row — a full-width strip of all its KPIs (MOM's BOOK), six (PORT's SUMMARY | RISK) — else four
   if (Number.isInteger(p.kcols) && p.kcols > 0) body.style.gridTemplateColumns = `repeat(${p.kcols}, minmax(0, 1fr))`;
   body.innerHTML = (p.items ?? []).map((it) => {
     const f = fmt(it.v, it.fmt);
-    return `<div class="kv${it.wide ? " wide" : ""}"><b>${esc(it.k)}</b><span class="${f.cls}" data-cell="${esc(`${p.id}|${it.k}|v`)}">${esc(f.text)}</span></div>`;
+    // `eur`: the same figure in euros first, the % after it in brackets, broker-style — one cell two columns wide
+    const pair = "eur" in it;
+    const e = pair ? fmt(it.eur, "eur+") : null;
+    const cls = ["kv", it.wide && "wide", pair && "duo", ["big", "small"].includes(it.size) && it.size].filter(Boolean);
+    const val = pair ? `<span class="${e.cls}">${esc(e.text)}</span><span class="${f.cls}">(${esc(f.text)})</span>` : esc(f.text);
+    return `<div class="${cls.join(" ")}"><b>${esc(it.k)}</b><span class="${pair ? "" : f.cls}" data-cell="${esc(`${p.id}|${it.k}|v`)}">${val}</span></div>`;
   }).join("") + (p.years?.length ? yearsTable(p.years) : "");
 }

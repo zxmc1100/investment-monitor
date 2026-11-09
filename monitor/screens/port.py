@@ -84,8 +84,12 @@ HELP = [
      "days after the ex date in Germany, France, Italy, Spain, Switzerland, Austria, Belgium, Portugal); else "
      "your other lines' gap. A dividend is cash - in ROI, YTD and ACCOUNTING - from its pay date; ACCOUNTING "
      "lists the due ones apart."},
-    {"h": "RISK", "vis": PUB, "body": "Vol, Sharpe, Sortino, drawdowns and VaR from the daily "
-     "portfolio ROI series since the first trade; beta and alpha vs the cash-flow-matched S&P 500."},
+    {"h": "RISK", "vis": PUB, "body": "Vol, Sharpe, Sortino, drawdowns, VaR / CVaR, best and worst day and "
+     "up days (the share of days that rose) from the daily portfolio ROI series since the first trade; beta, "
+     "alpha, tracking error and info ratio vs the cash-flow-matched S&P 500."},
+    {"h": "RISK in euros", "vis": PRIV, "body": "MAX DD / CUR DD in euros: total P&L below its best close so far - "
+     "the deepest such dip, and today's. New money doesn't count, so a buy never reads as a drawdown. VaR95 / "
+     "CVaR95 in euros: the daily % in today's value."},
     {"h": "ALLOCATION", "vis": PUB, "body": "Sector and country weights of the whole book. The MSCI "
      "World ETF is looked through with approximate index weights (marked *, rebalanced quarterly). "
      "Its view maximized (Alt+4) shows every sector and country with the positions behind each, and region "
@@ -208,34 +212,64 @@ def _summary(q: dict, d: dict) -> dict:
     today = date.today()
     years = year_returns(d["hold"], q["txns"], q["dividends"], live_value=value, today=today)
     cur = next((y for y in years if y["year"] == today.year), {})
-    return {"id": "summary", "n": 1, "title": "SUMMARY", "type": "kpi", "span": 6, "vis": PUB,
+    # six columns, rows lined up with RISK's beside it: what you read first big, the money behind it small; a
+    # figure in € and % is one cell two columns wide (_pair)
+    return {"id": "summary", "n": 1, "title": "SUMMARY", "type": "kpi", "span": 6, "vis": PUB, "kcols": 6,
             "context": {"text": _summary_context(q), "vis": PUB},
-            "items": [_kpi("VALUE", value, "eur"),
-                      _kpi("DAY P&L", q["day_pnl"], "eur+"),
-                      _kpi("DAY %", q["day_pct"], "pct+:2", PUB),
-                      _kpi("TOTAL P&L", a["total_pnl"], "eur+"),
-                      _kpi("ROI", a["simple_roi"], "pct+", PUB),
-                      _kpi("XIRR /YR", a["mwr"] * 100 if a["mwr"] is not None else None, "pct+", PUB),
-                      _kpi("YTD", cur.get("growth"), "pct+", PUB),
-                      _kpi("YTD TWR", cur.get("twr"), "pct+", PUB),
-                      _kpi("REALIZED", a["realized"], "eur+"),
-                      _kpi("UNREALIZED", a["unrealized"], "eur+")],
+            "items": _tiers([_kpi("VALUE", value, "eur"),
+                             _pair("DAY", q["day_pct"], "pct+:2", q["day_pnl"]),
+                             _pair("TOTAL", a["simple_roi"], "pct+", a["total_pnl"]),          # ROI and total P&L
+                             _kpi("XIRR /YR", a["mwr"] * 100 if a["mwr"] is not None else None, "pct+", PUB)],
+                            [_pair("YTD", cur.get("growth"), "pct+", cur.get("gain")),
+                             _kpi("YTD TWR", cur.get("twr"), "pct+", PUB),
+                             _kpi("REALIZED", a["realized"], "eur+"),
+                             _kpi("UNREALIZED", a["unrealized"], "eur+"),
+                             _kpi("DIVIDENDS", a["dividends"], "eur+")],
+                            [_kpi("INVESTED", a["gross_deposits"], "eur"),
+                             _kpi("RETURNED", a["cash_returned"], "eur"),
+                             _kpi("NET INVESTED", a["net_invested"], "eur"),
+                             _kpi("COST BASIS", a["net_cost_basis"], "eur"),
+                             _kpi("BONUS", a["bonus"], "eur+"),
+                             _kpi("INTEREST", a["interest"], "eur+")]),
             "years": [{"label": str(y["year"]), "v": _num(y["growth"]), "v2": _num(y["twr"]), "first": _num(y["first"]),
                        "end": _num(y["end"]), "gain": _num(y["gain"]), "fmt": "pct+", "vis": PUB} for y in years]}
 
 
-def _risk(d: dict) -> dict:
+def _risk(q: dict, d: dict) -> dict:
     m = d["metrics"] or {}
-    return {"id": "risk", "n": 2, "title": "RISK", "type": "kpi", "span": 6, "vis": PUB,
+    value = _live_value(q)
+
+    def eur(pct):    # a 1-day % of the daily ROI path in today's money, like RISK's VaR95 1D €
+        return pct / 100 * value if pct is not None else None
+    # six columns like SUMMARY, sized the same way: the headline risk big, the day statistics small; each loss in
+    # % and € one cell (_pair)
+    return {"id": "risk", "n": 2, "title": "RISK", "type": "kpi", "span": 6, "vis": PUB, "kcols": 6,
             "context": {"text": f"DAILY · {m.get('n_trading_days', 0)}D", "vis": PUB},
-            "items": [_kpi("VOL", m.get("volatility"), "pct", PUB),
-                      _kpi("SHARPE", m.get("sharpe"), "num:2", PUB),
-                      _kpi("SORTINO", m.get("sortino"), "num:2", PUB),
-                      _kpi("BETA SPX", m.get("beta"), "num:2", PUB),
-                      _kpi("MAX DD", m.get("max_drawdown"), "pct+", PUB),
-                      _kpi("CUR DD", m.get("current_drawdown"), "pct+", PUB),
-                      _kpi("VaR95", m.get("var_95"), "pct+:2", PUB),
-                      _kpi("ALPHA", m.get("alpha"), "pct+", PUB)]}
+            "items": _tiers([_kpi("VOL", m.get("volatility"), "pct", PUB),
+                             _kpi("SHARPE", m.get("sharpe"), "num:2", PUB),
+                             _kpi("BETA SPX", m.get("beta"), "num:2", PUB),
+                             _kpi("ALPHA", m.get("alpha"), "pct+", PUB),
+                             _pair("CUR DD", m.get("current_drawdown"), "pct+", m.get("current_drawdown_eur"))],
+                            [_pair("MAX DD", m.get("max_drawdown"), "pct+", m.get("max_drawdown_eur")),
+                             _pair("VaR95", m.get("var_95"), "pct+:2", eur(m.get("var_95"))),
+                             _pair("CVaR95", m.get("cvar_95"), "pct+:2", eur(m.get("cvar_95")))],
+                            [_kpi("SORTINO", m.get("sortino"), "num:2", PUB),
+                             _kpi("INFO RATIO", m.get("info_ratio"), "num:2", PUB),
+                             _kpi("TRACK ERR", m.get("tracking_error"), "pct", PUB),
+                             _kpi("WORST DAY", m.get("worst_day"), "pct+:2", PUB),
+                             _kpi("BEST DAY", m.get("best_day"), "pct+:2", PUB),
+                             _kpi("UP DAYS", m.get("win_rate"), "pct", PUB)])}
+
+
+def _pair(k: str, pct, fmt: str, eur) -> dict:
+    """One figure in € and % — one cell, two columns wide (web kpi.js / tui kpi_lines `eur`). The % is public; the €
+    rides in `eur`, a key the redactor's allow-list drops, so the public build shows the % alone in one column."""
+    return {**_kpi(k, pct, fmt, PUB), "eur": _num(eur)}
+
+
+def _tiers(big: list, mid: list, small: list) -> list:
+    """KPIs by use: the ones read first `size` big, the background small (web kpi.js / tui kpi_lines)."""
+    return [{**i, "size": "big"} for i in big] + mid + [{**i, "size": "small"} for i in small]
 
 
 def _name(q: dict, t: str) -> str:
@@ -581,7 +615,7 @@ def assemble(parts: dict, meta: dict) -> dict:
             "help": help_entries(),
             # compact: SUMMARY | RISK · POSITIONS | the book's detail (one panel, chips) · the ROI chart across
             # the bottom, all the height left
-            "panels": [_summary(q, d), _risk(d), _positions(q, d), _book(q, d), _roi(q, d)]}
+            "panels": [_summary(q, d), _risk(q, d), _positions(q, d), _book(q, d), _roi(q, d)]}
 
 
 def _book(q: dict, d: dict) -> dict:

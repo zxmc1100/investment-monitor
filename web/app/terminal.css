@@ -81,6 +81,12 @@ body {
 .kpi .kv b { display: block; color: var(--amber); font-weight: 400; font-size: 9.5px; }
 .kpi .kv span { font-size: 13px; }
 .kpi .kv.wide { grid-column: 1 / -1; }            /* a sentence-long value gets the whole row */
+/* `size`: the KPIs read first a step up, the background a step down. `eur` pairs: € then (%), a size down, two
+   columns wide */
+.kpi .kv.big span { font-size: 15px; }
+.kpi .kv.duo { grid-column: span 2; } .kpi .kv.duo span span + span { margin-left: 1ch; font-size: .85em; }
+.kpi .kv.small b { color: var(--dim); } .kpi .kv.small span { font-size: 11px; }
+.kpi .kv.small span:not(.up):not(.dn) { color: var(--dim); }
 
 /* tables */
 table { border-collapse: collapse; width: 100%; }

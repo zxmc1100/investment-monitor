@@ -24,6 +24,8 @@ HELP = [
      "realized path since the first trade (contribution timing included), so the two differ."},
     {"h": "DRAWDOWN / MAX DD / CUR DD", "vis": PUB, "body": "Your realized ROI path since the first "
      "trade, contributions included — not today's weights."},
+    {"h": "CUR DD €", "vis": PRIV, "body": "Total P&L now minus its best close: the euros given back since "
+     "your P&L peaked. New money in doesn't count, so a buy never reads as a drawdown."},
     {"h": "STRESS", "vis": PUB, "body": "Today's weights replayed over each window. A position without "
      "price history covering the window is estimated as its beta x the S&P 500's move (ESTIMATED n/N). "
      "A position whose own history jumps more than 40% in one day inside a window is treated as a data "
@@ -70,6 +72,7 @@ def _summary(m, metrics, value) -> dict:
                       kpi("VaR95 1D €", var / 100 * value if var is not None else None, "eur+"),
                       kpi("MAX DD", metrics.get("max_drawdown"), "pct+", PUB),
                       kpi("CUR DD", metrics.get("current_drawdown"), "pct+", PUB),
+                      kpi("CUR DD €", metrics.get("current_drawdown_eur"), "eur+"),
                       kpi("HHI", m.hhi, "num:3", PUB), kpi("EFF N", m.eff_n, "num:1", PUB),
                       kpi("TOP-3", m.top3 * 100, "pct", PUB), kpi("DIV RATIO", m.div_ratio, "num:2", PUB)]}
 
