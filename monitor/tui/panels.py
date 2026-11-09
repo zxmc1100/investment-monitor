@@ -164,7 +164,8 @@ def years_lines(rows: list, w: int) -> list:
 
 
 def kpi_lines(p: dict, w: int, ui) -> list:
-    n = 4 if w >= 48 else 2 if w >= 24 else 1
+    k = p.get("kcols")  # render/kpi.js: a strip of that many columns (MOM's BOOK), room allowing (12 cells each)
+    n = k if isinstance(k, int) and k > 0 and w >= 12 * k else 4 if w >= 48 else 2 if w >= 24 else 1
     cw = max(1, (w - 2) // n)
     out, row = [], []
 

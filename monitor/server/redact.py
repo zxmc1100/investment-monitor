@@ -14,7 +14,7 @@ import copy
 PUBLIC = "public"
 _PANEL_KEYS = ("id", "n", "title", "type", "span", "rows_span", "key", "sort", "drives",
                "follows", "ranges", "range", "legend", "yfmt", "xfmt", "rebase", "vlines", "vlabels",
-               "horizons", "horizon", "today_idx", "cursor", "picks", "pick", "xlabel", "ylabel", "fit", "grow")
+               "horizons", "horizon", "today_idx", "cursor", "picks", "pick", "xlabel", "ylabel", "fit", "grow", "kcols")
 _NODE_KEYS = ("k", "label", "v", "v2", "fmt", "vis", "align", "op", "sep", "strong", "h", "body",
               "name", "y", "kind", "role", "text", "x", "hl", "lo", "wide", "hi", "color", "dash", "nolegend", "at", "pick")
 _LISTS = {"kpi": "items", "ledger": "lines", "bars": "items", "scatter": "series"}
@@ -180,7 +180,7 @@ def _panel(p: dict) -> dict | None:
                  "cursor", "pick", "xlabel", "ylabel"):
             if isinstance(val, str):
                 out[k] = val
-        elif k in ("n", "span", "rows_span", "today_idx"):
+        elif k in ("n", "span", "rows_span", "today_idx", "kcols"):
             if isinstance(val, int) and not isinstance(val, bool):
                 out[k] = val
         elif k in ("ranges", "horizons", "picks"):

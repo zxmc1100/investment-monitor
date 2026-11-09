@@ -17,6 +17,8 @@ export function yearsTable(rows) {
 
 export function kpi(body, p) {
   body.classList.add("kpi");
+  // `kcols`: as many columns as it has KPIs, so a full-width strip is one row (MOM's BOOK) — else four
+  if (Number.isInteger(p.kcols) && p.kcols > 0) body.style.gridTemplateColumns = `repeat(${p.kcols}, minmax(0, 1fr))`;
   body.innerHTML = (p.items ?? []).map((it) => {
     const f = fmt(it.v, it.fmt);
     return `<div class="kv${it.wide ? " wide" : ""}"><b>${esc(it.k)}</b><span class="${f.cls}" data-cell="${esc(`${p.id}|${it.k}|v`)}">${esc(f.text)}</span></div>`;

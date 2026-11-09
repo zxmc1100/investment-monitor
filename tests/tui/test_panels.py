@@ -339,3 +339,11 @@ def test_a_grow_row_takes_the_spare_height_not_the_table_rows():
     """MKT's movers (`grow`, `fit`): their row takes what the others leave; a table row keeps its content's height."""
     placed = P.place([{"id": "a", "span": 12, "type": "table"}, {"id": "m", "span": 12, "type": "table", "grow": True}])
     assert P.row_heights(placed, {"a": 5, "m": 3}, 20) == [5, 15]
+
+
+def test_a_kpi_strip_takes_a_column_per_kpi_room_allowing(app):
+    """render/kpi.js `kcols`: MOM's BOOK across the window is one row of ten, not three of four."""
+    items = [{"k": f"K{i}", "v": float(i), "fmt": "num:0"} for i in range(10)]
+    assert len(P.kpi_lines({"id": "b", "items": items, "kcols": 10}, 200, app)) == 2       # labels, values
+    assert len(P.kpi_lines({"id": "b", "items": items, "kcols": 10}, 80, app)) == 6        # too narrow: four a row
+    assert len(P.kpi_lines({"id": "b", "items": items}, 200, app)) == 6

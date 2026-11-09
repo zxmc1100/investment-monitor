@@ -72,9 +72,9 @@ export function pageOf(n, per, cursorAt) {
 function paginate(body, t, st, p, ui) {
   const trs = [...t.tBodies[0]?.rows ?? []];
   trs.forEach((tr) => { tr.hidden = false; });
-  const below = (t.tFoot?.offsetHeight ?? 0) + (body.querySelector(".more")?.offsetHeight ?? 0);
-  const room = body.clientHeight - (t.tHead?.offsetHeight ?? 0) - below;
-  const { per, pages, page } = pageOf(trs.length, Math.floor((room + 0.5) / (trs[0]?.offsetHeight || 1)),
+  const h = (el) => el?.getBoundingClientRect().height ?? 0;  // fractional: a 15.17px row is not 15 (offsetHeight)
+  const room = body.getBoundingClientRect().height - h(t.tHead) - h(t.tFoot) - h(body.querySelector(".more"));
+  const { per, pages, page } = pageOf(trs.length, Math.floor((room + 0.01) / (h(trs[0]) || 1)),
     trs.findIndex((tr) => tr.classList.contains("cur")));
   st.per = per;
   trs.forEach((tr, i) => { tr.hidden = Math.floor(i / per) !== page; });
