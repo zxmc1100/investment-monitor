@@ -110,3 +110,22 @@ def test_a_line_yahoo_never_priced_is_carried_at_cost_and_flagged(frozen, ctx, m
     hold = panel(build(ctx), "holdings")["rows_by_key"]["ANNA"]
     bond = next(r for r in hold["rows"] if r["tkr"] == "BND-X")
     assert bond["_stale"] is True and bond["value"] == 1000.0 and "1 NO PRICE: AT COST" in hold["context"]
+
+
+def test_a_new_books_history_runs_even_before_its_quotes(frozen, ctx, monkeypatch):
+    """The daily tier may run before the quote tier ever asked for a new book's lines: it asks them first (buffered),
+    so a line Yahoo has never priced is told from a cold start — not 'no history', failing the whole screen."""
+    import yfinance
+    import monitor.data.yahoo as Y
+    real_q, real_dl = Y.fetch_quotes, yfinance.download
+    monkeypatch.setattr(Y, "fetch_quotes", lambda ts: {**real_q(ts), "BND-X": None})
+
+    def download(tickers, *a, **k):          # Yahoo has no history for the bond either: its columns come back empty
+        df = real_dl(tickers, *a, **k)
+        df.loc[:, [c for c in df.columns if c[1] == "BND-X"]] = float("nan")
+        return df
+    monkeypatch.setattr(yfinance, "download", download)
+    port.compute("quote", ctx)                                  # yours quoted: the quote buffer exists
+    add_book(ctx, "ANNA", ["2026-02-02,EEE.F,buy,4,400.00,100.00", "2026-02-02,BND-X,buy,10,1000.00,100.00"])
+    daily = books.compute("daily", ctx)                        # before BOOKS' own quote tier
+    assert "ANNA" in daily["books"] and not daily["errors"]

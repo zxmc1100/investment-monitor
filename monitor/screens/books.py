@@ -14,9 +14,9 @@ from datetime import date
 
 import pandas as pd
 
-from monitor.data.buffer import cached_price_history
+from monitor.data.buffer import cached_price_history, cached_quotes
 from monitor.data.instruments import BENCHMARKS
-from monitor.portfolio import books
+from monitor.portfolio import books, snapshot
 from monitor.portfolio.analytics import daily_flows
 from monitor.portfolio.snapshot import BENCH_FX
 from monitor.portfolio.trades import book_error, has_trades
@@ -94,6 +94,11 @@ def compute(tier: str, ctx: Ctx) -> dict:
         if error := book_error(c.portfolio_csv):
             errors[name] = error
             continue
+        if tier == "daily":
+            # the quote tier may not have run for a new book yet: its lines asked first (buffered — no network once
+            # quoted), so a line Yahoo never priced is told from a cold start, never read as Yahoo being down
+            if held := sorted(snapshot.load_book(c.portfolio_csv)["holdings"]):
+                cached_quotes(held, buffer_dir=c.buffer_dir)
         part = port.compute(tier, c)
         if tier == "daily":
             part.pop("history", None)          # PORT's sparklines: unused here, heavy to store per book
