@@ -317,6 +317,10 @@ class Engine:
         for sid, scr in self._readers():
             if scr.inline:
                 jobs += self.ensure_fresh(sid)
+        for sid, scr in self.screens.items():         # a book's TRADES (BOOK <NAME>), each one stored
+            if scr.status == "live" and scr.inline and scr.uses_books and scr.params is not None:
+                for key in sorted(self.store.keys(f"{sid}~", scr.tiers)):
+                    jobs += self.ensure_fresh(sid, split_key(key)[1])
         if settle <= 0:
             return jobs + self._queue_readers()
         with self._locks_guard:
@@ -329,7 +333,7 @@ class Engine:
 
     def _readers(self):
         return [(sid, scr) for sid, scr in self.screens.items()
-                if scr.status == "live" and scr.uses_inputs and scr.params is None]
+                if scr.status == "live" and (scr.uses_inputs or scr.uses_books) and scr.params is None]
 
     def _queue_readers(self) -> list[Job]:
         return [j for sid, scr in self._readers() if not scr.inline

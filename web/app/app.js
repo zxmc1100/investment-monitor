@@ -111,6 +111,7 @@ function route() {
   if (key === S.key) return;
   if (S.key && !viaBack) S.back = pushBack(S.back, hashOf({ id: S.id, param: S.param }));
   Object.assign(S, { id: r.id, param: r.param, key, payload: null, live: null, max: null, focus: null, resetScroll: true });
+  api.useBook(r.id === "BOOK" ? r.param : null);   // BOOK <NAME>: every trade call names that book
   S.running.clear();
   load();
 }
@@ -174,7 +175,7 @@ function show(payload) {
     const st = S.forms[formKey(p.id)];
     if (p.type === "paste" && st?.preview) st.stale = true;
   }
-  if (S.ask && payload.screen === "TRADES" && !stands(S.ask, { route: S.key, rows: tradeIds() })) {
+  if (S.ask && onTrades(payload.screen) && !stands(S.ask, { route: S.key, rows: tradeIds() })) {
     cancelAsk("THE TRADES CHANGED — NOTHING DONE, ASK AGAIN");      // a row it names was edited or deleted meanwhile
   }
   render();
@@ -277,19 +278,22 @@ function focusField(pid, name = null) {
 
 const savedText = (res) => [`SAVED · ${res.text}`, ...(res.warnings ?? [])].join(" · ");
 
+// TRADES, or a book's (BOOK <NAME>: the same screen on that book's file)
+const onTrades = (id) => id === "TRADES" || id === "BOOK";
+
 // A write to your trades, made on the version the user saw — `etag`: the one a question was asked on; else this
 // screen's, or (from another screen) the file's now. A 409 (changed meanwhile) reloads TRADES; the user saves again.
 async function tradeWrite(call, done, etag = null) {
   try {
-    const tag = etag ?? (S.id === "TRADES" && S.payload?.etag ? S.payload.etag : (await api.trades()).etag);
+    const tag = etag ?? (onTrades(S.id) && S.payload?.etag ? S.payload.etag : (await api.trades()).etag);
     const res = await call(tag);
-    if (S.id === "TRADES" && S.payload) S.payload.etag = res.etag;
+    if (onTrades(S.id) && S.payload) S.payload.etag = res.etag;
     done(res);
     registry().then((r) => { S.reg = r; }).catch(() => {});        // SEC's ticker list follows the book
     return res;
   } catch (e) {
     notice(api.why(e), true);
-    if (e.status === 409 && S.id === "TRADES") load();
+    if (e.status === 409 && onTrades(S.id)) load();
     return null;
   }
 }
@@ -378,7 +382,7 @@ async function startFresh() {
   ask("START FRESH?", freshText({ rows: tradeRows(now), error: now.error, lines: now.lines }), "START FRESH",
     () => tradeWrite((tag) => api.resetTrades(tag), (res) => {
       notice(`STARTED FRESH · THE ${res.removed} ${now.error ? "LINES" : "TRADES"} ARE IN input/backups/ · UNDO BRINGS THEM BACK`);
-      if (S.id !== "TRADES") run("TRADES");
+      if (!onTrades(S.id)) run("TRADES");
     }, now.etag), now.rows.map((r) => r.id));
 }
 

@@ -19,7 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from monitor import config
 from monitor.alerts import watchlist
 from monitor.data.buffer import cached_quotes
+from monitor.portfolio import books
 from monitor.portfolio.ledger import CSVError, parse_portfolio
+from monitor.screens import trades as trades_screen
 from monitor.screens.identity import identify
 from monitor.portfolio.tradebook import Blocked, Conflict, Invalid, Missing, TradeBook
 from monitor.server.alerting import AlertLoop, AlertService
@@ -112,10 +114,12 @@ def quote_check(ticker: str, buffer_dir: Path | None = None) -> dict | None:
     return quotes.get(ticker)
 
 
-def terminal_book(engine: Engine) -> TradeBook:
-    """The terminal's TradeBook over the engine's input/portfolio.csv: Yahoo for new tickers; an ISIN (a broker
-    export's) by lookup.resolve_isin — settings [isins], then the held line of the same name, …"""
-    csv, memo = engine.ctx.portfolio_csv, {}
+def terminal_book(engine: Engine, csv: Path | None = None) -> TradeBook:
+    """The terminal's TradeBook over the engine's input/portfolio.csv (or `csv`, another book's): Yahoo for new
+    tickers; an ISIN (a broker export's) by lookup.resolve_isin — settings [isins], then the held line of the same
+    name, …"""
+    mine = csv is None
+    csv, memo = Path(engine.ctx.portfolio_csv if mine else csv), {}
 
     def held() -> dict[str, str]:
         """{ticker: name} of every line in your file — names as the terminal already knows them, no network; read
@@ -134,7 +138,7 @@ def terminal_book(engine: Engine) -> TradeBook:
     def isin(code: str, name: str = "", alias: str = "") -> str | None:
         return lookup.resolve_isin(code, name, held(), alias=alias, overrides=config.SETTINGS["isins"],
                                    buffer_dir=engine.ctx.buffer_dir)
-    return TradeBook(csv, example=config.EXAMPLES_DIR / "portfolio.example.csv",
+    return TradeBook(csv, example=config.EXAMPLES_DIR / "portfolio.example.csv" if mine else None,
                      quote=lambda t: quote_check(t, engine.ctx.buffer_dir), isin=isin)
 
 
@@ -173,7 +177,7 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
                idle_minutes: float | None = None) -> FastAPI:
     engine = engine or Engine.default()
     alerts = AlertService(engine, engine.ctx.alerts) if engine.ctx.alerts is not None else None
-    book = trade_book or terminal_book(engine)
+    mine = trade_book or terminal_book(engine)
     idle_minutes = idle_minutes if idle_minutes is not None else _idle_minutes()
     idle = (IdleWatch(idle_minutes, tabs=lambda: engine.broker.subscribers, busy=engine.runner.busy,
                       stop=stop_server)
@@ -401,47 +405,63 @@ def create_app(engine: Engine | None = None, *, web_dir: Path = config.WEB_DIR,
             raise RequestValidationError([{"loc": ("body", key), "msg": f"{key} must be a {kind.__name__}"}])
         return value
 
+    others: dict[str, TradeBook] = {}             # one TradeBook a file: its lock serializes the writes
+
+    def book_of(name: str | None) -> TradeBook:
+        """Your trades, or (?book=<NAME>, BOOK <NAME>) another book's — its first trade creates its folder."""
+        name = (name or books.YOU).upper()
+        if name == books.YOU:
+            return mine
+        if not books.valid(name):
+            raise HTTPException(404, {"error": f"{name}: {trades_screen.BOOK.unknown_param}"})
+        if name not in others:               # setdefault: two first requests at once still share one lock
+            others.setdefault(name, terminal_book(engine, books.csv_of(engine.ctx.portfolio_csv, name)))
+        return others[name]
+
     @app.get("/api/trades")
-    def get_trades():
-        return book.read()
+    def get_trades(book: str | None = None):
+        return book_of(book).read()
 
     @app.post("/api/trades")
-    def add_trade(body: dict = Body(...)):
+    def add_trade(body: dict = Body(...), book: str | None = None):
         tag, trade = need_etag(body), need(body, "trade", dict)
-        return written(lambda: book.add(tag, trade))
+        tb = book_of(book)
+        return written(lambda: tb.add(tag, trade))
 
     @app.put("/api/trades/{rid}")
-    def edit_trade(rid: str, body: dict = Body(...)):
+    def edit_trade(rid: str, body: dict = Body(...), book: str | None = None):
         tag, trade = need_etag(body), need(body, "trade", dict)
-        return written(lambda: book.update(tag, rid, trade))
+        tb = book_of(book)
+        return written(lambda: tb.update(tag, rid, trade))
 
     @app.delete("/api/trades/{rid}")
-    def delete_trade(rid: str, body: dict = Body(...)):
-        tag = need_etag(body)
-        return written(lambda: book.delete(tag, rid))
+    def delete_trade(rid: str, body: dict = Body(...), book: str | None = None):
+        tag, tb = need_etag(body), book_of(book)
+        return written(lambda: tb.delete(tag, rid))
 
     @app.post("/api/trades/preview")
-    def preview_trades(body: dict = Body(...)):
+    def preview_trades(body: dict = Body(...), book: str | None = None):
         text, mode = need(body, "text", str), body.get("mode") or "append"
         try:
-            return book.preview(text, mode)
+            return book_of(book).preview(text, mode)
         except Invalid as e:
             raise HTTPException(400, {"error": str(e)})
 
     @app.post("/api/trades/import")
-    def import_trades(body: dict = Body(...)):
+    def import_trades(body: dict = Body(...), book: str | None = None):
         tag, text, mode = need_etag(body), need(body, "text", str), body.get("mode") or "append"
-        return written(lambda: book.import_text(tag, text, mode))
+        tb = book_of(book)
+        return written(lambda: tb.import_text(tag, text, mode))
 
     @app.post("/api/trades/reset")
-    def reset_trades(body: dict = Body(...)):
-        tag = need_etag(body)
-        return written(lambda: book.reset(tag))
+    def reset_trades(body: dict = Body(...), book: str | None = None):
+        tag, tb = need_etag(body), book_of(book)
+        return written(lambda: tb.reset(tag))
 
     @app.post("/api/trades/undo")
-    def undo_trades(body: dict = Body(...)):
-        tag = need_etag(body)
-        return written(lambda: book.undo(tag))
+    def undo_trades(body: dict = Body(...), book: str | None = None):
+        tag, tb = need_etag(body), book_of(book)
+        return written(lambda: tb.undo(tag))
 
     @app.get("/api/jobs")
     def jobs():

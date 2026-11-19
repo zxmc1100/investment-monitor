@@ -31,6 +31,7 @@ from typing import Any, Callable, Mapping
 
 from monitor import config
 from monitor.config import EQUITY_LOG, PORTFOLIO_CSV
+from monitor.portfolio import books
 
 TIERS = ("quote", "daily", "heavy")
 # What a screen built from your trades shows while there are none yet — where a registry without TRADES
@@ -137,6 +138,7 @@ class Screen:
     current: Callable[[Ctx], bool] | None = None
     needs_portfolio: bool = False       # without trades in ctx.portfolio_csv: a cold view (no_trades), no compute
     uses_inputs: bool = False           # reads the book or the settings: parts are stale when those change
+    uses_books: bool = False            # reads your other books (input/books/): stale when any of them changes
     cold: Callable[[Ctx], str | None] | None = None    # a further one-line reason it cannot compute now
     # Cheap and local (no network): its due tiers compute in the request itself — never queued behind the
     # network tiers — and only its code or your inputs make them due, never age (TRADES).
@@ -168,9 +170,10 @@ class Screen:
 
     def version(self, ctx: Ctx) -> str:
         """What a stored part must match to count as current: the code version, plus the input
-        fingerprint for a screen that reads your inputs."""
+        fingerprint for a screen that reads your inputs, and the books' for one that reads them."""
         code = self.code_version()
-        return f"{code}+{input_fingerprint(ctx)}" if self.uses_inputs else code
+        code = f"{code}+{input_fingerprint(ctx)}" if self.uses_inputs else code
+        return f"{code}+{books.fingerprint(ctx.portfolio_csv)}" if self.uses_books else code
 
 
 def screen_key(sid: str, param: str | None = None) -> str:

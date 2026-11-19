@@ -50,6 +50,7 @@ ASK_S = 0.4  # an Enter sooner than this after a question: a double-tap, no answ
 COUNT_S = 0.3  # a lone digit waits this long for a motion (5j) before it opens screen 5
 CHORD_FIRST = ("g", "z", "d", "Z", "ctrl-w")
 NOTICE_S = 5.0
+TRADES_IDS = ("TRADES", "BOOK")  # TRADES, and a book's (BOOK <NAME>: the same screen on that book's file)
 FLASH_S = 1.2
 LOOKUP_S, PREVIEW_S = 0.2, 0.5
 MAX_IMPORT = 8 * 1024 * 1024
@@ -342,6 +343,7 @@ class App:
         if self.key and not via_back:
             self.back = C.push_back(self.back, self.key)
         self.id, self.param, self.key = sid, param, key
+        self.api.book = param if sid == "BOOK" else None  # BOOK <NAME>: every trade call names that book
         self.payload = self.live = self.cold = None
         self.max = self.focus = self.field = None
         self.mode = "normal" if self.mode == "insert" else self.mode
@@ -432,7 +434,7 @@ class App:
                 self.preview_soon(p, 0)
         if (
             self.ask_state
-            and payload.get("screen") == "TRADES"
+            and payload.get("screen") in TRADES_IDS
             and not T.stands(self.ask_state, self.key, self.trade_ids())
         ):
             self.cancel_ask("THE TRADES CHANGED — NOTHING DONE, ASK AGAIN")
@@ -2048,19 +2050,19 @@ class App:
 
         def work():
             tag = (
-                etag or ((self.payload or {}).get("etag") if self.id == "TRADES" else None) or self.api.trades()["etag"]
+                etag or ((self.payload or {}).get("etag") if self.id in TRADES_IDS else None) or self.api.trades()["etag"]
             )
             return call(tag)
 
         def then(res):
-            if self.id == "TRADES" and self.payload:
+            if self.id in TRADES_IDS and self.payload:
                 self.payload["etag"] = res.get("etag")
             done(res)
             self.registry_later()  # SEC's ticker list follows the book
 
         def fail(e):
             self.note(why(e), True)
-            if isinstance(e, ApiError) and e.status == 409 and self.id == "TRADES":
+            if isinstance(e, ApiError) and e.status == 409 and self.id in TRADES_IDS:
                 self.load()
 
         self.bg(work, then, fail)
@@ -2218,7 +2220,7 @@ class App:
                 self.note(
                     f"STARTED FRESH · THE {res.get('removed')} {'LINES' if now.get('error') else 'TRADES'} ARE IN input/backups/ · UNDO BRINGS THEM BACK"
                 )
-                if self.id != "TRADES":
+                if self.id not in TRADES_IDS:
                     self.run("TRADES")
 
             self.ask(

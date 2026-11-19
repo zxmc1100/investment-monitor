@@ -88,16 +88,16 @@ Type to command, Enter to run, Esc to go back. Number keys switch screens (with 
 | `4` MKT | indices, FX, commodities, movers, your names and sectors, upcoming events |
 | `5` ALRT | alerts |
 | `6` TRADES | add, paste or import your trades; edit or delete them |
+| `7` BOOKS | other portfolios beside yours, one chart, the same benchmarks (`BOOK ANNA` starts or opens one) |
 
 Type a ticker (or `SEC <ticker>`) for one security. Keys: ↑↓ PgUp PgDn move the cursor · Enter opens
 the row · Shift+←→ sort column, Shift+↑↓ direction · Tab next panel · Alt+1…9 maximize a panel ·
 Alt+↑↓ command history · drag a chart to zoom, double-click to reset · F1 or `?` help. The same terminal in your own terminal, with vim keys: `.venv/bin/python -m monitor tui` (`examples/README.md`).
 
-Commands (`HELP` lists them all): `BUY SAP.DE 4 @ 240` · `SELL ALV.DE 2 = 820 2026-03-02` ·
-`BONUS IWDA.AS 0.15 = 15` · `UNDO` · `START FRESH` · `WATCH <name|ticker>` · `UNWATCH <ticker>` ·
-`ALERT SAP.DE < 200` / `ALERT * MOVE 5` / `ALERT PORT DAY -2` · `UNALERT <id>` · `ACK <id|ALL>` ·
-`TARGET HRP` · `REFRESH` · `CLOSED` · `FULL`. Alerts are checked every minute while a terminal tab
-is open. `data/README.md` explains the market universe the lookup and MKT's movers use.
+Commands (`HELP` lists them all): `BUY SAP.DE 4 @ 240` · `SELL ALV.DE 2 = 820 2026-03-02` · `BONUS IWDA.AS 0.15 = 15` ·
+`UNDO` · `START FRESH` · `BOOK ANNA` · `WATCH <name|ticker>` · `UNWATCH <ticker>` · `ALERT SAP.DE < 200` / `ALERT * MOVE 5` /
+`ALERT PORT DAY -2` · `UNALERT <id>` · `ACK <id|ALL>` · `TARGET HRP` · `REFRESH` · `CLOSED` · `FULL`. Alerts are checked
+every minute while a terminal tab is open. `data/README.md` explains the market universe the lookup and MKT's movers use.
 
 ## Update
 
@@ -113,7 +113,7 @@ Download the new ZIP and unzip it, then copy your `input/` folder (your trades a
 
 It writes `docs/` — PORT, OPT, RISK and MKT, percentages only. Commit `docs/` and enable GitHub Pages
 from `/docs`. The export never contains euro amounts, share counts, costs, transactions, closed positions,
-your watchlist or alerts, and never the single-security, alerts or trades screens. It refuses while your
+your watchlist or alerts, and never the single-security, alerts, trades or books screens. It refuses while your
 portfolio is missing, empty, still the example, or your settings have an error.
 
 ## Privacy

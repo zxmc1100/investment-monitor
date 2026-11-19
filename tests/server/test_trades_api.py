@@ -228,3 +228,43 @@ def test_a_broken_trades_file_never_blocks_the_terminal(tmp_path, monkeypatch):
             "YOUR TRADES FILE HAS AN ERROR — portfolio.csv row 2, column Price: '96x' is not a number · fix it in the "
             "file, or press 6 (TRADES) and UNDO the last change"), sid
     assert eng.runner.jobs() == []
+
+
+def test_a_book_is_written_beside_yours_never_into_it(env):
+    """?book=<NAME> (BOOK <NAME>): its own file under input/books/, created by its first trade — yours untouched;
+    BOOK YOU is your own file; a name the command bar could not type is refused."""
+    c, eng, csv, _, _ = env
+    mine = csv.read_bytes()
+    empty = c.get("/api/trades?book=ANNA").json()
+    assert empty["rows"] == [] and empty["exists"] is False and empty["example"] is False
+    r = c.post("/api/trades?book=anna", json={"etag": empty["etag"], "trade": {
+        "ticker": "SAP.DE", "action": "buy", "shares": 2, "pps": 100, "date": "2026-01-02"}})
+    assert r.status_code == 200
+    book = csv.parent / "books" / "ANNA" / "portfolio.csv"
+    assert "2026-01-02,SAP.DE,buy,2,200.00,100.00" in book.read_text(encoding="utf-8")
+    assert csv.read_bytes() == mine
+    assert len(c.get("/api/trades?book=ANNA").json()["rows"]) == 1
+    assert c.get("/api/trades?book=YOU").json()["etag"] == c.get("/api/trades").json()["etag"]
+    assert c.get("/api/trades?book=no_good").status_code == 404
+    rid = r.json()["id"]
+    tag = c.get("/api/trades?book=ANNA").json()["etag"]
+    assert c.request("DELETE", f"/api/trades/{rid}?book=ANNA", json={"etag": tag}).status_code == 200
+    assert c.get("/api/trades?book=ANNA").json()["rows"] == [] and csv.read_bytes() == mine
+
+
+def test_the_book_screen_is_trades_on_the_books_file_and_follows_its_writes(env):
+    c, eng, csv, _, rec = env
+    eng.screens["BOOK"] = SCREENS["BOOK"]
+    p = c.get("/api/screen/BOOK/ANNA").json()                  # a new name: an empty book
+    assert p["screen"] == "BOOK" and p["title"] == "Book ANNA" and "FIRST TRADE CREATES THE BOOK" in p["context"]["text"]
+    assert not any(q["id"] == "fresh" for q in p["panels"])     # never the example's START FRESH
+    assert c.get("/api/screen/BOOK/no_good").status_code == 404
+    r = c.post("/api/trades?book=ANNA", json={"etag": p["etag"], "trade": {
+        "ticker": "SAP.DE", "action": "buy", "shares": 1, "pps": 50, "date": "2026-01-02"}})
+    assert r.status_code == 200
+    after = c.get("/api/screen/BOOK/ANNA").json()
+    assert after["etag"] == r.json()["etag"] and len(after["panels"][-1]["rows"]) == 1
+    assert any(e["type"] == "screen" and e.get("key") == "BOOK~ANNA" for e in rec.events)   # pushed at the write
+    assert "ANNA" in c.get("/api/screens").json()["params"]["BOOK"]
+    you = c.get("/api/screen/BOOK/YOU").json()
+    assert len(you["panels"][-1]["rows"]) == 15 and any(q["id"] == "fresh" for q in you["panels"])

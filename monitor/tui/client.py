@@ -43,6 +43,7 @@ def _q(s) -> str:
 class Api:
     def __init__(self, base: str):
         self.base = base.rstrip("/")
+        self.book = None  # BOOK <NAME> open: every trade call names that book (api.js useBook)
 
     def _json(self, path: str, method: str = "GET", body=None, timeout: float = 120.0):
         data = None if body is None else json.dumps(body).encode("utf-8")
@@ -113,29 +114,32 @@ class Api:
     def ack(self, body):
         return self._json("/api/alerts/ack", "POST", body)
 
+    def _trades(self, rest: str = "") -> str:
+        return f"/api/trades{rest}" + (f"?book={_q(self.book)}" if self.book else "")
+
     def trades(self):
-        return self._json("/api/trades")
+        return self._json(self._trades())
 
     def add_trade(self, etag, trade):
-        return self._json("/api/trades", "POST", {"etag": etag, "trade": trade})
+        return self._json(self._trades(), "POST", {"etag": etag, "trade": trade})
 
     def edit_trade(self, rid, etag, trade):
-        return self._json(f"/api/trades/{_q(rid)}", "PUT", {"etag": etag, "trade": trade})
+        return self._json(self._trades(f"/{_q(rid)}"), "PUT", {"etag": etag, "trade": trade})
 
     def del_trade(self, rid, etag):
-        return self._json(f"/api/trades/{_q(rid)}", "DELETE", {"etag": etag})
+        return self._json(self._trades(f"/{_q(rid)}"), "DELETE", {"etag": etag})
 
     def preview_trades(self, text, mode):
-        return self._json("/api/trades/preview", "POST", {"text": text, "mode": mode})
+        return self._json(self._trades("/preview"), "POST", {"text": text, "mode": mode})
 
     def import_trades(self, etag, text, mode):
-        return self._json("/api/trades/import", "POST", {"etag": etag, "text": text, "mode": mode})
+        return self._json(self._trades("/import"), "POST", {"etag": etag, "text": text, "mode": mode})
 
     def reset_trades(self, etag):
-        return self._json("/api/trades/reset", "POST", {"etag": etag})
+        return self._json(self._trades("/reset"), "POST", {"etag": etag})
 
     def undo_trades(self, etag):
-        return self._json("/api/trades/undo", "POST", {"etag": etag})
+        return self._json(self._trades("/undo"), "POST", {"etag": etag})
 
     def subscribe(self, on_event) -> threading.Event:
         """The event stream on a daemon thread: on_event(type, data) per event, ("conn", {ok}) as it comes and goes, and a

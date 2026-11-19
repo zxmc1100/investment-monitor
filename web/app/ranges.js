@@ -22,7 +22,7 @@ export const defaultRange = (p) => (p.range && p.ranges?.includes(p.range) ? p.r
 
 // The points from `start` to `end`. `anchor`: open on the last point BEFORE start instead — the close a
 // period's return is measured from (YTD: the year before's last close). Every series slices with x,
-// its `twr` and `cash` too, a band's `lo` / `hi`. `start`: the first point's index in x (0: nothing before it).
+// its `twr`, `cash` and own `inv` too, a band's `lo` / `hi`. `start`: the first point's index in x (0: nothing before it).
 export function sliceFrom(x, series, start, end = Infinity, anchor = false) {
   let i = 0;
   while (i < x.length && x[i] < start) i++;
@@ -33,7 +33,8 @@ export function sliceFrom(x, series, start, end = Infinity, anchor = false) {
   i = Math.min(i, Math.max(0, j - 2));
   const cut = (a) => a?.slice(i, j);
   return { x: x.slice(i, j), start: i, series: series.map((s) => ({ ...s, y: cut(s.y), ...(s.twr ? { twr: cut(s.twr) } : {}),
-    ...(s.cash ? { cash: cut(s.cash) } : {}), ...(s.lo ? { lo: cut(s.lo), hi: cut(s.hi) } : {}) })) };
+    ...(s.cash ? { cash: cut(s.cash) } : {}), ...(s.inv ? { inv: cut(s.inv) } : {}),
+    ...(s.lo ? { lo: cut(s.lo), hi: cut(s.hi) } : {}) })) };
 }
 
 // TWR is offered when every line has a time-weighted curve (`twr`: growth of 1 €, money moves taken out).
@@ -59,16 +60,20 @@ export function normalize(series, inception = false) {
 // y in %, `inv` the money put in to each point (every line's: a benchmark buys with yours), `cash` on your line
 // its sales and dividends to each point (a benchmark never sells). With V = (1 + y)·I − C:
 //   ROI = (V + C − C₀) / (V₀ + I − I₀) − 1 = ((1 + y)·I − C₀) / (y₀·I₀ − C₀ + I) − 1      (0 at the first point)
-// `inception`: nothing before the window — the ROI itself. No money in at the first point: no window ROI.
+// `inception`: nothing before the window — the ROI itself. No money in at the first point: no window ROI. A line
+// with its own money (`s.inv`, BOOKS: each book's) takes it instead of `inv`; one that starts inside the window has
+// nothing before it either — its ROI as it is.
 export function windowRoi(series, inv, inception = false) {
   if (inception) return series;
   const has = (v) => v !== null && v !== undefined;
   return series.map((s) => {
-    const y0 = s.y[0], i0 = inv[0], c0 = s.cash?.[0] ?? 0;
+    const iv = s.inv ?? inv;
+    const y0 = s.y[0], i0 = iv[0], c0 = s.cash?.[0] ?? 0;
+    if (s.inv && !has(y0)) return s;
     const ok = has(y0) && has(i0);
     return { ...s, y: s.y.map((y, k) => {
-      const den = ok && has(y) && has(inv[k]) ? (y0 / 100) * i0 - c0 + inv[k] : 0;
-      return den > 0 ? (((1 + y / 100) * inv[k] - c0) / den - 1) * 100 : null;
+      const den = ok && has(y) && has(iv[k]) ? (y0 / 100) * i0 - c0 + iv[k] : 0;
+      return den > 0 ? (((1 + y / 100) * iv[k] - c0) / den - 1) * 100 : null;
     }) };
   });
 }
@@ -78,26 +83,34 @@ export function windowRoi(series, inv, inception = false) {
 // (less each taken out) counted for the share of the window left after its day. A flow on the point measured
 // has had no time (weight 0); `from` is the window's opening day. y in %, `inv` and `cash` as windowRoi; the gain
 // to a point is y·I − y₀·I₀. `inception`: nothing before the window — no value held, measured from the first
-// point (its buys count in full).
+// point (its buys count in full). A line with its own money (`s.inv`) takes it instead of `inv`; one that starts
+// inside the window is measured as from its inception, from its first point.
 export function windowMwr(series, inv, xs, from, inception = false) {
   const has = (v) => v !== null && v !== undefined;
   const p0 = inception ? xs[0] : from;
   return series.map((s) => {
+    const late = s.inv && !inception && !has(s.y[0]) ? s.y.findIndex(has) : -1;
+    if (late > 0) {
+      const cut = (a) => a?.slice(late);
+      const [w] = windowMwr([{ ...s, y: cut(s.y), cash: cut(s.cash), inv: cut(s.inv) }], inv.slice(late), xs.slice(late), xs[late], true);
+      return { ...s, y: [...s.y.slice(0, late).map(() => null), ...w.y] };
+    }
+    const iv = s.inv ?? inv;
     const c = (k) => s.cash?.[k] ?? 0;
     const y0 = inception ? 0 : s.y[0];
-    if (!has(y0) || !has(inv[0])) return { ...s, y: s.y.map(() => null) };
-    const i0 = inception ? 0 : inv[0], c0 = inception ? 0 : c(0);
+    if (!has(y0) || !has(iv[0])) return { ...s, y: s.y.map(() => null) };
+    const i0 = inception ? 0 : iv[0], c0 = inception ? 0 : c(0);
     const v0 = inception ? 0 : (1 + y0 / 100) * i0 - c0, p = (y0 / 100) * i0;
     let s1 = 0, s2 = 0, prevI = i0, prevC = c0;     // Σ net flow, Σ net flow × its time
     return { ...s, y: s.y.map((y, k) => {
       if (!inception && k === 0) return 0;
-      const flow = (inv[k] - prevI) - (c(k) - prevC);
-      prevI = inv[k]; prevC = c(k);
+      const flow = (iv[k] - prevI) - (c(k) - prevC);
+      prevI = iv[k]; prevC = c(k);
       s1 += flow; s2 += flow * xs[k];
       if (!has(y)) return null;
       const span = xs[k] - p0;
       const work = v0 + (span > 0 ? (xs[k] * s1 - s2) / span : s1);
-      return work > 0 ? (((y / 100) * inv[k] - p) / work) * 100 : null;
+      return work > 0 ? (((y / 100) * iv[k] - p) / work) * 100 : null;
     }) };
   });
 }

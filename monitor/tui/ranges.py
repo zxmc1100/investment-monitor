@@ -56,7 +56,7 @@ def slice_from(x: list, series: list, start: float, end: float = INF, anchor: bo
 
     def cut(s):
         out = {**s}
-        for k in ("y", "twr", "cash", "lo", "hi"):
+        for k in ("y", "twr", "cash", "inv", "lo", "hi"):
             if s.get(k):
                 out[k] = s[k][i:j]
         return out
@@ -88,36 +88,50 @@ def normalize(series: list, inception: bool = False) -> list:
 
 
 def window_roi(series: list, inv: list, inception: bool = False) -> list:
-    """Each line's ROI over the window: ((1 + y)·I − C₀) / (y₀·I₀ − C₀ + I) − 1."""
+    """Each line's ROI over the window: ((1 + y)·I − C₀) / (y₀·I₀ − C₀ + I) − 1. A line with its own money (`inv`,
+    BOOKS: each book's) takes it; one starting inside the window comes back as it is (nothing before it)."""
     if inception:
         return series
     out = []
     for s in series:
-        y0, i0 = s["y"][0], inv[0]
+        iv = s.get("inv") or inv
+        y0, i0 = s["y"][0], iv[0]
+        if s.get("inv") and not _has(y0):
+            out.append(s)
+            continue
         cash = s.get("cash")
         c0 = cash[0] if cash and cash[0] is not None else 0
         ok = _has(y0) and _has(i0)
 
         def one(k, y):
-            den = (y0 / 100) * i0 - c0 + inv[k] if ok and _has(y) and _has(inv[k]) else 0
-            return (((1 + y / 100) * inv[k] - c0) / den - 1) * 100 if den > 0 else None
+            den = (y0 / 100) * i0 - c0 + iv[k] if ok and _has(y) and _has(iv[k]) else 0
+            return (((1 + y / 100) * iv[k] - c0) / den - 1) * 100 if den > 0 else None
 
         out.append({**s, "y": [one(k, y) for k, y in enumerate(s["y"])]})
     return out
 
 
 def window_mwr(series: list, inv: list, xs: list, start: float, inception: bool = False) -> list:
-    """Each line's money-weighted return over the window (Modified Dietz — the YTD KPI's method)."""
+    """Each line's money-weighted return over the window (Modified Dietz — the YTD KPI's method). A line with its own
+    money (`inv`) takes it; one starting inside the window is measured as from its inception, from its first point."""
     p0 = xs[0] if inception else start
     out = []
     for s in series:
+        late = next((k for k, v in enumerate(s["y"]) if _has(v)), -1) if s.get("inv") and not inception and not _has(s["y"][0]) else -1
+        if late > 0:
+            cut = lambda a: a[late:] if a else a
+            (w,) = window_mwr([{**s, "y": s["y"][late:], "cash": cut(s.get("cash")), "inv": s["inv"][late:]}],
+                              inv[late:], xs[late:], xs[late], True)
+            out.append({**s, "y": [None] * late + w["y"]})
+            continue
+        iv = s.get("inv") or inv
         cash = s.get("cash")
         c = lambda k: cash[k] if cash and cash[k] is not None else 0
         y0 = 0 if inception else s["y"][0]
-        if not _has(y0) or not _has(inv[0]):
+        if not _has(y0) or not _has(iv[0]):
             out.append({**s, "y": [None] * len(s["y"])})
             continue
-        i0 = 0 if inception else inv[0]
+        i0 = 0 if inception else iv[0]
         c0 = 0 if inception else c(0)
         v0 = 0 if inception else (1 + y0 / 100) * i0 - c0
         p = (y0 / 100) * i0
@@ -128,8 +142,8 @@ def window_mwr(series: list, inv: list, xs: list, start: float, inception: bool 
             if not inception and k == 0:
                 ys.append(0)
                 continue
-            flow = (inv[k] - prev_i) - (c(k) - prev_c)
-            prev_i, prev_c = inv[k], c(k)
+            flow = (iv[k] - prev_i) - (c(k) - prev_c)
+            prev_i, prev_c = iv[k], c(k)
             s1 += flow
             s2 += flow * xs[k]
             if not _has(y):
@@ -137,7 +151,7 @@ def window_mwr(series: list, inv: list, xs: list, start: float, inception: bool 
                 continue
             span = xs[k] - p0
             work = v0 + ((xs[k] * s1 - s2) / span if span > 0 else s1)
-            ys.append(((y / 100) * inv[k] - p) / work * 100 if work > 0 else None)
+            ys.append(((y / 100) * iv[k] - p) / work * 100 if work > 0 else None)
         out.append({**s, "y": ys})
     return out
 

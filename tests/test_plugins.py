@@ -67,11 +67,11 @@ def addon(tmp_path, monkeypatch):
 
 
 def test_the_suite_runs_without_an_addon():
-    """MONITOR_PRIVATE=0 (tests/conftest.py): the registry is the core's — keys 1–6, no gap, no add-on."""
+    """MONITOR_PRIVATE=0 (tests/conftest.py): the registry is the core's — keys 1–7, no gap, no add-on."""
     from monitor.screens import SCREENS
     assert not plugins.load().screens and plugins.commands() == {} and plugins.ctx_paths() == {}
     assert {s.id: s.fkey for s in SCREENS.values()} == {"PORT": 1, "OPT": 2, "RISK": 3, "SEC": None, "MKT": 4,
-                                                         "ALRT": 5, "TRADES": 6}
+                                                         "ALRT": 5, "TRADES": 6, "BOOKS": 7, "BOOK": None}
 
 
 def test_no_addon_directory_changes_nothing(tmp_path, monkeypatch):
@@ -202,10 +202,11 @@ def test_an_addon_moves_a_core_screens_key_trades_to_8(addon, tmp_path):
     from monitor.server.engine import Engine
     from monitor.server.store import Store
     from tests.server.helpers import Recorder
-    addon(OWNER_LAYOUT.format(move='hooks.set_fkey("TRADES", 8)'))
+    addon(OWNER_LAYOUT.format(move='hooks.set_fkey("TRADES", 8)\n        hooks.set_fkey("BOOKS", 9)'))
     reg = plugins.apply_screens(dict(CORE))
     assert {s.id: s.fkey for s in reg.values()} == {"PORT": 1, "OPT": 2, "RISK": 3, "SEC": None, "MKT": 4,
-                                                    "MOM": 5, "LABS": 6, "ALRT": 7, "TRADES": 8}
+                                                    "MOM": 5, "LABS": 6, "ALRT": 7, "TRADES": 8, "BOOKS": 9,
+                                                    "BOOK": None}
     assert reg["TRADES"].inline and reg["TRADES"].public is False          # moved, otherwise the core's own
     eng = Engine(reg, Store(tmp_path / "store"), Recorder(), ctx=Ctx(portfolio_csv=tmp_path / "none.csv"))
     assert eng.cold_reason("PORT").startswith("NO TRADES YET — press 8 (TRADES): ")

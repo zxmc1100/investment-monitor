@@ -68,6 +68,11 @@ S2 = {
     "twr": [1.0, 1.02, 1.03, 1.04, 1.05, 1.06, 1.07, 1.08],
 }
 INV = [100, 100, 150, 150, 200, 200, 200, 250]
+# BOOKS: lines with their own money — one from the start, one starting inside the window
+B1 = {"name": "ANNA", "y": [0.0, 1.0, 2.0, 1.0, 3.0, 4.0, 5.0, 6.0], "cash": [0, 0, 0, 0, 5, 5, 5, 5],
+      "inv": [10, 10, 10, 20, 20, 20, 30, 30]}
+B2 = {"name": "BOB", "y": [None, None, 0.0, 1.5, 3.0, 2.0, 4.0, 5.0], "cash": [None, None, 0, 0, 0, 10, 10, 10],
+      "inv": [None, None, 50, 50, 80, 80, 80, 80]}
 ROWS = [
     {"t": "b", "v": 2.5, "n": "Beta"},
     {"t": "a", "v": None, "n": "alpha"},
@@ -215,6 +220,15 @@ def _range_cases():
         "mwr0": (
             ("ranges", "windowMwr", [S1, S2], INV, X, X[0], True),
             lambda: R.window_mwr([S1, S2], INV, X, X[0], True),
+        ),
+        "roi books": (("ranges", "windowRoi", [B1, B2, S2], INV), lambda: R.window_roi([B1, B2, S2], INV)),
+        "mwr books": (
+            ("ranges", "windowMwr", [B1, B2, S2], INV, X, X[0] - 3600),
+            lambda: R.window_mwr([B1, B2, S2], INV, X, X[0] - 3600),
+        ),
+        "slice books": (
+            ("ranges", "sliceFrom", X, [B1, B2], X[3], "__INF__", True),
+            lambda: R.slice_from(X, [B1, B2], X[3], INF, True),
         ),
         "modes": (("ranges", "chartModes", {"inv": INV}, [S1, S2]), lambda: R.chart_modes({"inv": INV}, [S1, S2])),
         "modes2": (("ranges", "chartModes", {}, [S1, S2]), lambda: R.chart_modes({}, [S1, S2])),

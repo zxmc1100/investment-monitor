@@ -53,16 +53,20 @@ export const addAlert = (text) => send("api/alerts", "POST", { text });
 export const delAlert = (id) => send(`api/alerts/${encodeURIComponent(id)}`, "DELETE");
 export const ack = (body) => send("api/alerts/ack", "POST", body);
 
-// TRADES: every write names the file version (etag) it was made on — 409 when the file changed meanwhile.
-const tradePath = (id) => `api/trades/${encodeURIComponent(id)}`;
-export const trades = () => json("api/trades");
-export const addTrade = (etag, trade) => send("api/trades", "POST", { etag, trade });
+// TRADES: every write names the file version (etag) it was made on — 409 when the file changed meanwhile. On
+// BOOK <NAME> every call names that book (app.js route: useBook) — a trade typed there goes into it.
+let book = null;
+export const useBook = (name) => { book = name || null; };
+const tradeUrl = (rest = "") => `api/trades${rest}${book ? `?book=${encodeURIComponent(book)}` : ""}`;
+const tradePath = (id) => tradeUrl(`/${encodeURIComponent(id)}`);
+export const trades = () => json(tradeUrl());
+export const addTrade = (etag, trade) => send(tradeUrl(), "POST", { etag, trade });
 export const editTrade = (id, etag, trade) => send(tradePath(id), "PUT", { etag, trade });
 export const delTrade = (id, etag) => send(tradePath(id), "DELETE", { etag });
-export const previewTrades = (text, mode) => send("api/trades/preview", "POST", { text, mode });
-export const importTrades = (etag, text, mode) => send("api/trades/import", "POST", { etag, text, mode });
-export const resetTrades = (etag) => send("api/trades/reset", "POST", { etag });
-export const undoTrades = (etag) => send("api/trades/undo", "POST", { etag });
+export const previewTrades = (text, mode) => send(tradeUrl("/preview"), "POST", { text, mode });
+export const importTrades = (etag, text, mode) => send(tradeUrl("/import"), "POST", { etag, text, mode });
+export const resetTrades = (etag) => send(tradeUrl("/reset"), "POST", { etag });
+export const undoTrades = (etag) => send(tradeUrl("/undo"), "POST", { etag });
 
 // On another device (an iPad over Tailscale: https, settings remote_host) the service worker web/sw.js keeps every
 // screen it fetched, so with the Mac asleep the terminal still opens on the last ones. Never on this Mac

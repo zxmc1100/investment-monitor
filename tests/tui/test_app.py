@@ -1065,3 +1065,18 @@ def test_a_fit_table_never_scrolls_or_cuts_its_rows_come_in_pages(app):
     app.draw()
     assert app.pages["positions"]["page"] == 0 and app.table_state(p)["cursor"] == keys[0]
     assert A.P.page_of(40, 26, 26) == {"per": 26, "pages": 2, "page": 1}   # render/table.js pageOf
+
+
+def test_on_a_book_every_trade_call_names_it(app, api):
+    """BOOK <NAME> (api.js useBook): the trades a book's screen reads and writes are that book's — elsewhere yours."""
+    from monitor.tui.client import Api
+    app.reg["screens"].append({"id": "BOOK", "title": "Book", "fkey": None, "status": "live", "param": True,
+                               "param_name": "NAME", "tiers": ["quote"]})
+    app.go("BOOK", "ANNA")
+    assert api.book == "ANNA"
+    app.go("PORT")
+    assert api.book is None
+    real = Api("http://127.0.0.1:1")
+    assert real._trades("/undo") == "/api/trades/undo"
+    real.book = "ANNA"
+    assert real._trades("/undo") == "/api/trades/undo?book=ANNA" and real._trades() == "/api/trades?book=ANNA"

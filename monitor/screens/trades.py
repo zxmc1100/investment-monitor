@@ -2,6 +2,9 @@
 CSV file picker, previewed row by row), and TRANSACTIONS — every trade, newest first: Enter edits, Del deletes.
 While input/portfolio.csv is still the example a banner offers START FRESH. Private: never exported.
 
+BOOK <NAME> is the same screen on another book's file (monitor.portfolio.books: input/books/<NAME>/portfolio.csv);
+its first trade creates the book. The clients send the open book with every write (/api/trades?book=<NAME>).
+
 One inline tier (local, no network — names come from the maps, the universe and what PORT already asked Yahoo):
 it reads the file through monitor.portfolio.tradebook, whose API routes (monitor.server.app, /api/trades) do the
 writing; a write recomputes this screen at once and every portfolio screen after it (Engine.inputs_changed).
@@ -9,13 +12,15 @@ writing; a write recomputes this screen at once and every portfolio screen after
 from __future__ import annotations
 
 from monitor import config
+from monitor.portfolio import books
 from monitor.portfolio.tradebook import TradeBook
 from monitor.screens.base import Ctx, Screen
 from monitor.screens.common import PRIV, num
 from monitor.screens.identity import identify
 
 DEPS = ("monitor.screens.trades", "monitor.screens.base", "monitor.screens.common", "monitor.screens.identity",
-        "monitor.portfolio.tradebook", "monitor.portfolio.trades", "monitor.portfolio.ledger", "monitor.config")
+        "monitor.portfolio.tradebook", "monitor.portfolio.trades", "monitor.portfolio.ledger", "monitor.config",
+        "monitor.portfolio.books")
 EXAMPLE = config.EXAMPLES_DIR / "portfolio.example.csv"
 
 HELP = [
@@ -78,11 +83,13 @@ COLS = [
 ]
 
 
-def compute(tier: str, ctx: Ctx) -> dict:
-    """The file as TradeBook reads it, plus a display name per ticker — offline (max_asks=0)."""
+def compute(tier: str, ctx: Ctx, book: str | None = None) -> dict:
+    """The file as TradeBook reads it, plus a display name per ticker — offline (max_asks=0). `book` (BOOK <NAME>):
+    that book's file — BOOK YOU is yours, the only one that can be the example."""
     if tier != "quote":
         raise ValueError(f"TRADES has no {tier!r} tier")
-    state = TradeBook(ctx.portfolio_csv, example=EXAMPLE).read()
+    mine = book in (None, books.YOU)
+    state = TradeBook(books.csv_of(ctx.portfolio_csv, book or books.YOU), example=EXAMPLE if mine else None).read()
     who = identify({r["ticker"] for r in state["rows"]}, buffer_dir=ctx.buffer_dir, need=("name",), max_asks=0)
     return {**state, "names": {t: w["name"] for t, w in who.items()}}
 
@@ -93,7 +100,7 @@ def _row(i: int, r: dict, names: dict) -> dict:
             "shares": num(r["shares"]), "pps": num(r["pps"]), "total": num(r["price"])}
 
 
-def assemble(parts: dict, meta: dict) -> dict:
+def assemble(parts: dict, meta: dict, name: str | None = None) -> dict:
     q = parts["quote"]
     names, rows = q["names"], [_row(i, r, q["names"]) for i, r in enumerate(q["rows"])]
     book = [{"ticker": t, "name": names.get(t, t)} for t in dict.fromkeys(r["ticker"] for r in reversed(q["rows"]))]
@@ -113,8 +120,10 @@ def assemble(parts: dict, meta: dict) -> dict:
                     "button": "START FRESH",
                     "context": {"text": "INVENTED TRADES FROM examples/ · A BACKUP IS KEPT"}})
     n = len(rows)
-    return {"screen": "TRADES", "title": "Trades",
-            "context": {"text": f"{n} TRADE{'' if n == 1 else 'S'} · input/portfolio.csv · BACKUPS IN input/backups/"},
+    where = "input" if name in (None, books.YOU) else f"input/books/{name}"
+    return {"screen": "TRADES" if name is None else "BOOK", "title": "Trades" if name is None else f"Book {name}",
+            "context": {"text": f"{n} TRADE{'' if n == 1 else 'S'} · {where}/portfolio.csv · BACKUPS IN {where}/backups/"
+                        + ("" if where == "input" or n else " · THE FIRST TRADE CREATES THE BOOK")},
             "meta": meta, "help": HELP, "etag": q["etag"], "error": q["error"], "lines": q["lines"], "undo": undo,
             "actions": [{"label": "REDO", "run": "UNDO", "title": f"REDO: {undo['what'].removeprefix('UNDO: ')}"} if redo
                         else {"label": "UNDO", "run": "UNDO", "title": f"UNDO: {undo['what']}"}] if ready else [],
@@ -134,3 +143,10 @@ def assemble(parts: dict, meta: dict) -> dict:
 
 SCREEN = Screen(id="TRADES", title="Trades", fkey=6, status="live", public=False, tiers=("quote",), deps=DEPS,
                 compute=compute, assemble=assemble, uses_inputs=True, inline=True)
+# A book's trades: BOOK <NAME> (BOOKS' Enter) — BOOK YOU is yours; a name not taken yet opens an empty book its
+# first trade creates.
+BOOK = Screen(id="BOOK", title="Book", status="live", public=False, tiers=("quote",), deps=DEPS, compute=compute,
+              assemble=assemble, params=lambda ctx: [books.YOU, *books.names(ctx.portfolio_csv)],
+              accept=lambda ctx, name: name == books.YOU or books.valid(name), param_name="NAME",
+              unknown_param="NOT A BOOK NAME — A LETTER, THEN LETTERS, DIGITS OR -, UP TO 15", uses_inputs=True,
+              uses_books=True, inline=True)

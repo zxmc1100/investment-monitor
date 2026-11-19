@@ -41,7 +41,7 @@ def test_the_screen_is_private_key_6_inline_and_needs_no_portfolio():
     s = SCREENS["TRADES"]
     assert (s.fkey, s.public, s.inline, s.needs_portfolio, s.uses_inputs, s.tiers) == (6, False, True, False, True, ("quote",))
     assert {k: v.fkey for k, v in SCREENS.items()} == {"PORT": 1, "OPT": 2, "RISK": 3, "SEC": None, "MKT": 4,
-                                                      "ALRT": 5, "TRADES": 6}
+                                                      "ALRT": 5, "TRADES": 6, "BOOKS": 7, "BOOK": None}
 
 
 def test_the_example_shows_the_start_fresh_banner_the_form_the_paste_box_and_every_trade(ctx):

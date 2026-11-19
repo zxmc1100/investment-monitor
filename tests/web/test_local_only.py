@@ -15,4 +15,4 @@ def test_local_only_matches_the_private_screens():
     assert m, "LOCAL_ONLY table missing from web/app/cmd.js"
     table = json.loads(re.sub(r"(\w+):", r'"\1":', m.group(1)))
     assert table == {s.id: s.fkey for s in SCREENS.values() if not s.public}
-    assert table == {"ALRT": 5, "SEC": None, "TRADES": 6}
+    assert table == {"ALRT": 5, "SEC": None, "TRADES": 6, "BOOKS": 7, "BOOK": None}

@@ -26,3 +26,18 @@ test("the offline copy is kept on another device only — never on this Mac's lo
   }
   assert.equal(keepOffline({}, { hostname: "my-mac.local" }), false);                 // plain http: no service worker
 });
+
+test("on BOOK <NAME> every trade call names the book; elsewhere none (yours)", async () => {
+  const { useBook, trades, undoTrades } = await import("../../web/app/api.js");
+  const seen = [];
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url) => { seen.push(url); return { ok: true, status: 200, json: async () => ({}) }; };
+  try {
+    useBook("ANNA");
+    await trades();
+    await undoTrades("e1");
+    useBook(null);
+    await trades();
+  } finally { globalThis.fetch = prev; useBook(null); }
+  assert.deepEqual(seen, ["api/trades?book=ANNA", "api/trades/undo?book=ANNA", "api/trades"]);
+});
