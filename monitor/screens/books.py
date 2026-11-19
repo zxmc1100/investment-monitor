@@ -125,6 +125,7 @@ def _row(name: str, q: dict, d: dict) -> dict:
 
 def _holdings(q: dict) -> dict:
     total = sum(p["position_value"] for p in q["positions"])
+    flagged = set(q["stale"]) | set(q["missing"])      # no fresh quote / never priced (carried at cost), as PORT
     rows = []
     for p in q["positions"]:
         qt = q["quotes"].get(p["ticker"]) or {}
@@ -132,8 +133,9 @@ def _holdings(q: dict) -> dict:
         rows.append({"tkr": p["ticker"], "name": port._name(q, p["ticker"]), "value": num(p["position_value"]),
                      "wt": num(p["position_value"] / total * 100) if total else None,
                      "day": num((last / prev - 1) * 100) if last and prev else None,
-                     "pnlp": num(p["unrealized_pct"])})
-    return {"rows": rows, "context": f"{len(rows)} OPEN"}
+                     "pnlp": num(p["unrealized_pct"]), **({"_stale": True} if p["ticker"] in flagged else {})})
+    unpriced = len(set(q["missing"]) & {p["ticker"] for p in q["positions"]})
+    return {"rows": rows, "context": f"{len(rows)} OPEN" + (f" · {unpriced} NO PRICE: AT COST" if unpriced else "")}
 
 
 def _line(q: dict, d: dict) -> dict | None:

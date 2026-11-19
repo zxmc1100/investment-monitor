@@ -99,3 +99,14 @@ def test_books_without_your_own_trades_and_nothing_at_all(frozen, ctx):
     p = build(ctx)
     assert [r["book"] for r in panel(p, "books")["rows"]] == ["ANNA"]
     assert panel(p, "books")["cursor"] == "ANNA" and [s["name"] for s in panel(p, "roi")["series"]][0] == "ANNA"
+
+
+def test_a_line_yahoo_never_priced_is_carried_at_cost_and_flagged(frozen, ctx, monkeypatch):
+    """A holding with no Yahoo price at all (a retail government bond): at cost, flagged, never hidden — as PORT."""
+    import monitor.data.yahoo as Y
+    real = Y.fetch_quotes
+    monkeypatch.setattr(Y, "fetch_quotes", lambda ts: {**real(ts), "BND-X": None})
+    add_book(ctx, "ANNA", ["2026-02-02,AAA.F,buy,4,400.00,100.00", "2026-02-02,BND-X,buy,10,1000.00,100.00"])
+    hold = panel(build(ctx), "holdings")["rows_by_key"]["ANNA"]
+    bond = next(r for r in hold["rows"] if r["tkr"] == "BND-X")
+    assert bond["_stale"] is True and bond["value"] == 1000.0 and "1 NO PRICE: AT COST" in hold["context"]
