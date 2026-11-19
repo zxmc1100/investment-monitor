@@ -66,8 +66,8 @@ def _fill_price(h: pd.Series, date: pd.Timestamp) -> float | None:
 
 # ── Core time-series builder ──────────────────────────────────────────────────
 
-def build_roi_timeseries(transactions: list[dict], dividends=(),
-                         never_priced: set[str] | None = None) -> tuple[pd.Series, dict, dict]:
+def build_roi_timeseries(transactions: list[dict], dividends=(), never_priced: set[str] | None = None,
+                         manual: dict[str, dict] | None = None) -> tuple[pd.Series, dict, dict]:
     """
     Returns (portfolio_roi_series, {benchmark_name: roi_series}, {key: eur_series}).
 
@@ -95,6 +95,9 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
     raises PriceHistoryError. None (a caller without a quote buffer, e.g. a batch job): one missing held
     line is tolerated. Without
     an EUR/USD rate the USD benchmarks are left out.
+
+    `manual` ({ticker: {"price", "date"}}, settings [prices]): a line Yahoo has no history for, priced by hand —
+    at cost before its date, at that price from it on. Never asked of Yahoo; Yahoo's own history wins.
     """
     buys = [t for t in transactions if t["action"] == "buy"]
     if not buys:
@@ -147,7 +150,7 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
         # Holdings at REAL closes (split- but not dividend-adjusted): Yahoo's adjusted closes
         # lower old prices by every later dividend, which fakes a loss against your buy price;
         # dividends are counted as cash instead. Benchmarks stay adjusted = total return.
-        held = _held_now(transactions)
+        held = _held_now(transactions) - set(manual or ())      # a line priced by hand needs no history
         if never_priced is not None and len(held) > 1 and held <= set(never_priced):
             never_priced = set()          # no quote for ANY held line: Yahoo is down, not a listing gap
         expected = held - set(never_priced or ())
@@ -210,12 +213,15 @@ def build_roi_timeseries(transactions: list[dict], dividends=(),
     cash_tk: dict[str, float] = {}
     roi_vals: dict[str, dict[str, float]] = {}
 
+    by_hand = {t: (m["price"], pd.Timestamp(m["date"])) for t, m in (manual or {}).items()}
+
     def _position_values(dt: pd.Timestamp) -> dict[str, float]:
         vals: dict[str, float] = {}
         for tk, sh in holdings.items():
             if sh <= 0:
                 continue
-            p = _price_on(port_hist[tk], dt) if tk in port_hist else avg_cost.get(tk)
+            p = (_price_on(port_hist[tk], dt) if tk in port_hist
+                 else by_hand[tk][0] if tk in by_hand and dt >= by_hand[tk][1] else avg_cost.get(tk))
             if p is None:
                 p = avg_cost.get(tk, 0.0)
             vals[tk] = sh * p

@@ -42,7 +42,7 @@ def test_missing_file_gives_the_defaults(tmp_path):
     assert err is None
     assert s == {"order_fee_eur": 1.0, "savings_plan_tickers": (), "dividend_tax": 0.26375,
                  "tax_free_allowance": False, "withholding": {}, "allowance_eur": 1000.0,
-                 "tickers": {}, "isins": {}, "names": {}, "sectors": {}, "countries": {}, "cashflow_url": "",
+                 "tickers": {}, "isins": {}, "names": {}, "sectors": {}, "countries": {}, "prices": {}, "cashflow_url": "",
                  "remote_host": "", "cashflow_remote_url": ""}
 
 
@@ -193,3 +193,13 @@ def test_the_tax_free_allowance_amount(tmp_path):
     assert err is None and s["allowance_eur"] == 2000.0
     s, err = load_settings(_write(tmp_path, "allowance_eur = -5\n"))
     assert s["allowance_eur"] == 1000.0 and "allowance_eur" in err
+
+
+def test_a_price_by_hand_has_a_price_and_a_date(tmp_path):
+    s, err = load_settings(_write(tmp_path, '[prices]\n"bond-2031" = { price = 98.40, date = 2026-03-16 }\n'))
+    assert err is None and s["prices"] == {"BOND-2031": {"price": 98.40, "date": "2026-03-16"}}
+    json.dumps(s)                                    # the input fingerprint hashes the settings as JSON
+    for bad in ('"X" = 98.40', '"X" = { price = 98.40 }', '"X" = { price = -1, date = 2026-03-16 }',
+                '"X" = { price = 98.40, date = 2026-03-16T10:00:00 }'):
+        s, err = load_settings(_write(tmp_path, f"[prices]\n{bad}\n"))
+        assert s["prices"] == {} and "prices" in err, bad

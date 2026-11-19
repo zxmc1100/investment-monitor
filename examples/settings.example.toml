@@ -69,3 +69,9 @@ cashflow_remote_url = ""
 
 [countries]
 # "SAP.DE" = "Germany"
+
+# A price by hand, for a holding Yahoo has no price for (a retail government bond, a bank's own fund): its value,
+# P&L and charts use this price from its date on (at cost before), shown STALE once a few sessions old — update it
+# from each new statement. Yahoo's own price always wins when there is one. A bond in units of 100 nominal.
+[prices]
+# "BOND-2031" = { price = 98.40, date = 2026-03-16 }

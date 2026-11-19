@@ -196,3 +196,25 @@ def test_every_held_line_unquoted_is_an_outage_not_a_listing_gap(yahoo):
     yahoo["drop"] = lambda tks, adj, n: set(tks) if not adj else set()   # holdings history throttled
     with pytest.raises(analytics.PriceHistoryError):
         build_roi_timeseries(TWO, never_priced={"AAA.F", "NOPE.F"})
+
+
+# ── settings [prices]: a line Yahoo never prices, priced by hand on a date ──
+def test_a_price_by_hand_values_the_line_from_its_date_at_cost_before(yahoo):
+    yahoo["drop"] = lambda tks, adj, n: {"NOPE.F"}                  # NOPE.F: 5 @ 100 on 2025-02-03, no history
+    manual = {"NOPE.F": {"price": 80.0, "date": "2025-06-02"}}
+    _, _, av = build_roi_timeseries(TWO, never_priced={"NOPE.F"}, manual=manual)
+    line = av["NOPE.F"]
+    assert line[pd.Timestamp("2025-05-30")] == pytest.approx(500.0)   # at cost before its date
+    assert line[pd.Timestamp("2025-06-02")] == pytest.approx(400.0)   # 5 × 80 from it on
+    assert line.iloc[-1] == pytest.approx(400.0)
+
+
+def test_a_book_of_lines_priced_by_hand_alone_needs_no_history(yahoo):
+    yahoo["drop"] = lambda tks, adj, n: {"NOPE.F"} if not adj else set()
+    roi, _, _ = build_roi_timeseries([TWO[1]], never_priced=set(), manual={"NOPE.F": {"price": 80.0, "date": "2025-01-02"}})
+    assert roi.iloc[-1] == pytest.approx(-20.0)                     # 400 for 500 spent: never an error
+
+
+def test_yahoos_own_history_wins_over_a_price_by_hand(yahoo):
+    _, _, av = build_roi_timeseries(TX, manual={"AAA.F": {"price": 0.01, "date": "2025-01-02"}})
+    assert av["AAA.F"].iloc[-1] > 1.0

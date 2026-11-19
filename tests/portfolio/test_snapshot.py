@@ -52,6 +52,22 @@ def test_quote_tier_reports_never_quoted_ticker(env):
     assert q["missing"] == ["DDD.F"]
 
 
+def test_a_price_by_hand_fills_a_line_yahoo_never_quoted_dated_so_it_reads_stale(env, monkeypatch):
+    """settings [prices]: DDD.F (8 bought @ 80) at 60 by hand on 2026-06-01 — valued, P&L and all, no longer
+    missing; its old date flags it STALE like any old bar. A line Yahoo quotes keeps Yahoo's price."""
+    from monitor import config
+    monkeypatch.setitem(config.SETTINGS, "prices", {"DDD.F": {"price": 60.0, "date": "2026-06-01"},
+                                                    "AAA.F": {"price": 1.0, "date": "2026-06-01"}})
+    book = S.load_book(FIX)
+    q = S.quote_tier(book, force=True, buffer_dir=env,
+                     _fetch=lambda ts: {t: None if t == "DDD.F" else
+                                        {"price": 10.0, "prev_close": 9.0, "date": "2026-06-30"} for t in ts})
+    ddd = next(p for p in q["positions"] if p["ticker"] == "DDD.F")
+    assert q["missing"] == [] and ddd["position_value"] == pytest.approx(480.0)
+    assert ddd["unrealized_pct"] == pytest.approx(-25.0) and q["stale"] == {"DDD.F": "2026-06-01"}
+    assert q["prices"]["AAA.F"] == 10.0
+
+
 def test_daily_tier_total_reconciles_with_roi(env):
     book = S.load_book(FIX)
     d = S.daily_tier(book, buffer_dir=env)

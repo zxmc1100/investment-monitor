@@ -143,9 +143,18 @@ def ccy_warn(quotes: dict) -> list[str]:
     return [f"CCY {c}: {' '.join(ts)}" for c, ts in sorted(by.items())]
 
 
+def by_hand(quotes: dict) -> dict:
+    """`quotes` with settings [prices] filling each line Yahoo has no quote for (None): that price, on its date — an
+    old date reads STALE like any old bar. Yahoo's own quote always wins."""
+    prices = config.SETTINGS["prices"]
+    return {t: {"price": prices[t]["price"], "prev_close": prices[t]["price"], "date": prices[t]["date"]}
+            if q is None and t in prices else q for t, q in quotes.items()}
+
+
 def quote_tier(book: dict, *, force: bool = False, buffer_dir: Path | None = None, _fetch=None) -> dict:
     holdings = book["holdings"]
     quotes, stale, as_of = cached_quotes(list(holdings), force=force, buffer_dir=buffer_dir, _fetch=_fetch)
+    quotes = by_hand(quotes)
     stale = {**old_bars(quotes), **stale}        # a failed live fetch keeps its last-good ts
     m = marked(book, quotes)
     records = dividend_records(book, buffer_dir=buffer_dir)   # never forced: the 24 h caches refetch themselves
@@ -193,7 +202,8 @@ def daily_tier(book: dict, *, force: bool = False, buffer_dir: Path | None = Non
     txns = book["transactions"]
     divs = dividends(book, force=force, buffer_dir=buffer_dir)
     roi_series, bm_series, asset_values = build_roi_timeseries(
-        txns, dividends=divs, never_priced=never_quoted(book["holdings"], buffer_dir=buffer_dir))
+        txns, dividends=divs, never_priced=never_quoted(book["holdings"], buffer_dir=buffer_dir),
+        manual=config.SETTINGS["prices"])
     metrics = compute_quant_metrics(roi_series, bm_series.get("S&P 500"))
     total = asset_values.get("__total__")
     if metrics and isinstance(total, pd.Series):

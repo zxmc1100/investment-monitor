@@ -7,6 +7,7 @@ import json
 import math
 import os
 import tomllib
+from datetime import date, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -58,6 +59,16 @@ def _table(v):
     return {str(k).strip(): x.strip() for k, x in v.items()}
 
 
+def _prices(v):
+    def ok(x):
+        return (isinstance(x, dict) and set(x) == {"price", "date"} and isinstance(x["price"], (int, float))
+                and not isinstance(x["price"], bool) and math.isfinite(x["price"]) and x["price"] > 0
+                and isinstance(x["date"], date) and not isinstance(x["date"], datetime))
+    if not isinstance(v, dict) or not all(ok(x) for x in v.values()):
+        raise ValueError('must be a table of "TICKER" = { price = 98.40, date = 2026-03-16 } lines')
+    return {str(k).strip().upper(): {"price": float(x["price"]), "date": x["date"].isoformat()} for k, x in v.items()}
+
+
 def _url(v):
     if not isinstance(v, str) or (v.strip() and not v.strip().startswith(("http://", "https://"))):
         raise ValueError('must be an address, e.g. "http://localhost:47820"')
@@ -83,6 +94,7 @@ _SETTINGS = {
     "names": ({}, _table),
     "sectors": ({}, _table),
     "countries": ({}, _table),
+    "prices": ({}, _prices),                # a line Yahoo never priced (a retail bond), priced by hand on a date
     "cashflow_url": ("", _url),             # Cashflow Monitor's address: the CASH command opens it ("" = none)
     "remote_host": ("", _host),             # the Tailscale name an iPad opens this terminal at ("" = this Mac only)
     "cashflow_remote_url": ("", _url),      # Cashflow Monitor's address there: CASH on the iPad opens it
