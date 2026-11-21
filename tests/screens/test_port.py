@@ -113,6 +113,7 @@ def test_roi_lines_carry_their_time_weighted_growth_privately(frozen, tmp_path):
     p = port.assemble(parts, dict(META))
     roi = panel(p, "roi")
     assert [s["name"] for s in roi["series"]][0] == "YOU" and len(roi["series"]) > 1
+    assert all(s["color"] == port.BENCH_COLOR[s["name"]] for s in roi["series"][1:])   # the same on BOOKS
     for s in roi["series"]:
         assert len(s["twr"]) == len(roi["x"]) and s["twr"][-1] > 0
     you = roi["series"][0]["twr"]

@@ -44,6 +44,8 @@ test("a band becomes two hidden lines and a filled area; a dashed line keeps its
   assert.deepEqual(specs[2].dash, [4, 4]); assert.equal(specs[2].stroke, "#00e676");   // specs[0]: uPlot's x
   assert.equal(specs[1].dash, undefined);
   assert.deepEqual(bands, [{ series: [4, 3], fill: "#00e67626" }]);
+  assert.equal(specs[1].width, 1.8); assert.equal(specs[2].width, 1);      // YOU bold, the rest thin
+  assert.equal(plotData([1], [{ name: "ANNA", role: "book", y: [1] }], () => "#fff").specs[1].width, 1.8);   // a book too
 });
 
 test("a legend-less chart's tip reads the first line's point: date, value, and P&L % against a base", () => {

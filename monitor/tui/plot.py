@@ -187,7 +187,8 @@ def chart_raster(
                 for row in range(max(0, round(t0 + (t1 - t0) * f) // 4), min(ph, round(b0 + (b1 - b0) * f) // 4 + 1)):
                     bgs[row][col] = fill
     lines = [(i, s) for i, s in enumerate(series) if s.get("kind") not in ("band", "markers")]
-    lines.sort(key=lambda t: t[1].get("role") == "primary")  # the one that matters is drawn last: a cell has one colour
+    # the ones that matter (YOU, a book) are drawn last: a cell has one colour
+    lines.sort(key=lambda t: t[1].get("role") in ("primary", "book"))
     for i, s in lines:
         c, prev = color_of(s, i), None
         for k, y in enumerate(s.get("y") or []):

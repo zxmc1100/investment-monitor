@@ -76,6 +76,10 @@ def test_each_book_is_ports_own_figures_and_the_benchmarks_are_one_line_for_all(
     assert all(len(s[k]) == len(chart["x"]) for s in chart["series"] for k in ("y", "twr"))
     spx = next(s for s in chart["series"] if s["name"] == "SPX")
     assert spx["y"][0] == 0.0 and spx["twr"][0] == 1.0 and "inv" not in spx and "cash" not in spx
+    # a benchmark keeps PORT's colour; a book is bold in a tone no benchmark has, YOU white
+    assert spx["color"] == port.BENCH_COLOR["SPX"] and anna["role"] == "book"
+    assert anna["color"] == books.BOOK_COLORS[0] and anna["color"] not in port.BENCH_COLOR.values()
+    assert chart["series"][0]["role"] == "primary"                                    # the first book: the first colour
     # shared: the same benchmark line with or without ANNA (the chart starts at YOU's first trade either way)
     shutil.rmtree(ctx.portfolio_csv.parent / "books")
     alone = next(s for s in panel(build(ctx), "roi")["series"] if s["name"] == "SPX")

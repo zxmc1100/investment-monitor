@@ -834,7 +834,8 @@ def alpha_line(a: dict, b: dict) -> dict | None:
 def chart_model(p: dict, ui) -> dict | None:
     """render/chart.js's data stage: horizon, range, view. Kept until the payload, the row or a chip changes."""
     pid, key = p["id"], ui.follow_key(p)
-    off = frozenset(ui.hidden_lines(pid)) if p.get("legend") == "rank" else frozenset()
+    bench = [s.get("name") for s in (chart_source(p, key) or {}).get("series") or [] if s.get("role") == "bench"]
+    off = frozenset(ui.hidden_lines(pid, bench)) if p.get("legend") == "rank" else frozenset()
     memo = ("model", pid, ui.gen, key, repr(ui.ranges.get(pid)), ui.modes.get(pid), ui.horizons.get(pid), off)
     if memo in ui.memo:
         return ui.memo[memo]

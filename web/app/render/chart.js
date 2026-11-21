@@ -8,7 +8,9 @@ const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
 const AXIS_FMT = { eur: "eur:0", "eur+": "eur+:0", pct: "pct:0", "pct+": "pct+:0" };
 const GAP_FMT = { eur: "eur+", "eur+": "eur+", pct: "pp+", "pct+": "pp+" };   // a gap between two lines: signed, % in points
 const LEAD = { up: "#00e676", dn: "#ff3d3d", line: "#d0d0d0", alpha: "#ffa028" };      // the gap pane's colours
-const TAG_W = 56, TAGS_MAX = 5;     // the last-value tags' gutter on the right; more lines than this: none, too crowded
+const TAG_W = 56, TAGS_MAX = 5;
+// an axis read in whole units (AXIS_FMT's :0, the gap pane's) steps in whole units: a 2.5 step read +23 +20 +18 rounded
+const WHOLE = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000];     // the last-value tags' gutter on the right; more lines than this: none, too crowded
 
 const color = (s, i) => s.color ?? ROLE[s.role] ?? PALETTE[i % PALETTE.length];
 const axis = () => ({ stroke: "#8a8a8a", grid: { stroke: "#1c1c1c", width: 1 }, ticks: { stroke: "#2b2b2b", width: 1 },
@@ -56,7 +58,7 @@ export function plotData(x, series, colorOf) {
       return;
     }
     data.push(s.y);
-    specs.push({ label: s.name, stroke: c, width: s.role === "primary" ? 1.8 : 1, spanGaps: false,
+    specs.push({ label: s.name, stroke: c, width: s.role === "primary" || s.role === "book" ? 1.8 : 1, spanGaps: false,
       ...(s.dash ? { dash: [4, 4] } : {}),
       ...(s.kind === "markers"
         ? { paths: () => null, points: { show: true, size: 6, fill: c, stroke: c } }
@@ -162,7 +164,8 @@ export function chart(body, p, ui) {
   const ranges = chips.length ? `<div class="ranges">${chips.join("")}</div>` : "";
   // Fixed-width legend (colgroup + CSS): a value gaining a digit must never resize the plot.
   // A legend line clicked is hidden from the plot (ui.toggleLine; dimmed here, still read): a crowded chart thinned.
-  const off = legend.length ? ui.hiddenLines(p.id) : new Set();
+  // a benchmark hidden on one chart is hidden on every one (PORT, BOOKS: ui.hiddenLines); any other line on its own
+  const off = legend.length ? ui.hiddenLines(p.id, lines.filter((s) => s.role === "bench").map((s) => s.name)) : new Set();
   // Two lines left: the first's lead over the second (and on a % chart its alpha) in a pane of their own below — the
   // lines above, the difference below, one cursor and one time axis across both, as Bloomberg's COMP draws it.
   const shown = lines.filter((s) => !off.has(s.name));
@@ -171,7 +174,7 @@ export function chart(body, p, ui) {
   const gaps = [spread, alpha].filter(Boolean), gfmt = GAP_FMT[p.yfmt] ?? "num+";
   const gapRows = gaps.map((g, i) => `<tr class="gap"><td style="color:${i ? LEAD.alpha : LEAD.line}">${esc(g.name)}</td><td class="r" data-g="${i}"></td></tr>`);
   const legendHtml = legend.length ? `<table class="legend"><colgroup><col><col class="v"></colgroup><tr class="asof"><td colspan="2"></td></tr>${[...legend.filter((s) => !off.has(s.name)), ...legend.filter((s) => off.has(s.name))].map((s) =>
-    `<tr${off.has(s.name) ? ' class="off"' : ""} data-name="${esc(s.name)}" title="click: ${off.has(s.name) ? "show" : "hide"} this line"><td style="color:${color(s, series.indexOf(s))}">${esc(s.name)}</td><td class="r" data-s="${series.indexOf(s)}"></td></tr>`
+    `<tr${off.has(s.name) ? ' class="off"' : ""} data-name="${esc(s.name)}"${s.role === "bench" ? " data-bench" : ""} title="click: ${off.has(s.name) ? "show" : "hide"} this line"><td style="color:${color(s, series.indexOf(s))}">${esc(s.name)}</td><td class="r" data-s="${series.indexOf(s)}"></td></tr>`
   ).join("")}${gapRows.length ? `<tr class="sep"><td colspan="2"></td></tr>${gapRows.join("")}` : ""}</table>` : "";
   body.innerHTML = `${ranges}<div class="plotwrap"><div class="plot"></div>${legendHtml}</div>`;
   const lg = body.querySelector(".legend");
@@ -193,7 +196,7 @@ export function chart(body, p, ui) {
   body.querySelectorAll(".ranges span[data-r]").forEach((el) => el.addEventListener("click", () => ui.setRange(p.id, el.dataset.r)));
   body.querySelectorAll(".ranges [data-mode]").forEach((el) => el.addEventListener("click", () => ui.setMode(p.id, el.dataset.mode)));
   body.querySelectorAll(".ranges [data-h]").forEach((el) => el.addEventListener("click", () => ui.setHorizon(p.id, el.dataset.h)));
-  body.querySelectorAll(".legend tr[data-name]").forEach((el) => el.addEventListener("click", () => ui.toggleLine(p.id, el.dataset.name)));
+  body.querySelectorAll(".legend tr[data-name]").forEach((el) => el.addEventListener("click", () => ui.toggleLine(p.id, el.dataset.name, "bench" in el.dataset)));
 
   // The dragged period becomes the chart's range — drawn again from the data, so every view restarts at its
   // start and a refresh keeps it. After uPlot's own mouse-up handling (the redraw replaces the plot).
@@ -245,7 +248,7 @@ export function chart(body, p, ui) {
     // with the gap pane below, the dates are read once, under it: here only their grid
     axes: [{ ...axis(), ...(below ? { size: 6, values: (u, ticks) => ticks.map(() => "") }
       : { values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) }) },
-      { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) }, ...gutter,
+      { ...axis(), size: 58, ...(AXIS_FMT[p.yfmt] ? { incrs: WHOLE } : {}), values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) }, ...gutter,
       // SEC's price: the same scale on the right as P&L % against the average cost (p.pnl_base)
       ...(p.pnl_base ? [{ ...axis(), scale: "y", side: 1, size: 52, grid: { show: false },
         values: (u, ticks) => ticks.map((t) => fmt((t / p.pnl_base - 1) * 100, "pct+:0").text) }] : [])],
@@ -315,8 +318,7 @@ function gapPane(el, x, [gap, alpha], gfmt, size, { sync, paint, zoom, gutter })
     cursor: { points: { show: false }, drag: { x: true, y: false, setScale: false }, sync },
     scales: { x: { time: true }, y: { range: hold0 } },
     axes: [{ ...axis(), values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) },
-      // whole steps only: a 2.5 step read as +3 −3 −5 −8 once rounded
-      { ...axis(), size: 58, space: 14, incrs: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+      { ...axis(), size: 58, space: 14, incrs: WHOLE,
         values: (u, ticks) => ticks.map((t) => fmt(t, `${gfmt}:0`).text) }, ...gutter],
     series: [{}, { stroke: signed(""), fill: signed("33"), fillTo: 0, width: 1.2, points: { show: false }, spanGaps: false },
       ...(alpha ? [{ stroke: LEAD.alpha, width: 1.6, points: { show: false }, spanGaps: false }] : [])],

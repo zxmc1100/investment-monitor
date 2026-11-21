@@ -28,6 +28,9 @@ PAY_ASKS = 3               # US lines whose dividend pay dates are asked per quo
 BENCH = (("S&P 500", "SPX"), ("Nasdaq 100", "NDX"), ("MSCI World", "MSCI W"),
          ("FTSE All-World", "FTSE AW"), ("Euro Stoxx 50", "STOXX50"), ("Emerging Markets", "EM"),
          ("Gold", "GOLD"), ("Bitcoin", "BTC"), ("Fixed Income", "BONDS"))
+# each benchmark's colour on every chart (PORT, BOOKS): the slot it always had on PORT, after YOU (chart.js PALETTE)
+BENCH_COLOR = {"SPX": "#4fc3f7", "NDX": "#e040fb", "MSCI W": "#00e676", "FTSE AW": "#ffeb3b", "STOXX50": "#ff7043",
+               "EM": "#9575cd", "GOLD": "#26a69a", "BTC": "#bdbdbd", "BONDS": "#ffa028"}
 DEPS = ("monitor.config", "monitor.screens.port", "monitor.screens.common", "monitor.screens.base", "monitor.portfolio.snapshot",
         "monitor.portfolio.analytics", "monitor.portfolio.ledger", "monitor.portfolio.meta",
         "monitor.data.buffer", "monitor.data.yahoo", "monitor.data.instruments", "monitor.screens.identity",
@@ -445,7 +448,7 @@ def _roi(q: dict, d: dict) -> dict:
     for name, short in BENCH:
         s = bms.get(name)
         if s is not None and not s.empty:
-            series.append(line(short, "bench", s))
+            series.append({**line(short, "bench", s), "color": BENCH_COLOR[short]})
     # A window's ROI (1M … 1Y, dragged — drawn by the browser) is the ROI formula on the window: it needs the
     # money put in to each point (`inv`, every line's: a benchmark buys with yours, on the same days) and your
     # sales and dividends (`cash`). Same day mapping as the walk (daily_flows); private keys — they tell when

@@ -25,6 +25,8 @@ from monitor.screens.base import Ctx, Screen
 from monitor.screens.common import PRIV, epoch, num, thin_index
 
 DEPS = (*port.DEPS, "monitor.screens.books", "monitor.portfolio.books", "monitor.portfolio.trades")
+# the other books' colours: bold lines (role book) in tones no benchmark has (port.BENCH_COLOR); YOU is white
+BOOK_COLORS = ("#ff80ab", "#ccff90", "#84ffff", "#ffd180", "#b388ff", "#a7ffeb")
 BENCH_TICKERS = [t for t, _ in BENCHMARKS.values()] + [BENCH_FX]
 NO_BOOKS = ("NO BOOKS YET — BOOK <NAME> opens a new one: its first trade creates it (input/books/<NAME>/); "
             "yours is input/portfolio.csv")
@@ -192,12 +194,15 @@ def _chart(lines: dict[str, dict], bench: pd.DataFrame, quotes: dict, today: dat
         return [num(round(v, nd)) for v in s.reindex(idx)] if s is not None else None
 
     series = []
+    others = [n for n in lines if n != books.YOU]
     for name, ln in lines.items():
-        series.append({"name": name, **({"role": "primary"} if name == books.YOU else {}), "kind": "line",
+        who = ({"role": "primary"} if name == books.YOU
+               else {"role": "book", "color": BOOK_COLORS[others.index(name) % len(BOOK_COLORS)]})
+        series.append({"name": name, **who, "kind": "line",
                        "vis": PRIV, "y": cut(ln["y"], 4), "twr": cut(ln["twr"], 4), "inv": cut(ln["inv"], 2),
                        "cash": cut(ln["cash"], 2)})
     for short, s in _bench_index(bench, quotes, full, today).items():
-        series.append({"name": short, "role": "bench", "kind": "line", "vis": PRIV,
+        series.append({"name": short, "role": "bench", "color": port.BENCH_COLOR[short], "kind": "line", "vis": PRIV,
                        "y": cut((s - 1) * 100, 4), "twr": cut(s, 4)})
     # a book's ROI over a window takes its own money (its `inv`, `cash`); a benchmark is 1 € held from the first
     # day — the chart's `inv`, so its window return is its total return over the window, in every view

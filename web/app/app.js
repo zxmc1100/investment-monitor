@@ -47,7 +47,7 @@ function keyRows() {
   ];
 }
 
-// chart lines hidden from a legend (render/chart.js), kept in this browser: {"SCREEN:panel": [names]}
+// chart lines hidden from a legend (render/chart.js), kept in this browser: {"SCREEN:panel": [names], bench: [names]}
 const HIDDEN = "monitor.hidden";
 function loadHidden() {
   try {
@@ -55,6 +55,9 @@ function loadHidden() {
     return Object.fromEntries(Object.entries(h ?? {}).filter(([, v]) => Array.isArray(v)));
   } catch { return {}; }
 }
+const saveHidden = () => {
+  try { localStorage.setItem(HIDDEN, JSON.stringify(S.hidden)); } catch { /* storage off: this visit only */ }
+};
 
 const cmd = $("#cmd");
 const S = {
@@ -260,11 +263,21 @@ function ui(pid) {
     setMode(id, m) { S.mode[id] = m; rerender(id); },
     chartHorizon: (id) => S.horizon[id],
     setHorizon(id, h) { S.horizon[id] = h; rerender(id); },
-    hiddenLines: (id) => new Set(S.hidden[`${S.id}:${id}`]),
-    toggleLine(id, name) {
-      const k = `${S.id}:${id}`, h = S.hidden[k] ?? [];
+    // the chart's hidden lines: its own (SCREEN:panel) and the benchmarks hidden anywhere ("bench": one set for every
+    // chart); a benchmark kept here from before they were shared moves to the shared set
+    hiddenLines(id, bench = []) {
+      const k = `${S.id}:${id}`, own = S.hidden[k] ?? [], moved = own.filter((n) => bench.includes(n));
+      if (moved.length) {
+        S.hidden.bench = [...new Set([...(S.hidden.bench ?? []), ...moved])];
+        S.hidden[k] = own.filter((n) => !bench.includes(n));
+        saveHidden();
+      }
+      return new Set([...(S.hidden[k] ?? []), ...(S.hidden.bench ?? []).filter((n) => bench.includes(n))]);
+    },
+    toggleLine(id, name, bench = false) {
+      const k = bench ? "bench" : `${S.id}:${id}`, h = S.hidden[k] ?? [];
       S.hidden[k] = h.includes(name) ? h.filter((n) => n !== name) : [...h, name];
-      try { localStorage.setItem(HIDDEN, JSON.stringify(S.hidden)); } catch { /* storage off: this visit only */ }
+      saveHidden();
       rerender(id);
     },
     onDispose: (fn) => (S.disposers[pid] ??= []).push(fn),

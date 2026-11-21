@@ -194,7 +194,7 @@ class App:
         self.ranges: dict = {}
         self.modes: dict = {}
         self.horizons: dict = {}
-        self.hidden: dict = {}  # {"SCREEN:panel": {line names}} hidden from a chart's legend (this run only)
+        self.hidden: dict = {}  # {"SCREEN:panel" | "bench": {line names}} hidden from a chart's legend (this run only)
         self.legend_at: dict = {}  # {panel: the legend line j k picked}
         self.cross: dict = {}
         self.sel: dict = {}
@@ -1736,12 +1736,15 @@ class App:
             self.ranges[pid] = m["range"].get("prev") or m["default"]
             self.cross.pop(pid, None)
 
-    def hidden_lines(self, pid: str) -> set:
-        return self.hidden.get(f"{self.id}:{pid}", set())
+    def hidden_lines(self, pid: str, bench=()) -> set:
+        """The chart's own hidden lines and the benchmarks (`bench`: its benchmark names) hidden on any chart."""
+        return self.hidden.get(f"{self.id}:{pid}", set()) | (self.hidden.get("bench", set()) & set(bench))
 
     def toggle_line(self, pid: str, name: str) -> None:
-        """A legend line hidden from its chart, or shown again (render/chart.js, app.js toggleLine)."""
-        self.hidden[f"{self.id}:{pid}"] = self.hidden_lines(pid) ^ {name}
+        """A legend line hidden from its chart, or shown again; a benchmark on every chart (app.js toggleLine)."""
+        legend = (self.plots.get(pid) or {}).get("model", {}).get("legend", [])
+        k = "bench" if any(s.get("name") == name and s.get("role") == "bench" for s in legend) else f"{self.id}:{pid}"
+        self.hidden[k] = self.hidden.get(k, set()) ^ {name}
         self.legend_at[pid] = name
 
     def legend_names(self, pid: str) -> list:
