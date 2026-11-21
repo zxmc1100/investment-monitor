@@ -14,6 +14,7 @@ from monitor.tui.ranges import (
     cut_horizon,
     default_range,
     expand_at,
+    last_value,
     legend_rest,
     legend_value,
     normalize,
@@ -1030,11 +1031,24 @@ def _rasters(p: dict, m: dict, w: int, h: int, low_h: int) -> tuple:
         else s
         for s in m["series"]
     ]
+    # each shown line's last value tagged on the right (≤ 5 lines: more would crowd), the gap pane's two as well
+    shown = [s for s in m["lines"] if s.get("name") not in m["off"]]
+    tags = (
+        [(last_value(s["y"]), color_of(s, m["series"].index(s)), fmt(last_value(s["y"]), p.get("yfmt"))[0]) for s in shown]
+        if m["legend"] and len(shown) <= 5
+        else []
+    )
+    gap, alpha = (m["gaps"] + [None, None])[:2]
+    low_tags = [
+        (v, LEAD["alpha"] if g is alpha else LEAD["dn"] if v is not None and v < 0 else LEAD["up"], fmt(v, m["gfmt"])[0])
+        for g in (gap, alpha)
+        if g and (v := last_value(g["y"])) is not None
+    ] if low_h and tags else []
+    right = max((len(t[2]) + 3 for t in tags + low_tags if t[0] is not None), default=0)
     args = (m["x"], drawn, w, h, p.get("yfmt"), p.get("vlines"), p.get("vlabels"), p.get("pnl_base"))
-    raster = chart_raster(*args, dates=not low_h)
+    raster = chart_raster(*args, dates=not low_h, tags=tags, right_min=right)
     if not low_h or raster is None:
         return raster, None
-    gap, alpha = (m["gaps"] + [None])[:2]
     part = lambda f: [None if v is None else f(v, 0) for v in gap["y"]]  # noqa: E731
     zero = [None if v is None else 0 for v in gap["y"]]
     side = lambda keep: [v if v is not None and keep(v) else None for v in gap["y"]]  # noqa: E731
@@ -1046,9 +1060,9 @@ def _rasters(p: dict, m: dict, w: int, h: int, low_h: int) -> tuple:
         {"kind": "line", "y": side(lambda v: v <= 0), "color": LEAD["dn"]},
         *([{"kind": "line", "y": alpha["y"], "color": LEAD["alpha"], "role": "primary"}] if alpha else []),
     ]
-    low = chart_raster(m["x"], low_series, w, low_h, m["gfmt"], left_min=raster.left)
+    low = chart_raster(m["x"], low_series, w, low_h, m["gfmt"], left_min=raster.left, tags=low_tags, right_min=right)
     if low and low.left > raster.left:  # the wider labels set both
-        raster = chart_raster(*args, dates=False, left_min=low.left)
+        raster = chart_raster(*args, dates=False, left_min=low.left, tags=tags, right_min=right)
     return raster, low
 
 

@@ -145,10 +145,14 @@ def chart_raster(
     pnl_base=None,
     dates: bool = True,
     left_min: int = 0,
+    tags=None,
+    right_min: int = 0,
 ) -> Raster | None:
     """Lines, markers and bands over a time axis, y labels on the left (and with `pnl_base` the same ticks on the
     right as P&L % against it: render/chart.js), time labels along the bottom row — none with `dates` False (a pane
-    above another that reads them). `left_min`: the y labels' width at least that, so two panes' plots line up."""
+    above another that reads them). `left_min` / `right_min`: the gutters at least that wide, so two panes' plots line
+    up. `tags`: [(value, colour, text)] — each line's last value in a block of its colour in the right gutter, at its
+    height, nudged apart where two would share a row (render/chart.js drawTags)."""
     values = []
     for s in series:
         values.extend(s.get("lo") or [] if s.get("kind") == "band" else s.get("y") or [])
@@ -165,6 +169,8 @@ def chart_raster(
     left = max(left_min, max((len(t) for t in ytext), default=4) + 1)
     rtext = [fmt((t / pnl_base - 1) * 100, "pct+:0")[0] for t in yt] if pnl_base else []
     right = max((len(t) for t in rtext), default=-1) + 1
+    tags = [t for t in tags or [] if t[0] is not None]
+    right = max(right, right_min, max((len(t[2]) + 3 for t in tags), default=0))
     pw = w - left - right
     if pw < 4:
         return None
@@ -239,6 +245,15 @@ def chart_raster(
             for j, c in enumerate(text):
                 if col + j < w:
                     cells[0][col + j] = (c, DIM, BG)
+    placed, prev = [], -1
+    for v, c, text in sorted(tags, key=lambda t: -t[0]):  # top down, each a row below the one above at least
+        prev = max(min(ph - 1, max(0, sy(v) // 4)), prev + 1)
+        placed.append((prev, c, text))
+    shift = max(0, placed[-1][0] - (ph - 1)) if placed else 0  # nudged past the bottom: all up
+    for row, c, text in placed:
+        for j, ch in enumerate(f" {text} ", start=left + pw + 1):
+            if row >= shift and j < w:
+                cells[row - shift][j] = (ch, BG, c)
     end = 0
     for t, text in zip(ticks, time_ticks(ticks, incr) if dates else []):
         col = left + sx(t) // 2 - len(text) // 2

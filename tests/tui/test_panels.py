@@ -374,3 +374,19 @@ def test_a_kpi_strip_takes_a_column_per_kpi_room_allowing(app):
     assert len(P.kpi_lines({"id": "b", "items": items, "kcols": 10}, 200, app)) == 2       # labels, values
     assert len(P.kpi_lines({"id": "b", "items": items, "kcols": 10}, 80, app)) == 6        # too narrow: four a row
     assert len(P.kpi_lines({"id": "b", "items": items}, 200, app)) == 6
+
+
+def test_chart_tags_each_lines_last_value_on_the_right_nudged_apart():
+    """render/chart.js drawTags: a block of the line's colour at its last value, in the right gutter; two at one height
+    take a row each."""
+    x = [1_700_000_000 + 86_400 * i for i in range(10)]
+    s = [{"name": "A", "kind": "line", "y": [float(i) for i in range(10)]},
+         {"name": "B", "kind": "line", "y": [float(i) * 0.99 for i in range(10)]}]
+    r = chart_raster(x, s, 60, 12, "pct+", tags=[(9.0, "#ffffff", "+9.0%"), (8.91, "#4fc3f7", "+8.9%")])
+    rows = ["".join(c[0] for c in row) for row in r.cells]
+    a = next(i for i, t in enumerate(rows) if "+9.0%" in t)
+    b = next(i for i, t in enumerate(rows) if "+8.9%" in t)
+    assert b == a + 1                                              # one height: a row apart
+    col = rows[a].index("+9.0%")
+    assert col > r.left + r.pw and r.cells[a][col][2] == "#ffffff"  # in the gutter, on the line's colour
+    assert chart_raster(x, s, 60, 12, "pct+", right_min=12).pw == chart_raster(x, s, 60, 12, "pct+", tags=[(9.0, "#fff", "+9.0%")], right_min=12).pw
