@@ -103,8 +103,10 @@ export function chart(body, p, ui) {
   for (const h of p.horizons ?? []) chips.push(`<span class="hz${h === horizon ? " on" : ""}" data-h="${esc(h)}">${esc(h)}</span>`);
   const ranges = chips.length ? `<div class="ranges">${chips.join("")}</div>` : "";
   // Fixed-width legend (colgroup + CSS): a value gaining a digit must never resize the plot.
+  // A legend line clicked is hidden from the plot (ui.toggleLine; dimmed here, still read): a crowded chart thinned.
+  const off = legend.length ? ui.hiddenLines(p.id) : new Set();
   const legendHtml = legend.length ? `<table class="legend"><colgroup><col><col class="v"></colgroup><tr class="asof"><td colspan="2"></td></tr>${legend.map((s) =>
-    `<tr><td style="color:${color(s, series.indexOf(s))}">${esc(s.name)}</td><td class="r" data-s="${series.indexOf(s)}"></td></tr>`
+    `<tr${off.has(s.name) ? ' class="off"' : ""} data-name="${esc(s.name)}" title="click: ${off.has(s.name) ? "show" : "hide"} this line"><td style="color:${color(s, series.indexOf(s))}">${esc(s.name)}</td><td class="r" data-s="${series.indexOf(s)}"></td></tr>`
   ).join("")}</table>` : "";
   body.innerHTML = `${ranges}<div class="plotwrap"><div class="plot"></div>${legendHtml}</div>`;
   const lg = body.querySelector(".legend");
@@ -121,6 +123,7 @@ export function chart(body, p, ui) {
   body.querySelectorAll(".ranges span[data-r]").forEach((el) => el.addEventListener("click", () => ui.setRange(p.id, el.dataset.r)));
   body.querySelectorAll(".ranges [data-mode]").forEach((el) => el.addEventListener("click", () => ui.setMode(p.id, el.dataset.mode)));
   body.querySelectorAll(".ranges [data-h]").forEach((el) => el.addEventListener("click", () => ui.setHorizon(p.id, el.dataset.h)));
+  body.querySelectorAll(".legend tr[data-name]").forEach((el) => el.addEventListener("click", () => ui.toggleLine(p.id, el.dataset.name)));
 
   // The dragged period becomes the chart's range — drawn again from the data, so every view restarts at its
   // start and a refresh keeps it. After uPlot's own mouse-up handling (the redraw replaces the plot).
@@ -134,7 +137,7 @@ export function chart(body, p, ui) {
   const el = body.querySelector(".plot");
   const size = () => ({ width: Math.max(el.clientWidth, 100), height: Math.max(el.clientHeight, 60) });
   const yfmt = AXIS_FMT[p.yfmt] ?? "num:0";
-  const { data, specs, bands } = plotData(x, series, color);
+  const { data, specs, bands } = plotData(x, series.filter((s) => !off.has(s.name)), (s) => color(s, series.indexOf(s)));
   const plot = new uPlot({
     ...size(),
     legend: { show: false },

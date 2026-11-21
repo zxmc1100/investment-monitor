@@ -35,6 +35,7 @@ function keyRows() {
     ["Alt+↑ ↓", "command history"],
     ["Alt+1…9", "maximize panel n (again or Esc restores)"],
     ["drag on a chart", "zoom into that period · double-click zooms back out"],
+    ["click a legend line", "hide that line on the chart (crowded with benchmarks) · click it again to show it"],
     ["⌥R · ⌥M · ⌥T (Alt+)", "the ROI chart over the period shown or dragged — ROI: return on investment, the gain "
       + "over every euro in it (default) · MWR: money-weighted (Modified Dietz), each euro for the time it was in · "
       + "TWR: time-weighted, buys and sales moving no line — who performed best"],
@@ -47,7 +48,7 @@ function keyRows() {
 const cmd = $("#cmd");
 const S = {
   reg: { screens: [], private: [] }, id: null, param: null, key: null, back: [], backNav: false, resetScroll: false, payload: null, live: null, conn: !api.isStatic,
-  running: new Set(), tables: {}, ranges: {}, mode: {}, horizon: {}, max: null, focus: null,
+  running: new Set(), tables: {}, ranges: {}, mode: {}, horizon: {}, hidden: {}, max: null, focus: null,
   ac: { items: [], i: 0, moved: false }, history: [], hi: -1, disposers: {}, noticeT: null,
   lookup: { q: "", items: [] }, lookupT: null, alerts: { active: 0, down: false }, alertErr: null,
   builds: {},                                       // screen builds in progress or failed (build.js)
@@ -248,6 +249,8 @@ function ui(pid) {
     setMode(id, m) { S.mode[id] = m; rerender(id); },
     chartHorizon: (id) => S.horizon[id],
     setHorizon(id, h) { S.horizon[id] = h; rerender(id); },
+    hiddenLines: (id) => S.hidden[id] ?? new Set(),
+    toggleLine(id, name) { const h = (S.hidden[id] ??= new Set()); h.has(name) ? h.delete(name) : h.add(name); rerender(id); },
     onDispose: (fn) => (S.disposers[pid] ??= []).push(fn),
     // form / paste panels (TRADES)
     formState: (p) => (S.forms[formKey(p.id)] ??= blankForm(p)),
