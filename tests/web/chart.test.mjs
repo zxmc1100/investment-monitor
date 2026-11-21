@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chartSource, nearestLine, plotData, pointTip, spreadLine } from "../../web/app/render/chart.js";
+import { alphaLine, chartSource, nearestLine, plotData, pointTip, spreadLine } from "../../web/app/render/chart.js";
 import { followsLater } from "../../web/app/render/table.js";
 import { rebase } from "../../web/app/ranges.js";
 
@@ -77,4 +77,20 @@ test("two lines left: the first's lead over the second on a scale of its own, a 
   const { specs } = plotData([1, 2, 3, 4], [s], (l) => l.color);
   assert.equal(specs[1].scale, "spread");                            // uPlot draws it against the right axis
   assert.deepEqual(specs[1].dash, [4, 4]);
+});
+
+test("alpha: the first line's steps less β times the second's, summed — β and a constant edge recovered", () => {
+  // b steps up and down; a = 0.8·b + 0.1 % a step, exactly: β 0.80, alpha 0.1 point a step
+  const rb = [0.01, -0.02, 0.015, 0.005, -0.01, 0.02, -0.005, 0.01, -0.015, 0.012, 0.003, -0.008];
+  const level = (r) => r.reduce((l, x) => [...l, l[l.length - 1] * (1 + x)], [1]).map((v) => (v - 1) * 100);
+  const b = { name: "SPX", y: [null, ...level(rb)] };                 // a leading gap: starts where both have a point
+  const a = { name: "YOU", y: [5, ...level(rb.map((x) => 0.8 * x + 0.001))] };
+  const al = alphaLine(a, b);
+  assert.equal(al.name, "ALPHA β0.80");
+  assert.equal(al.scale, "spread");
+  assert.equal(al.y[0], null);
+  assert.equal(al.y[1], 0);
+  assert.ok(Math.abs(al.y[al.y.length - 1] - rb.length * 0.1) < 1e-9);   // 12 steps × 0.1 point
+  assert.equal(alphaLine({ name: "A", y: [1, 2, 3] }, { name: "B", y: [1, 2, 3] }), null);   // under 10 steps
+  assert.equal(alphaLine(a, { name: "FLAT", y: a.y.map(() => 0) }), null);                  // no variance: no β
 });

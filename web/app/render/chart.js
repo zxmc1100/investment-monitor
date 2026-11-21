@@ -81,6 +81,32 @@ export function spreadLine(a, b) {
     y: a.y.map((v, i) => gap(v, b.y[i])) };
 }
 
+// The first line's alpha over the second, summed step by step from the first point both have: Σ (rₐ − β·r_b) in
+// points, r a step of a line's level (1 + y/100: a % line), β the window's (cov / var of the steps). It climbs, a
+// year, by the annualized alpha PORT's RISK reads (analytics.compute_quant_metrics, on ALL the same daily steps);
+// null under 10 steps or a flat second line. Pure.
+export function alphaLine(a, b) {
+  const has = (v) => v !== null && v !== undefined;
+  const steps = [];
+  let first = null, prev = null;
+  a.y.forEach((v, i) => {
+    if (!has(v) || !has(b.y[i])) return;
+    if (prev === null) first = i;
+    else steps.push([i, (100 + v) / (100 + a.y[prev]) - 1, (100 + b.y[i]) / (100 + b.y[prev]) - 1]);
+    prev = i;
+  });
+  if (steps.length < 10) return null;
+  const ma = steps.reduce((t, st) => t + st[1], 0) / steps.length, mb = steps.reduce((t, st) => t + st[2], 0) / steps.length;
+  const vb = steps.reduce((t, st) => t + (st[2] - mb) ** 2, 0);
+  if (!(vb > 0)) return null;
+  const beta = steps.reduce((t, st) => t + (st[1] - ma) * (st[2] - mb), 0) / vb;
+  const y = a.y.map(() => null);
+  let sum = 0;
+  y[first] = 0;
+  for (const [i, ra, rb] of steps) y[i] = sum += (ra - beta * rb) * 100;
+  return { name: `ALPHA β${beta.toFixed(2)}`, kind: "line", scale: "spread", color: SPREAD, beta, y };
+}
+
 // The line whose point at index i lies nearest the pointer's height `top` (pixels; `toPos(v, line)` maps a value
 // there, on that line's scale) — the one a chart with a legend names in its tip. Pure.
 export function nearestLine(lines, i, top, toPos) {
@@ -171,13 +197,16 @@ export function chart(body, p, ui) {
   const yfmt = AXIS_FMT[p.yfmt] ?? "num:0";
   const shown = lines.filter((s) => !off.has(s.name));
   const spread = legend.length && shown.length === 2 ? spreadLine(shown[0], shown[1]) : null;
-  const plotted = [...series.filter((s) => !off.has(s.name)), ...(spread ? [spread] : [])];
+  // and on a % chart its alpha, on the same right axis: the gap is dashed, the alpha solid
+  const alpha = spread && GAP_FMT[p.yfmt]?.startsWith("pct") ? alphaLine(shown[0], shown[1]) : null;
+  const gaps = [spread, alpha].filter(Boolean);
+  const plotted = [...series.filter((s) => !off.has(s.name)), ...gaps];
   const { data, specs, bands } = plotData(x, plotted, (s) => color(s, series.indexOf(s)));
   // a dot on the point under the cursor and its tip beside it, turned away from the nearer edges — with a legend,
   // on the shown line nearest the pointer, named in its colour
   const tip = Object.assign(document.createElement("div"), { className: "tip", hidden: true });
   const showTip = (u) => {
-    const line = !legend.length ? lines[0] : nearestLine(spread ? [...shown, spread] : shown, u.cursor.idx, u.cursor.top,
+    const line = !legend.length ? lines[0] : nearestLine([...shown, ...gaps], u.cursor.idx, u.cursor.top,
       (v, s) => u.valToPos(v, s.scale ?? "y"));
     const t = u.cursor.left >= 0 && line ? pointTip([line], x, u.cursor.idx, p.yfmt, p.pnl_base) : null;
     tip.hidden = !t;
@@ -200,7 +229,7 @@ export function chart(body, p, ui) {
       { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) },
       // two lines left: their spread's own scale on the right, named there (its legend)
       ...(spread ? [{ ...axis(), scale: "spread", side: 1, size: 58, stroke: SPREAD, grid: { show: false },
-        label: spread.name, labelSize: 16, labelFont: axis().font,
+        label: alpha ? `┄ ${spread.name}   ─ ${alpha.name}` : spread.name, labelSize: 16, labelFont: axis().font,
         values: (u, ticks) => ticks.map((t) => fmt(t, GAP_FMT[p.yfmt] ?? "num:0").text) }] : []),
       // SEC's price: the same scale on the right as P&L % against the average cost (p.pnl_base)
       ...(p.pnl_base ? [{ ...axis(), scale: "y", side: 1, size: 52, grid: { show: false },
