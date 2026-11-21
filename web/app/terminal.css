@@ -225,6 +225,7 @@ svg.scatter .ax { fill: var(--amber); font: 10px var(--mono); }   /* axis names 
 .heatmap { font-size: 10px; } .heatmap td, .heatmap th { padding: 0 4px; line-height: var(--row); } .heatmap th { position: static; cursor: default; }
 .legend .asof td { color: var(--dim); padding-bottom: 2px; }
 .legend tr[data-name] { cursor: pointer; } .legend tr.off td { opacity: .35; text-decoration: line-through; }
+.legend tr.sep td { height: 8px; box-shadow: inset 0 -1px var(--line); } .legend tr.sep + tr td { padding-top: 4px; }   /* the gap pane's rows */
 /* ALLOCATION detail: shown only when the panel is maximized (Alt+n) */
 .panel:not(.max) .bars-detail { display: none; }
 .panel.max .bars-compact { display: none; }

@@ -6,8 +6,8 @@ import { chartModes, cutHorizon, defaultRange, expandAt, HORIZON_MONTHS, lastVal
 const PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9575cd", "#26a69a", "#bdbdbd"];
 const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
 const AXIS_FMT = { eur: "eur:0", "eur+": "eur+:0", pct: "pct:0", "pct+": "pct+:0" };
-const GAP_FMT = { eur: "eur+:0", "eur+": "eur+:0", pct: "pct+:0", "pct+": "pct+:0" };    // a spread: signed
-const SPREAD = "#ff80ab";                                                                 // in no line's palette
+const GAP_FMT = { eur: "eur+", "eur+": "eur+", pct: "pp+", "pct+": "pp+" };   // a gap between two lines: signed, % in points
+const LEAD = { up: "#00e676", dn: "#ff3d3d", line: "#d0d0d0", alpha: "#ffa028" };      // the gap pane's colours
 
 const color = (s, i) => s.color ?? ROLE[s.role] ?? PALETTE[i % PALETTE.length];
 const axis = () => ({ stroke: "#8a8a8a", grid: { stroke: "#1c1c1c", width: 1 }, ticks: { stroke: "#2b2b2b", width: 1 },
@@ -56,7 +56,7 @@ export function plotData(x, series, colorOf) {
     }
     data.push(s.y);
     specs.push({ label: s.name, stroke: c, width: s.role === "primary" ? 1.8 : 1, spanGaps: false,
-      ...(s.dash ? { dash: [4, 4] } : {}), ...(s.scale ? { scale: s.scale } : {}),
+      ...(s.dash ? { dash: [4, 4] } : {}),
       ...(s.kind === "markers"
         ? { paths: () => null, points: { show: true, size: 6, fill: c, stroke: c } }
         : { points: { show: false } }) });
@@ -73,18 +73,17 @@ export function pointTip(lines, x, i, yfmt, base) {
     pct: base ? fmt((v / base - 1) * 100, "pct+") : null };
 }
 
-// Two lines left on a chart with a legend: the first's lead over the second, day by day (YOU over a benchmark: its
-// alpha, in the chart's unit — points of ROI), on a scale of its own that the right axis reads and names. Pure.
+// Two lines left on a chart with a legend: the first's lead over the second, day by day, in the chart's unit (points
+// of ROI) — drawn in a pane of its own below the two. Pure (tui panels.spread_line).
 export function spreadLine(a, b) {
   const gap = (v, w) => (v === null || v === undefined || w === null || w === undefined ? null : v - w);
-  return { name: `${a.name} − ${b.name}`, kind: "line", scale: "spread", color: SPREAD, dash: true,
-    y: a.y.map((v, i) => gap(v, b.y[i])) };
+  return { name: `${a.name} − ${b.name}`, y: a.y.map((v, i) => gap(v, b.y[i])) };
 }
 
 // The first line's alpha over the second, summed step by step from the first point both have: Σ (rₐ − β·r_b) in
 // points, r a step of a line's level (1 + y/100: a % line), β the window's (cov / var of the steps). It climbs, a
 // year, by the annualized alpha PORT's RISK reads (analytics.compute_quant_metrics, on ALL the same daily steps);
-// null under 10 steps or a flat second line. Pure.
+// null under 10 steps or a flat second line. Pure (tui panels.alpha_line).
 export function alphaLine(a, b) {
   const has = (v) => v !== null && v !== undefined;
   const steps = [];
@@ -97,18 +96,18 @@ export function alphaLine(a, b) {
   });
   if (steps.length < 10) return null;
   const ma = steps.reduce((t, st) => t + st[1], 0) / steps.length, mb = steps.reduce((t, st) => t + st[2], 0) / steps.length;
-  const vb = steps.reduce((t, st) => t + (st[2] - mb) ** 2, 0);
+  const vb = steps.reduce((t, st) => t + (st[2] - mb) * (st[2] - mb), 0);
   if (!(vb > 0)) return null;
   const beta = steps.reduce((t, st) => t + (st[1] - ma) * (st[2] - mb), 0) / vb;
   const y = a.y.map(() => null);
   let sum = 0;
   y[first] = 0;
   for (const [i, ra, rb] of steps) y[i] = sum += (ra - beta * rb) * 100;
-  return { name: `ALPHA β${beta.toFixed(2)}`, kind: "line", scale: "spread", color: SPREAD, beta, y };
+  return { name: `ALPHA β${beta.toFixed(2)}`, beta, y };
 }
 
-// The line whose point at index i lies nearest the pointer's height `top` (pixels; `toPos(v, line)` maps a value
-// there, on that line's scale) — the one a chart with a legend names in its tip. Pure.
+// The line whose point at index i lies nearest the pointer's height `top` (pixels; `toPos(v)` maps a value there) —
+// the one a chart with a legend names in its tip. Pure.
 export function nearestLine(lines, i, top, toPos) {
   let best = null, gap = Infinity;
   if (i === null || i === undefined) return null;
@@ -163,9 +162,16 @@ export function chart(body, p, ui) {
   // Fixed-width legend (colgroup + CSS): a value gaining a digit must never resize the plot.
   // A legend line clicked is hidden from the plot (ui.toggleLine; dimmed here, still read): a crowded chart thinned.
   const off = legend.length ? ui.hiddenLines(p.id) : new Set();
+  // Two lines left: the first's lead over the second (and on a % chart its alpha) in a pane of their own below — the
+  // lines above, the difference below, one cursor and one time axis across both, as Bloomberg's COMP draws it.
+  const shown = lines.filter((s) => !off.has(s.name));
+  const spread = legend.length && shown.length === 2 ? spreadLine(shown[0], shown[1]) : null;
+  const alpha = spread && GAP_FMT[p.yfmt] === "pp+" ? alphaLine(shown[0], shown[1]) : null;
+  const gaps = [spread, alpha].filter(Boolean), gfmt = GAP_FMT[p.yfmt] ?? "num+";
+  const gapRows = gaps.map((g, i) => `<tr class="gap"><td style="color:${i ? LEAD.alpha : LEAD.line}">${esc(g.name)}</td><td class="r" data-g="${i}"></td></tr>`);
   const legendHtml = legend.length ? `<table class="legend"><colgroup><col><col class="v"></colgroup><tr class="asof"><td colspan="2"></td></tr>${legend.map((s) =>
     `<tr${off.has(s.name) ? ' class="off"' : ""} data-name="${esc(s.name)}" title="click: ${off.has(s.name) ? "show" : "hide"} this line"><td style="color:${color(s, series.indexOf(s))}">${esc(s.name)}</td><td class="r" data-s="${series.indexOf(s)}"></td></tr>`
-  ).join("")}</table>` : "";
+  ).join("")}${gapRows.length ? `<tr class="sep"><td colspan="2"></td></tr>${gapRows.join("")}` : ""}</table>` : "";
   body.innerHTML = `${ranges}<div class="plotwrap"><div class="plot"></div>${legendHtml}</div>`;
   const lg = body.querySelector(".legend");
   const paint = (idx) => {
@@ -173,6 +179,11 @@ export function chart(body, p, ui) {
     lg.querySelector(".asof td").textContent = fmtDate(isoAt(idx ?? rest));
     lg.querySelectorAll("td[data-s]").forEach((td) => {
       const f = fmt(legendValue(series, series[Number(td.dataset.s)], idx ?? rest, todayAt), p.yfmt);
+      td.textContent = f.text;
+      td.className = `r ${f.cls}`;
+    });
+    lg.querySelectorAll("td[data-g]").forEach((td) => {
+      const f = fmt(valueAt(gaps[Number(td.dataset.g)].y, idx ?? rest), gfmt);
       td.textContent = f.text;
       td.className = `r ${f.cls}`;
     });
@@ -193,25 +204,23 @@ export function chart(body, p, ui) {
     setTimeout(() => ui.setRange(p.id, span), 0);
   };
   const el = body.querySelector(".plot");
-  const size = () => ({ width: Math.max(el.clientWidth, 100), height: Math.max(el.clientHeight, 60) });
+  const [top, below] = spread ? [el.appendChild(document.createElement("div")), el.appendChild(document.createElement("div"))] : [el, null];
+  const lowH = () => Math.max(56, Math.round(el.clientHeight * 0.32));           // the gap pane: a third
+  const size = (low) => ({ width: Math.max(el.clientWidth, 100),
+    height: !below ? Math.max(el.clientHeight, 60) : low ? lowH() : Math.max(el.clientHeight - lowH(), 40) });
   const yfmt = AXIS_FMT[p.yfmt] ?? "num:0";
-  const shown = lines.filter((s) => !off.has(s.name));
-  const spread = legend.length && shown.length === 2 ? spreadLine(shown[0], shown[1]) : null;
-  // and on a % chart its alpha, on the same right axis: the gap is dashed, the alpha solid
-  const alpha = spread && GAP_FMT[p.yfmt]?.startsWith("pct") ? alphaLine(shown[0], shown[1]) : null;
-  const gaps = [spread, alpha].filter(Boolean);
-  const plotted = [...series.filter((s) => !off.has(s.name)), ...gaps];
-  const { data, specs, bands } = plotData(x, plotted, (s) => color(s, series.indexOf(s)));
+  const sync = below ? { key: `chart:${p.id}`, setSeries: false, scales: ["x", null] } : undefined;
+  const { data, specs, bands } = plotData(x, series.filter((s) => !off.has(s.name)), (s) => color(s, series.indexOf(s)));
   // a dot on the point under the cursor and its tip beside it, turned away from the nearer edges — with a legend,
   // on the shown line nearest the pointer, named in its colour
   const tip = Object.assign(document.createElement("div"), { className: "tip", hidden: true });
+  let onTop = !below;                     // the tip reads the pane under the pointer: the gap pane's are in the legend
   const showTip = (u) => {
-    const line = !legend.length ? lines[0] : nearestLine([...shown, ...gaps], u.cursor.idx, u.cursor.top,
-      (v, s) => u.valToPos(v, s.scale ?? "y"));
-    const t = u.cursor.left >= 0 && line ? pointTip([line], x, u.cursor.idx, p.yfmt, p.pnl_base) : null;
+    const line = !legend.length ? lines[0] : nearestLine(shown, u.cursor.idx, u.cursor.top, (v) => u.valToPos(v, "y"));
+    const t = u.cursor.left >= 0 && line && onTop ? pointTip([line], x, u.cursor.idx, p.yfmt, p.pnl_base) : null;
     tip.hidden = !t;
     if (!t) return;
-    const left = u.valToPos(x[u.cursor.idx], "x"), top = u.valToPos(t.v, line.scale ?? "y"), c = color(line, series.indexOf(line));
+    const left = u.valToPos(x[u.cursor.idx], "x"), top = u.valToPos(t.v, "y"), c = color(line, series.indexOf(line));
     tip.className = `tip${left > u.over.clientWidth / 2 ? " l" : ""}${top < 40 ? " b" : ""}`;
     Object.assign(tip.style, { left: `${left}px`, top: `${top}px` });
     tip.style.setProperty("--c", legend.length ? c : "");
@@ -223,21 +232,24 @@ export function chart(body, p, ui) {
     legend: { show: false },
     hooks: { setCursor: [(u) => { paint(u.cursor.idx); showTip(u); }], setSelect: [zoom], ...(p.vlines?.length ? { draw: [(u) => drawMarks(u, p.vlines, p.vlabels)] } : {}) },
     // Drag across a period to zoom into it (zoom); a double-click goes back to the range before.
-    cursor: { points: { show: false }, drag: { x: true, y: false, setScale: false } },
+    cursor: { points: { show: false }, drag: { x: true, y: false, setScale: false }, sync },
     scales: { x: { time: true } },
-    axes: [{ ...axis(), values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) },
+    // with the gap pane below, the dates are read once, under it: here only their grid
+    axes: [{ ...axis(), ...(below ? { size: 6, values: (u, ticks) => ticks.map(() => "") }
+      : { values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) }) },
       { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) },
-      // two lines left: their spread's own scale on the right, named there (its legend)
-      ...(spread ? [{ ...axis(), scale: "spread", side: 1, size: 58, stroke: SPREAD, grid: { show: false },
-        label: alpha ? `┄ ${spread.name}   ─ ${alpha.name}` : spread.name, labelSize: 16, labelFont: axis().font,
-        values: (u, ticks) => ticks.map((t) => fmt(t, GAP_FMT[p.yfmt] ?? "num:0").text) }] : []),
       // SEC's price: the same scale on the right as P&L % against the average cost (p.pnl_base)
       ...(p.pnl_base ? [{ ...axis(), scale: "y", side: 1, size: 52, grid: { show: false },
         values: (u, ticks) => ticks.map((t) => fmt((t / p.pnl_base - 1) * 100, "pct+:0").text) }] : [])],
     series: specs,
     bands,
-  }, data, el);
+  }, data, top);
   plot.over.append(tip);
+  if (below) {
+    plot.over.addEventListener("mouseenter", () => { onTop = true; });
+    plot.over.addEventListener("mouseleave", () => { onTop = false; });
+  }
+  const low = below && gapPane(below, x, gaps, gfmt, size(true), { sync, paint, zoom });
   // out past the plot on the right (the axis): the present, not a one-pixel target at the edge
   el.addEventListener("mousemove", (e) => {
     const r = plot.over.getBoundingClientRect();
@@ -245,8 +257,38 @@ export function chart(body, p, ui) {
   });
   // never mid-drag: uPlot has just snapped the selection to the edge it left by — a cursor at -10 dragged it left
   el.addEventListener("mouseleave", (e) => { if (!e.buttons) plot.setCursor({ left: -10, top: -10 }); });
-  if (dragged) plot.over.addEventListener("dblclick", () => ui.setRange(p.id, back));
-  const ro = new ResizeObserver(() => plot.setSize(size()));
+  if (dragged) [plot, low].filter(Boolean).forEach((u) => u.over.addEventListener("dblclick", () => ui.setRange(p.id, back)));
+  const ro = new ResizeObserver(() => { plot.setSize(size(false)); low?.setSize(size(true)); });
   ro.observe(el);
-  ui.onDispose(() => { ro.disconnect(); plot.destroy(); });
+  ui.onDispose(() => { ro.disconnect(); plot.destroy(); low?.destroy(); });
+}
+
+// The gap pane: the lead as an area, green above zero and red below, its edge a thin line; the alpha a solid amber
+// line; zero dashed. Its own scale (always holding zero) on the left like the pane above, so the two line up, and the
+// time axis. One cursor with the pane above (`sync`); a drag zooms both.
+function gapPane(el, x, [gap, alpha], gfmt, size, { sync, paint, zoom }) {
+  const part = (f) => gap.y.map((v) => (v === null || v === undefined ? null : f(v, 0)));
+  const area = (c) => ({ stroke: "transparent", fill: `${c}40`, fillTo: 0, points: { show: false }, spanGaps: false });
+  const line = (c, width) => ({ stroke: c, width, points: { show: false }, spanGaps: false });
+  const zero = (u) => {
+    const y = Math.round(u.valToPos(0, "y", true)), { left, width } = u.bbox, px = devicePixelRatio || 1;
+    u.ctx.save();
+    u.ctx.strokeStyle = "#5a5a5a"; u.ctx.setLineDash([3 * px, 3 * px]);
+    u.ctx.beginPath(); u.ctx.moveTo(left, y); u.ctx.lineTo(left + width, y); u.ctx.stroke();
+    u.ctx.restore();
+  };
+  const hold0 = (u, lo, hi) => {
+    const a = Math.min(lo ?? 0, 0), b = Math.max(hi ?? 0, 0), pad = (b - a) * 0.1 || 1;
+    return [a - pad, b + pad];
+  };
+  return new uPlot({
+    ...size,
+    legend: { show: false },
+    hooks: { setCursor: [(u) => paint(u.cursor.idx)], setSelect: [zoom], draw: [zero] },
+    cursor: { points: { show: false }, drag: { x: true, y: false, setScale: false }, sync },
+    scales: { x: { time: true }, y: { range: hold0 } },
+    axes: [{ ...axis(), values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) },
+      { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, `${gfmt}:0`).text) }],
+    series: [{}, area(LEAD.up), area(LEAD.dn), line(LEAD.line, 1), ...(alpha ? [line(LEAD.alpha, 1.6)] : [])],
+  }, [x, part(Math.max), part(Math.min), gap.y, ...(alpha ? [alpha.y] : [])], el);
 }

@@ -7,7 +7,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
-NUMERIC = {"eur", "eur+", "pct", "pct+", "pct+r", "num", "num+", "int", "bp+", "mult", "qty", "px"}
+NUMERIC = {"eur", "eur+", "pct", "pct+", "pct+r", "num", "num+", "int", "bp+", "pp+", "mult", "qty", "px"}
 MARKS = {"H": "●", "W": "★", "HW": "●★"}
 DAY = 86400
 
@@ -125,6 +125,8 @@ def fmt(v, spec="text") -> tuple[str, str]:
         return _plain(v, 0, "", "")
     if kind == "bp+":
         return _signed(v, 1 if nd is None else nd, "", "bp")
+    if kind == "pp+":
+        return _signed(v, 1 if nd is None else nd, "", "pp")  # percentage points: a gap between two %
     if kind == "mult":
         return _plain(v, 1 if nd is None else nd, "", "×")
     if kind == "qty":

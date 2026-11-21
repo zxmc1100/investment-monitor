@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from monitor.tui.cmd import sort_rows
 from monitor.tui.fmt import fmt, fmt_date, js_str
-from monitor.tui.plot import chart_raster, color_of, scatter_raster
+from monitor.tui.plot import GAP_FMT, LEAD, MARK, chart_raster, color_of, scatter_raster
 from monitor.tui.ranges import (
     chart_modes,
     cut_horizon,
@@ -60,6 +60,7 @@ LO_BELOW = 60  # a `lo` column gives way in a panel narrower than this (@contain
 SPARK_W, MIN_TEXT = 8, 6
 CHART_MIN, SCATTER_MIN = 6, 8  # plot rows a chart keeps; terminal rows are dearer than 190px
 LEGEND_W = 21
+OFF_FG = "#4a4a4a"  # a legend line hidden from its chart (chart.js .legend tr.off)
 FIELD_ON = "#1f1f1f"
 PREVIEW_ROWS, BOX_ROWS = 8, 6
 PLACEHOLDER = (
@@ -785,17 +786,63 @@ def chart_source(p: dict, key):
     }
 
 
+def spread_line(a: dict, b: dict) -> dict:
+    """render/chart.js spreadLine: two lines left — the first's lead over the second, day by day, in the chart's unit."""
+    yb = b.get("y") or []
+    gap = [None if v is None or i >= len(yb) or yb[i] is None else v - yb[i] for i, v in enumerate(a.get("y") or [])]
+    return {"name": f"{a['name']} − {b['name']}", "y": gap}
+
+
+def alpha_line(a: dict, b: dict) -> dict | None:
+    """render/chart.js alphaLine: the first line's alpha over the second, Σ (rₐ − β·r_b) in points from the first point
+    both have, β the window's; None under 10 steps or a flat second line. Plain loops, never sum(): JS adds left to
+    right, Python's sum() compensates — the floats would part."""
+    ya, yb = a.get("y") or [], b.get("y") or []
+    steps, first, prev = [], None, None
+    for i, v in enumerate(ya):
+        w = yb[i] if i < len(yb) else None
+        if v is None or w is None:
+            continue
+        if prev is None:
+            first = i
+        else:
+            steps.append((i, (100 + v) / (100 + ya[prev]) - 1, (100 + w) / (100 + yb[prev]) - 1))
+        prev = i
+    if len(steps) < 10:
+        return None
+    ta = tb = 0.0
+    for _i, ra, rb in steps:
+        ta += ra
+        tb += rb
+    ma, mb = ta / len(steps), tb / len(steps)
+    cov = vb = 0.0
+    for _i, ra, rb in steps:
+        vb += (rb - mb) * (rb - mb)
+        cov += (ra - ma) * (rb - mb)
+    if not vb > 0:
+        return None
+    beta = cov / vb
+    y: list = [None] * len(ya)
+    y[first] = 0
+    total = 0.0
+    for i, ra, rb in steps:
+        total += (ra - beta * rb) * 100
+        y[i] = total
+    return {"name": f"ALPHA β{beta:.2f}", "beta": beta, "y": y}
+
+
 def chart_model(p: dict, ui) -> dict | None:
     """render/chart.js's data stage: horizon, range, view. Kept until the payload, the row or a chip changes."""
     pid, key = p["id"], ui.follow_key(p)
-    memo = ("model", pid, ui.gen, key, repr(ui.ranges.get(pid)), ui.modes.get(pid), ui.horizons.get(pid))
+    off = frozenset(ui.hidden_lines(pid)) if p.get("legend") == "rank" else frozenset()
+    memo = ("model", pid, ui.gen, key, repr(ui.ranges.get(pid)), ui.modes.get(pid), ui.horizons.get(pid), off)
     if memo in ui.memo:
         return ui.memo[memo]
-    m = ui.memo[memo] = _chart_model(p, ui, key)
+    m = ui.memo[memo] = _chart_model(p, ui, key, off)
     return m
 
 
-def _chart_model(p: dict, ui, key) -> dict | None:
+def _chart_model(p: dict, ui, key, off: frozenset) -> dict | None:
     raw = chart_source(p, key)
     if not raw or not raw.get("x") or len(raw["x"]) < 2 or not raw.get("series"):
         return None
@@ -844,7 +891,15 @@ def _chart_model(p: dict, ui, key) -> dict | None:
         legend = sorted(
             lines, key=lambda s: -(value_at(s["y"], rest) if value_at(s["y"], rest) is not None else float("-inf"))
         )
+    # two lines left: the first's lead over the second (and on a % chart its alpha) in a pane below (chart.js)
+    shown = [s for s in lines if s.get("name") not in off]
+    gfmt = GAP_FMT.get(p.get("yfmt"), "num+")
+    spread = spread_line(*shown) if legend and len(shown) == 2 else None
+    alpha = alpha_line(*shown) if spread and gfmt == "pp+" else None
     return {
+        "off": off,
+        "gaps": [g for g in (spread, alpha) if g],
+        "gfmt": gfmt,
         "x": x,
         "series": series,
         "start": sliced["start"],
@@ -909,46 +964,88 @@ def draw_chart(v: Canvas, p: dict, ui) -> None:
         top = 1
     legend_w = LEGEND_W if m["legend"] and v.w >= 44 else 0
     w, h = v.w - legend_w, v.h - top
-    memo = ("raster", pid, ui.gen, m["key"], repr(m["range"]), m["mode"], m["horizon"], w, h)
-    raster = ui.memo.get(memo)
-    if raster is None:
-        raster = ui.memo[memo] = chart_raster(
-            m["x"], m["series"], w, h, p.get("yfmt"), p.get("vlines"), p.get("vlabels"), p.get("pnl_base")
-        )
+    low_h = max(4, round(h * 0.32)) if m["gaps"] and h >= 12 else 0  # the gap pane: a third, under the lines
+    memo = ("raster", pid, ui.gen, m["key"], repr(m["range"]), m["mode"], m["horizon"], w, h, m["off"])
+    rasters = ui.memo.get(memo)
+    if rasters is None:
+        rasters = ui.memo[memo] = _rasters(p, m, w, h - low_h, low_h)
+    raster, low = rasters
     if raster is None:
         v.put(1, top, "NO DATA", style(DIM))
         return
-    plot = v.view(0, top, w, h)
-    blit(plot, 0, 0, raster.cells)
+    panes = [(v.view(0, top, w, h - low_h), raster)] + ([(v.view(0, top + h - low_h, w, low_h), low)] if low else [])
     ui.plots[pid] = {"raster": raster, "x": v.ox, "model": m}
-    ui.hit(v.ox + raster.left, v.oy + top, v.ox + raster.left + raster.pw, v.oy + top + raster.ph, ("plot", pid))
-    sel = ui.sel.get(pid)
-    if sel:
-        a, b = sorted(raster.col_of(min(i, len(m["x"]) - 1)) for i in sel)
-        for r in range(raster.ph):
-            plot.paint_bg(a, r, b - a + 1, SEL_BG)
     idx = ui.cross.get(pid)
-    if idx is not None:
-        idx = min(idx, len(m["x"]) - 1)
-        col = raster.col_of(idx)
-        for r in range(raster.ph):
-            if plot.ch[plot.oy + r][plot.ox + col] == " ":
-                plot.put(col, r, "│", style(AMBER))
-            plot.paint_bg(col, r, 1, "#2a2015")
+    idx = None if idx is None else min(idx, len(m["x"]) - 1)
+    sel = ui.sel.get(pid)
+    for plot, ras in panes:
+        blit(plot, 0, 0, ras.cells)
+        ui.hit(plot.ox + ras.left, plot.oy, plot.ox + ras.left + ras.pw, plot.oy + ras.ph, ("plot", pid))
+        if sel:
+            a, b = sorted(ras.col_of(min(i, len(m["x"]) - 1)) for i in sel)
+            for r in range(ras.ph):
+                plot.paint_bg(a, r, b - a + 1, SEL_BG)
+        if idx is not None:
+            col = ras.col_of(idx)
+            for r in range(ras.ph):
+                if plot.ch[plot.oy + r][plot.ox + col] == " ":
+                    plot.put(col, r, "│", style(AMBER))
+                plot.paint_bg(col, r, 1, "#2a2015")
     at = m["rest"] if idx is None else idx
     if legend_w:
         lv = v.view(w, top, legend_w, h)
         lv.put(0, 0, fmt_date(iso_at(m["x"][at])), style(DIM))
         vw = 9
-        for r, s in enumerate(m["legend"][: h - 1], 1):
-            lv.put(0, r, pad(s.get("name"), legend_w - vw - 1), style(color_of(s, m["series"].index(s))))
+        cur = ui.legend_at.get(pid) if ui.focus == pid else None  # j k pick a line on a focused chart, x hides it
+        rows = m["legend"][: h - 1]
+        for r, s in enumerate(rows, 1):
+            name, off = s.get("name"), s.get("name") in m["off"]
+            bg = CURSOR if name == cur else BG
+            lv.put(0, r, pad(name, legend_w - vw - 1), style(OFF_FG if off else color_of(s, m["series"].index(s)), bg))
             text, cls = fmt(legend_value(m["series"], s, at, m["today"]), p.get("yfmt"))
-            lv.put(legend_w - vw - 1, r, pad(text, vw, True), style(cls_fg(cls)))
+            lv.put(legend_w - vw - 1, r, pad(text, vw, True), style(OFF_FG if off else cls_fg(cls), bg))
+            ui.hit(lv.ox, lv.oy + r, lv.ox + legend_w, lv.oy + r + 1, ("legend", pid, name))
+        for i, g in enumerate(m["gaps"]):  # the gap pane's lines, a row apart
+            r = len(rows) + 2 + i
+            if r < h:
+                lv.put(0, r, pad(g["name"], legend_w - vw - 1), style(LEAD["alpha"] if i else LEAD["line"]))
+                text, cls = fmt(value_at(g["y"], at), m["gfmt"])
+                lv.put(legend_w - vw - 1, r, pad(text, vw, True), style(cls_fg(cls)))
     elif idx is not None and m["lines"]:  # no legend to read it from: the point under the cursor, in the plot
         y, base = value_at(m["lines"][0]["y"], idx), p.get("pnl_base")  # with a base: its P&L % too (chart.js pointTip)
         pct = f"{fmt((y / base - 1) * 100, 'pct+')[0]} " if base and y is not None else ""
         text = f" {fmt_date(iso_at(m['x'][idx]))} {fmt(y, p.get('yfmt'))[0]} {pct}"
         plot.put(max(raster.left, w - tw(text)), 0, text, style(AMBER, "#1a1200"))
+
+
+def _rasters(p: dict, m: dict, w: int, h: int, low_h: int) -> tuple:
+    """The lines' raster (a hidden one drawn as nothing, so every other keeps its colour) and, with `low_h`, the gap
+    pane's under it: the lead an area, green above zero and red below, its edge a thin line, the alpha amber on top,
+    zero dashed — the time labels under it alone, both plots starting at the same column."""
+    drawn = [
+        {**s, "y": []}
+        if s.get("name") in m["off"] and s.get("kind") not in ("markers", "band") and not s.get("nolegend")
+        else s
+        for s in m["series"]
+    ]
+    args = (m["x"], drawn, w, h, p.get("yfmt"), p.get("vlines"), p.get("vlabels"), p.get("pnl_base"))
+    raster = chart_raster(*args, dates=not low_h)
+    if not low_h or raster is None:
+        return raster, None
+    gap, alpha = (m["gaps"] + [None])[:2]
+    part = lambda f: [None if v is None else f(v, 0) for v in gap["y"]]  # noqa: E731
+    zero = [None if v is None else 0 for v in gap["y"]]
+    low_series = [
+        {"kind": "band", "lo": zero, "hi": part(max), "color": LEAD["up"]},
+        {"kind": "band", "lo": part(min), "hi": zero, "color": LEAD["dn"]},
+        {"kind": "line", "y": [0] * len(gap["y"]), "color": MARK, "dash": True},
+        {"kind": "line", "y": gap["y"], "color": LEAD["line"]},
+        *([{"kind": "line", "y": alpha["y"], "color": LEAD["alpha"], "role": "primary"}] if alpha else []),
+    ]
+    low = chart_raster(m["x"], low_series, w, low_h, m["gfmt"], left_min=raster.left)
+    if low and low.left > raster.left:  # the wider labels set both
+        raster = chart_raster(*args, dates=False, left_min=low.left)
+    return raster, low
 
 
 def draw_scatter(v: Canvas, p: dict, ui) -> None:

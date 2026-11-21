@@ -50,7 +50,7 @@ export function timeTicks(ticks, incr) {
   });
 }
 
-const NUMERIC = new Set(["eur", "eur+", "pct", "pct+", "pct+r", "num", "num+", "int", "bp+", "mult", "qty", "px"]);
+const NUMERIC = new Set(["eur", "eur+", "pct", "pct+", "pct+r", "num", "num+", "int", "bp+", "pp+", "mult", "qty", "px"]);
 const span = (v, lo, hi) => ({ text: v.toLocaleString("en-US", { minimumFractionDigits: lo, maximumFractionDigits: hi }), cls: "" });
 const MARKS = { H: "●", W: "★", HW: "●★" };
 
@@ -69,6 +69,7 @@ export function fmt(v, spec = "text") {
     case "num+": return signed(v, nd ?? 2, "", "");
     case "int": return plain(v, 0, "", "");
     case "bp+": return signed(v, nd ?? 1, "", "bp");
+    case "pp+": return signed(v, nd ?? 1, "", "pp");              // percentage points: a gap between two %
     case "mult": return plain(v, nd ?? 1, "", "×");
     case "qty": return span(v, 0, 6);                      // shares as entered: 4, 0.15, 13.513513
     case "px": return span(v, 2, 4);                       // a price per share: 240.00, 33.3333

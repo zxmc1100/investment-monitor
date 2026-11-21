@@ -113,6 +113,11 @@ def key_rows(top: int) -> list:
         ),
         ("w b 0 $", "a focused chart's cursor: ten steps on, back, to its start, its end"),
         (
+            "j k · x",
+            "a focused chart with a legend: pick a line · hide it, show it again (a click on its name too); two lines "
+            "left: the first's lead and its alpha in a pane below",
+        ),
+        (
             "v … Enter · -",
             "select a period on a focused chart and zoom into it · back out (a mouse drag and a double-click too)",
         ),
@@ -189,6 +194,8 @@ class App:
         self.ranges: dict = {}
         self.modes: dict = {}
         self.horizons: dict = {}
+        self.hidden: dict = {}  # {"SCREEN:panel": {line names}} hidden from a chart's legend (this run only)
+        self.legend_at: dict = {}  # {panel: the legend line j k picked}
         self.cross: dict = {}
         self.sel: dict = {}
         self.forms: dict = {}
@@ -914,7 +921,12 @@ class App:
         fp = self.focused_table()
         paged = self.pages.get(fp["id"]) if fp and fp.get("fit") else None
         page = paged["per"] if paged else max(1, self.grid_h - 2)  # a paged table: PgDn turns its page
-        if k in ("j", "down"):
+        names = self.legend_names(chart["id"]) if chart else []
+        if names and k in ("j", "down", "k", "up"):  # a focused chart with a legend: pick a line
+            self.legend_step(chart["id"], names, step if k in ("j", "down") else -step)
+        elif names and k == "x":
+            self.toggle_line(chart["id"], self.legend_at.get(chart["id"]) or names[0])
+        elif k in ("j", "down"):
             self.cursor(step)
         elif k in ("k", "up"):
             self.cursor(-step)
@@ -1724,6 +1736,23 @@ class App:
             self.ranges[pid] = m["range"].get("prev") or m["default"]
             self.cross.pop(pid, None)
 
+    def hidden_lines(self, pid: str) -> set:
+        return self.hidden.get(f"{self.id}:{pid}", set())
+
+    def toggle_line(self, pid: str, name: str) -> None:
+        """A legend line hidden from its chart, or shown again (render/chart.js, app.js toggleLine)."""
+        self.hidden[f"{self.id}:{pid}"] = self.hidden_lines(pid) ^ {name}
+        self.legend_at[pid] = name
+
+    def legend_names(self, pid: str) -> list:
+        plot = self.plots.get(pid)
+        return [s.get("name") for s in plot["model"]["legend"]] if plot else []
+
+    def legend_step(self, pid: str, names: list, d: int) -> None:
+        cur = self.legend_at.get(pid)
+        i = names.index(cur) if cur in names else (-1 if d > 0 else 0)
+        self.legend_at[pid] = names[max(0, min(len(names) - 1, i + d))]
+
     def set_range(self, pid: str, r: str) -> None:
         self.ranges[pid] = r
         self.cross.pop(pid, None)
@@ -2508,6 +2537,9 @@ class App:
             self.show_error()
         elif kind == "plot":
             self.plot_press(act[1], x)
+        elif kind == "legend":
+            self.focus = act[1]
+            self.toggle_line(act[1], act[2])
 
     def leave_field_if_typing(self) -> None:
         if self.mode == "insert":

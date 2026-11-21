@@ -69,14 +69,9 @@ test("a chart with a legend names the line nearest the pointer at the cursor's i
   assert.equal(nearestLine([], 1, 82, toPos), null);
 });
 
-test("two lines left: the first's lead over the second on a scale of its own, a gap where either has none", () => {
-  const s = spreadLine({ name: "YOU", y: [1, 5, null, 8] }, { name: "SPX", y: [1, 2, 3, null] });
-  assert.equal(s.name, "YOU − SPX");
-  assert.equal(s.scale, "spread");
-  assert.deepEqual(s.y, [0, 3, null, null]);
-  const { specs } = plotData([1, 2, 3, 4], [s], (l) => l.color);
-  assert.equal(specs[1].scale, "spread");                            // uPlot draws it against the right axis
-  assert.deepEqual(specs[1].dash, [4, 4]);
+test("two lines left: the first's lead over the second, a gap where either has none", () => {
+  assert.deepEqual(spreadLine({ name: "YOU", y: [1, 5, null, 8] }, { name: "SPX", y: [1, 2, 3, null] }),
+    { name: "YOU − SPX", y: [0, 3, null, null] });
 });
 
 test("alpha: the first line's steps less β times the second's, summed — β and a constant edge recovered", () => {
@@ -87,7 +82,6 @@ test("alpha: the first line's steps less β times the second's, summed — β an
   const a = { name: "YOU", y: [5, ...level(rb.map((x) => 0.8 * x + 0.001))] };
   const al = alphaLine(a, b);
   assert.equal(al.name, "ALPHA β0.80");
-  assert.equal(al.scale, "spread");
   assert.equal(al.y[0], null);
   assert.equal(al.y[1], 0);
   assert.ok(Math.abs(al.y[al.y.length - 1] - rb.length * 0.1) < 1e-9);   // 12 steps × 0.1 point

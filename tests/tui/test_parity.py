@@ -46,6 +46,10 @@ SCREENS = [
     {"id": "SOON", "title": "Later", "fkey": 9, "status": "soon", "param": False},
     {"id": "ALRT", "title": "Alerts", "fkey": 7, "status": "live", "param": False},
 ]
+# two lines left on a chart: ROI % paths, gaps on each side (chart.js spreadLine / alphaLine)
+GAP_B = {"name": "SPX", "y": [None, 0.0, 1.2, -0.8, 0.5, 2.1, 1.7, 3.3, 2.9, 4.4, 3.8, 5.6, 6.1, None, 5.2, 7.0]}
+GAP_A = {"name": "YOU", "y": [0.0, 0.3, 1.5, -0.2, 0.9, 2.0, 2.4, 3.1, None, 4.9, 4.1, 6.3, 6.0, 7.7, 6.6, 8.1]}
+FLAT = {"name": "FLAT", "y": [0.0] * 16}
 CTX = {
     "screens": SCREENS,
     "params": {"SEC": ["ACME.DE", "GLOBEX.F"], "LAB": ["EDGE1"]},
@@ -176,6 +180,7 @@ def _fmt_cases():
         "num+",
         "int",
         "bp+",
+        "pp+",
         "mult",
         "qty",
         "px",
@@ -456,6 +461,10 @@ def _misc_cases():
                 )
             ),
         ),
+        "spread": (("chart", "spreadLine", GAP_A, GAP_B), lambda: P.spread_line(GAP_A, GAP_B)),
+        "alpha": (("chart", "alphaLine", GAP_A, GAP_B), lambda: P.alpha_line(GAP_A, GAP_B)),
+        "alpha short": (("chart", "alphaLine", S1, S1), lambda: P.alpha_line(S1, S1)),
+        "alpha flat": (("chart", "alphaLine", GAP_A, FLAT), lambda: P.alpha_line(GAP_A, FLAT)),
         "source": (
             (
                 "chart",

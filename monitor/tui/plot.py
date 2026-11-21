@@ -15,7 +15,9 @@ PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9
 ROLE = {"primary": "#ffffff", "buy": "#00e676", "sell": "#ff3d3d"}
 SCATTER = {"cloud": "#5a3a10", "frontier": "#ffa028", "now": "#ffffff", "target": "#00e676", "port": "#4fc3f7",
            "asset": "#8a8a8a", "move": "#ffbf00"}
-AXIS_FMT = {"eur": "eur:0", "eur+": "eur+:0", "pct": "pct:0", "pct+": "pct+:0"}
+AXIS_FMT = {"eur": "eur:0", "eur+": "eur+:0", "pct": "pct:0", "pct+": "pct+:0", "pp+": "pp+:0"}
+GAP_FMT = {"eur": "eur+", "eur+": "eur+", "pct": "pp+", "pct+": "pp+"}  # render/chart.js: a gap between two lines
+LEAD = {"up": "#00e676", "dn": "#ff3d3d", "line": "#d0d0d0", "alpha": "#ffa028"}  # the gap pane's colours (chart.js)
 GRID = "#242424"
 MARK = "#5a5a5a"
 _BITS = ((0x01, 0x08), (0x02, 0x10), (0x04, 0x20), (0x40, 0x80))
@@ -133,10 +135,20 @@ def time_axis(lo: float, hi: float, room: int) -> tuple[list, float]:
 
 
 def chart_raster(
-    x: list, series: list, w: int, h: int, yfmt: str | None, vlines=None, vlabels=None, pnl_base=None
+    x: list,
+    series: list,
+    w: int,
+    h: int,
+    yfmt: str | None,
+    vlines=None,
+    vlabels=None,
+    pnl_base=None,
+    dates: bool = True,
+    left_min: int = 0,
 ) -> Raster | None:
     """Lines, markers and bands over a time axis, y labels on the left (and with `pnl_base` the same ticks on the
-    right as P&L % against it: render/chart.js), time labels along the bottom row."""
+    right as P&L % against it: render/chart.js), time labels along the bottom row — none with `dates` False (a pane
+    above another that reads them). `left_min`: the y labels' width at least that, so two panes' plots line up."""
     values = []
     for s in series:
         values.extend(s.get("lo") or [] if s.get("kind") == "band" else s.get("y") or [])
@@ -147,10 +159,10 @@ def chart_raster(
         return None
     pad_y = (rng[1] - rng[0]) * 0.05
     lo, hi = rng[0] - pad_y, rng[1] + pad_y
-    ph = h - 1
+    ph = h - 1 if dates else h
     yt = nice_ticks(lo, hi, max(2, min(5, ph // 2)))
     ytext = [fmt(t, AXIS_FMT.get(yfmt, "num:0"))[0] for t in yt]
-    left = max((len(t) for t in ytext), default=4) + 1
+    left = max(left_min, max((len(t) for t in ytext), default=4) + 1)
     rtext = [fmt((t / pnl_base - 1) * 100, "pct+:0")[0] for t in yt] if pnl_base else []
     right = max((len(t) for t in rtext), default=-1) + 1
     pw = w - left - right
@@ -227,7 +239,7 @@ def chart_raster(
                 if col + j < w:
                     cells[0][col + j] = (c, DIM, BG)
     end = 0
-    for t, text in zip(ticks, time_ticks(ticks, incr)):
+    for t, text in zip(ticks, time_ticks(ticks, incr) if dates else []):
         col = left + sx(t) // 2 - len(text) // 2
         if col < end or col + len(text) > w:
             continue
