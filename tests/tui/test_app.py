@@ -1098,15 +1098,15 @@ def test_a_legend_line_hides_and_two_left_show_their_gap_in_a_pane_below(app):
     first's lead and its alpha come in a pane under the lines, read in the legend."""
     focus_roi(app)
     gaps = [g["name"] for g in app.plots["roi"]["model"]["gaps"]]
-    assert gaps[0] == "YOU − SPX" and gaps[1].startswith("ALPHA β")
-    assert "YOU − SPX" in screen(app) and "pp" in screen(app)       # its legend rows, its pane's axis in points
+    assert gaps[0] == "YOU−SPX" and gaps[1].startswith("ALPHA β")
+    assert "YOU−SPX" in screen(app) and "pp" in screen(app)       # its legend rows, its pane's axis in points
     press(app, "j")
     first = app.legend_at["roi"]
     press(app, "x")
     assert app.hidden_lines("roi", ["SPX"]) == {first}
-    assert app.plots["roi"]["model"]["gaps"] == [] and "YOU − SPX" not in screen(app)   # one line: no gap pane
+    assert app.plots["roi"]["model"]["gaps"] == [] and "YOU−SPX" not in screen(app)   # one line: no gap pane
     press(app, "x")
-    assert app.hidden_lines("roi", ["SPX"]) == set() and "YOU − SPX" in screen(app)
+    assert app.hidden_lines("roi", ["SPX"]) == set() and "YOU−SPX" in screen(app)
 
 
 def test_a_click_on_a_legend_name_hides_its_line(app):

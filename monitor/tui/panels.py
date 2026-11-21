@@ -791,7 +791,7 @@ def spread_line(a: dict, b: dict) -> dict:
     """render/chart.js spreadLine: two lines left — the first's lead over the second, day by day, in the chart's unit."""
     yb = b.get("y") or []
     gap = [None if v is None or i >= len(yb) or yb[i] is None else v - yb[i] for i, v in enumerate(a.get("y") or [])]
-    return {"name": f"{a['name']} − {b['name']}", "y": gap}
+    return {"name": f"{a['name']}−{b['name']}", "y": gap}  # no spaces: fits the legend
 
 
 def alpha_line(a: dict, b: dict) -> dict | None:
@@ -966,7 +966,7 @@ def draw_chart(v: Canvas, p: dict, ui) -> None:
         top = 1
     legend_w = LEGEND_W if m["legend"] and v.w >= 44 else 0
     w, h = v.w - legend_w, v.h - top
-    low_h = max(4, round(h * 0.32)) if m["gaps"] and h >= 12 else 0  # the gap pane: a third, under the lines
+    low_h = max(5, round(h * 0.4)) if m["gaps"] and h >= 12 else 0  # the gap pane: two fifths, under the lines
     memo = ("raster", pid, ui.gen, m["key"], repr(m["range"]), m["mode"], m["horizon"], w, h, m["off"])
     rasters = ui.memo.get(memo)
     if rasters is None:

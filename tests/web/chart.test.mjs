@@ -73,7 +73,7 @@ test("a chart with a legend names the line nearest the pointer at the cursor's i
 
 test("two lines left: the first's lead over the second, a gap where either has none", () => {
   assert.deepEqual(spreadLine({ name: "YOU", y: [1, 5, null, 8] }, { name: "SPX", y: [1, 2, 3, null] }),
-    { name: "YOU − SPX", y: [0, 3, null, null] });
+    { name: "YOU−SPX", y: [0, 3, null, null] });
 });
 
 test("alpha: the first line's steps less β times the second's, summed — β and a constant edge recovered", () => {

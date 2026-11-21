@@ -80,7 +80,7 @@ export function pointTip(lines, x, i, yfmt, base) {
 // of ROI) — drawn in a pane of its own below the two. Pure (tui panels.spread_line).
 export function spreadLine(a, b) {
   const gap = (v, w) => (v === null || v === undefined || w === null || w === undefined ? null : v - w);
-  return { name: `${a.name} − ${b.name}`, y: a.y.map((v, i) => gap(v, b.y[i])) };
+  return { name: `${a.name}−${b.name}`, y: a.y.map((v, i) => gap(v, b.y[i])) };    // no spaces: fits the legend
 }
 
 // The first line's alpha over the second, summed step by step from the first point both have: Σ (rₐ − β·r_b) in
@@ -209,7 +209,7 @@ export function chart(body, p, ui) {
   };
   const el = body.querySelector(".plot");
   const [top, below] = spread ? [el.appendChild(document.createElement("div")), el.appendChild(document.createElement("div"))] : [el, null];
-  const lowH = () => Math.max(56, Math.round(el.clientHeight * 0.32));           // the gap pane: a third
+  const lowH = () => Math.max(80, Math.round(el.clientHeight * 0.4));            // the gap pane: two fifths
   const size = (low) => ({ width: Math.max(el.clientWidth, 100),
     height: !below ? Math.max(el.clientHeight, 60) : low ? lowH() : Math.max(el.clientHeight - lowH(), 40) });
   const yfmt = AXIS_FMT[p.yfmt] ?? "num:0";
