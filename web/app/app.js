@@ -36,7 +36,7 @@ function keyRows() {
     ["Alt+1…9", "maximize panel n (again or Esc restores)"],
     ["drag on a chart", "zoom into that period · double-click zooms back out"],
     ["click a legend line", "hide that line on the chart (a benchmark you don't follow) · click it again to show it — "
-      + "remembered in this browser"],
+      + "remembered in this browser; two lines left: their spread (the first's lead) on the right axis"],
     ["⌥R · ⌥M · ⌥T (Alt+)", "the ROI chart over the period shown or dragged — ROI: return on investment, the gain "
       + "over every euro in it (default) · MWR: money-weighted (Modified Dietz), each euro for the time it was in · "
       + "TWR: time-weighted, buys and sales moving no line — who performed best"],

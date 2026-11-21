@@ -6,6 +6,8 @@ import { chartModes, cutHorizon, defaultRange, expandAt, HORIZON_MONTHS, lastVal
 const PALETTE = ["#ffa028", "#4fc3f7", "#e040fb", "#00e676", "#ffeb3b", "#ff7043", "#9575cd", "#26a69a", "#bdbdbd"];
 const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
 const AXIS_FMT = { eur: "eur:0", "eur+": "eur+:0", pct: "pct:0", "pct+": "pct+:0" };
+const GAP_FMT = { eur: "eur+:0", "eur+": "eur+:0", pct: "pct+:0", "pct+": "pct+:0" };    // a spread: signed
+const SPREAD = "#ff80ab";                                                                 // in no line's palette
 
 const color = (s, i) => s.color ?? ROLE[s.role] ?? PALETTE[i % PALETTE.length];
 const axis = () => ({ stroke: "#8a8a8a", grid: { stroke: "#1c1c1c", width: 1 }, ticks: { stroke: "#2b2b2b", width: 1 },
@@ -54,7 +56,7 @@ export function plotData(x, series, colorOf) {
     }
     data.push(s.y);
     specs.push({ label: s.name, stroke: c, width: s.role === "primary" ? 1.8 : 1, spanGaps: false,
-      ...(s.dash ? { dash: [4, 4] } : {}),
+      ...(s.dash ? { dash: [4, 4] } : {}), ...(s.scale ? { scale: s.scale } : {}),
       ...(s.kind === "markers"
         ? { paths: () => null, points: { show: true, size: 6, fill: c, stroke: c } }
         : { points: { show: false } }) });
@@ -71,14 +73,22 @@ export function pointTip(lines, x, i, yfmt, base) {
     pct: base ? fmt((v / base - 1) * 100, "pct+") : null };
 }
 
-// The line whose point at index i lies nearest the pointer's height `top` (pixels; `toPos` maps a value there) —
-// the one a chart with a legend names in its tip. Pure.
+// Two lines left on a chart with a legend: the first's lead over the second, day by day (YOU over a benchmark: its
+// alpha, in the chart's unit — points of ROI), on a scale of its own that the right axis reads and names. Pure.
+export function spreadLine(a, b) {
+  const gap = (v, w) => (v === null || v === undefined || w === null || w === undefined ? null : v - w);
+  return { name: `${a.name} − ${b.name}`, kind: "line", scale: "spread", color: SPREAD, dash: true,
+    y: a.y.map((v, i) => gap(v, b.y[i])) };
+}
+
+// The line whose point at index i lies nearest the pointer's height `top` (pixels; `toPos(v, line)` maps a value
+// there, on that line's scale) — the one a chart with a legend names in its tip. Pure.
 export function nearestLine(lines, i, top, toPos) {
   let best = null, gap = Infinity;
   if (i === null || i === undefined) return null;
   for (const s of lines) {
     const v = valueAt(s.y, i);
-    const d = v === null || v === undefined ? Infinity : Math.abs(toPos(v) - top);
+    const d = v === null || v === undefined ? Infinity : Math.abs(toPos(v, s) - top);
     if (d < gap) [best, gap] = [s, d];
   }
   return best;
@@ -159,17 +169,20 @@ export function chart(body, p, ui) {
   const el = body.querySelector(".plot");
   const size = () => ({ width: Math.max(el.clientWidth, 100), height: Math.max(el.clientHeight, 60) });
   const yfmt = AXIS_FMT[p.yfmt] ?? "num:0";
-  const { data, specs, bands } = plotData(x, series.filter((s) => !off.has(s.name)), (s) => color(s, series.indexOf(s)));
+  const shown = lines.filter((s) => !off.has(s.name));
+  const spread = legend.length && shown.length === 2 ? spreadLine(shown[0], shown[1]) : null;
+  const plotted = [...series.filter((s) => !off.has(s.name)), ...(spread ? [spread] : [])];
+  const { data, specs, bands } = plotData(x, plotted, (s) => color(s, series.indexOf(s)));
   // a dot on the point under the cursor and its tip beside it, turned away from the nearer edges — with a legend,
   // on the shown line nearest the pointer, named in its colour
   const tip = Object.assign(document.createElement("div"), { className: "tip", hidden: true });
-  const shown = lines.filter((s) => !off.has(s.name));
   const showTip = (u) => {
-    const line = !legend.length ? lines[0] : nearestLine(shown, u.cursor.idx, u.cursor.top, (v) => u.valToPos(v, "y"));
+    const line = !legend.length ? lines[0] : nearestLine(spread ? [...shown, spread] : shown, u.cursor.idx, u.cursor.top,
+      (v, s) => u.valToPos(v, s.scale ?? "y"));
     const t = u.cursor.left >= 0 && line ? pointTip([line], x, u.cursor.idx, p.yfmt, p.pnl_base) : null;
     tip.hidden = !t;
     if (!t) return;
-    const left = u.valToPos(x[u.cursor.idx], "x"), top = u.valToPos(t.v, "y"), c = color(line, series.indexOf(line));
+    const left = u.valToPos(x[u.cursor.idx], "x"), top = u.valToPos(t.v, line.scale ?? "y"), c = color(line, series.indexOf(line));
     tip.className = `tip${left > u.over.clientWidth / 2 ? " l" : ""}${top < 40 ? " b" : ""}`;
     Object.assign(tip.style, { left: `${left}px`, top: `${top}px` });
     tip.style.setProperty("--c", legend.length ? c : "");
@@ -185,6 +198,10 @@ export function chart(body, p, ui) {
     scales: { x: { time: true } },
     axes: [{ ...axis(), values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) },
       { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) },
+      // two lines left: their spread's own scale on the right, named there (its legend)
+      ...(spread ? [{ ...axis(), scale: "spread", side: 1, size: 58, stroke: SPREAD, grid: { show: false },
+        label: spread.name, labelSize: 16, labelFont: axis().font,
+        values: (u, ticks) => ticks.map((t) => fmt(t, GAP_FMT[p.yfmt] ?? "num:0").text) }] : []),
       // SEC's price: the same scale on the right as P&L % against the average cost (p.pnl_base)
       ...(p.pnl_base ? [{ ...axis(), scale: "y", side: 1, size: 52, grid: { show: false },
         values: (u, ticks) => ticks.map((t) => fmt((t / p.pnl_base - 1) * 100, "pct+:0").text) }] : [])],

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chartSource, nearestLine, plotData, pointTip } from "../../web/app/render/chart.js";
+import { chartSource, nearestLine, plotData, pointTip, spreadLine } from "../../web/app/render/chart.js";
 import { followsLater } from "../../web/app/render/table.js";
 import { rebase } from "../../web/app/ranges.js";
 
@@ -67,4 +67,14 @@ test("a chart with a legend names the line nearest the pointer at the cursor's i
   assert.equal(nearestLine([a, b], 2, 82, toPos), a);               // a gap reads the last point before it
   assert.equal(nearestLine([a, b], null, 82, toPos), null);
   assert.equal(nearestLine([], 1, 82, toPos), null);
+});
+
+test("two lines left: the first's lead over the second on a scale of its own, a gap where either has none", () => {
+  const s = spreadLine({ name: "YOU", y: [1, 5, null, 8] }, { name: "SPX", y: [1, 2, 3, null] });
+  assert.equal(s.name, "YOU − SPX");
+  assert.equal(s.scale, "spread");
+  assert.deepEqual(s.y, [0, 3, null, null]);
+  const { specs } = plotData([1, 2, 3, 4], [s], (l) => l.color);
+  assert.equal(specs[1].scale, "spread");                            // uPlot draws it against the right axis
+  assert.deepEqual(specs[1].dash, [4, 4]);
 });
