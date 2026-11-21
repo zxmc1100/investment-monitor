@@ -1236,6 +1236,11 @@ class App:
             items = C.watch_items(self.lookup_state["items"]) if C.fold(self.lookup_state["q"]) == C.fold(watch) else []
         else:
             items = C.rank(q, self.candidates(), lambda c: [c["label"], c["desc"]])
+            if C.parse(q, self.ctx()).get("lookup"):  # no command: a company's name (ALLIANZ → SEC ALV.DE)
+                self.lookup_soon(q)
+                have = {c["run"] for c in items}
+                if C.fold(self.lookup_state["q"]) == C.fold(q):
+                    items = items + C.watch_items([r for r in self.lookup_state["items"] if r["ticker"] not in have], "SEC")
         self.ac["items"] = items
         self.ac["i"] = min(self.ac["i"], max(0, len(items) - 1))
 
@@ -1246,11 +1251,8 @@ class App:
         def ask():
             def done(items):
                 self.lookup_state = {"q": q, "items": items}
-                if (
-                    self.mode == "command"
-                    and self.bar.strip().upper().startswith("WATCH ")
-                    and C.fold(self.bar.strip()[6:]) == C.fold(q)
-                ):
+                bar = self.bar.strip()
+                if self.mode == "command" and C.fold(bar[6:] if bar.upper().startswith("WATCH ") else bar) == C.fold(q):
                     self.update_ac()
 
             self.bg(lambda: self.api.lookup(q), done, lambda _e: None)
@@ -1376,7 +1378,23 @@ class App:
         elif kind == "soon":
             self.note(f"{a['id']} — SOON")
         elif kind == "error":
-            self.note(a["msg"], True)
+            if a.get("lookup"):
+                self.find_name(raw, a["msg"])
+            else:
+                self.note(a["msg"], True)
+
+    def find_name(self, query: str, msg: str) -> None:
+        """app.js findName: a word that is no command, looked up as a company's name — the one match, the name
+        exactly, else the top row (the most traded); none says what the bar did not know."""
+
+        def done(rows):
+            r = C.resolve_watch(query, rows)
+            if rows:
+                self.run(f"SEC {r['ticker'] if r['kind'] == 'one' else rows[0]['ticker']}")
+            else:
+                self.note(msg, True)
+
+        self.bg(lambda: self.api.lookup(query), done, lambda _e: self.note(msg, True))
 
     def do_watch(self, query: str) -> None:
         def done(rows):

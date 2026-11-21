@@ -15,6 +15,7 @@ export function resolveWatch(query, results) {
 }
 
 // Autocomplete rows for "WATCH <query>": one `WATCH <ticker>` per lookup result.
-export const watchItems = (results) => (results ?? []).map((r) => ({
-  label: `WATCH ${r.ticker}`, desc: [r.name, r.sector, r.country].filter((x) => x && x !== "—").join(" · "),
-  run: `WATCH ${r.ticker}` }));
+// `verb` SEC: the rows for a name typed alone (ALLIANZ → SEC ALV.DE).
+export const watchItems = (results, verb = "WATCH") => (results ?? []).map((r) => ({
+  label: `${verb} ${r.ticker}`, desc: [r.name, r.sector, r.country].filter((x) => x && x !== "—").join(" · "),
+  run: `${verb} ${r.ticker}` }));

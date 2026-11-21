@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chartSource, plotData } from "../../web/app/render/chart.js";
+import { chartSource, nearestLine, plotData, pointTip } from "../../web/app/render/chart.js";
 import { followsLater } from "../../web/app/render/table.js";
 import { rebase } from "../../web/app/ranges.js";
 
@@ -44,4 +44,27 @@ test("a band becomes two hidden lines and a filled area; a dashed line keeps its
   assert.deepEqual(specs[2].dash, [4, 4]); assert.equal(specs[2].stroke, "#00e676");   // specs[0]: uPlot's x
   assert.equal(specs[1].dash, undefined);
   assert.deepEqual(bands, [{ series: [4, 3], fill: "#00e67626" }]);
+});
+
+test("a legend-less chart's tip reads the first line's point: date, value, and P&L % against a base", () => {
+  const lines = [{ name: "PRICE", y: [100, null, 125] }, { name: "AVG COST", y: [80, 80, 80] }];
+  const x = [Date.UTC(2026, 9, 1) / 1000, Date.UTC(2026, 9, 2) / 1000, Date.UTC(2026, 9, 5) / 1000];
+  const t = pointTip(lines, x, 2, "num", 100);
+  assert.equal(t.v, 125);
+  assert.match(t.date, /2026|26/);
+  assert.equal(t.pct.text, "+25.0%");
+  assert.equal(t.pct.cls, "up");
+  assert.equal(pointTip(lines, x, 1, "num", 100).v, 100);            // a gap reads the last close before it
+  assert.equal(pointTip(lines, x, 0, "num", null).pct, null);        // no base: no %
+  assert.equal(pointTip(lines, x, null, "num", 100), null);
+  assert.equal(pointTip([], x, 0, "num", 100), null);
+});
+
+test("a chart with a legend names the line nearest the pointer at the cursor's index", () => {
+  const a = { name: "A", y: [10, 20, null] }, b = { name: "B", y: [0, 5, 6] }, toPos = (v) => 100 - v;   // up = smaller px
+  assert.equal(nearestLine([a, b], 0, 97, toPos), b);               // 3 px from B (at 100), 7 from A (at 90)
+  assert.equal(nearestLine([a, b], 1, 82, toPos), a);               // A at 80 px, B at 95
+  assert.equal(nearestLine([a, b], 2, 82, toPos), a);               // a gap reads the last point before it
+  assert.equal(nearestLine([a, b], null, 82, toPos), null);
+  assert.equal(nearestLine([], 1, 82, toPos), null);
 });

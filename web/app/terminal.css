@@ -18,8 +18,9 @@
   background-color: var(--bg); -webkit-background-clip: text; background-clip: text;
   z-index: 2147483647; pointer-events: none; }
 [hidden] { display: none !important; }
-/* Cashflow Monitor in full screen (peer.js): a frame over this page */
-#peer { position: fixed; inset: var(--safe); border: 0; z-index: 100; background: #000; }
+/* Cashflow Monitor in full screen (peer.js): a frame over this page. An iframe needs its width and height: insets
+   alone leave it at its own 300x150 in the corner. The padding keeps its page out of an iPad's status bar. */
+#peer { position: fixed; inset: 0; width: 100%; height: 100%; padding: var(--safe); border: 0; z-index: 100; background: #000; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); touch-action: manipulation; }   /* a second tap is no zoom */
 body {
   font: 11px/1.38 var(--mono); font-variant-numeric: tabular-nums;
@@ -145,6 +146,12 @@ tr.tot td { box-shadow: inset 0 1px var(--line); color: var(--amber); }
 .legend { width: 21ch; flex: none; table-layout: fixed; font-size: 10px; align-self: flex-start; }
 .legend col.v { width: 9ch; } .legend td { overflow: hidden; }
 .u-select { background: rgba(255, 160, 40, 0.18); }
+/* the point under a chart's cursor (render/chart.js pointTip): a dot on it (--c: the named line's colour),
+   [line] · date · value · P&L % beside */
+.tip { position: absolute; pointer-events: none; z-index: 5; }
+.tip::before { content: ""; position: absolute; left: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--c, var(--amber)); }
+.tip > div { position: absolute; left: 10px; bottom: 8px; white-space: nowrap; background: #111; border: 1px solid var(--line); padding: 1px 6px; }
+.tip.l > div { left: auto; right: 10px; } .tip.b > div { bottom: auto; top: 8px; }
 
 /* changed-cell flash */
 @keyframes flash { from { background: var(--flash); } to { background: transparent; } }
@@ -226,6 +233,14 @@ svg.scatter .ax { fill: var(--amber); font: 10px var(--mono); }   /* axis names 
 .bars.wide td.bar { width: 20%; } .bars td.parts { color: var(--dim); white-space: normal; }
 .bars tr.zero td { color: var(--dim); }
 .bars.wide td { vertical-align: top; } .bars.wide td:first-child { width: 22ch; } .bars.wide td.r { width: 7ch; }
+/* Maximized, the two columns end at different rows: each bands on to the bottom from its own last row, not one
+   full-width filler under both (the body's ::after). */
+.panel.max[data-type="bars"] > .body::after { content: none; }
+.panel.max .bars-detail { flex: 1 0 auto; }
+.bars-detail section { display: flex; flex-direction: column; --band-a: var(--stripe); --band-b: var(--bg); }
+.bars-detail section::after { content: ""; flex: 1 0 0;
+  background: repeating-linear-gradient(var(--band-a) 0 var(--row), var(--band-b) var(--row) calc(2 * var(--row))); }
+.bars-detail section:has(> table:last-child > tbody > tr:last-child:nth-child(even)) { --band-a: var(--bg); --band-b: var(--stripe); }
 /* SUMMARY per-year table: shown only when the panel is maximized (Alt+1) */
 .panel:not(.max) .kpi-years { display: none; }
 .kpi-years { grid-column: 1 / -1; margin-top: 8px; }

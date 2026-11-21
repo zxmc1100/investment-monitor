@@ -22,7 +22,9 @@ test("tickers in your book open the security screen", () => {
   assert.deepEqual(parse("sec sap.de", CTX), { type: "screen", id: "SEC", param: "SAP.DE" });
 });
 test("unknown words and tickers not in the book", () => {
-  assert.deepEqual(parse("hlep", CTX), { type: "error", msg: "UNKNOWN: HLEP — NOT A COMMAND OR A TICKER IN YOUR BOOK" });
+  assert.deepEqual(parse("hlep", CTX), { type: "error", msg: "UNKNOWN: HLEP — NOT A COMMAND OR A TICKER IN YOUR BOOK", lookup: "HLEP" });
+  assert.equal(parse("deutsche  bank", CTX).lookup, "DEUTSCHE  BANK");     // a name for the app to look up, whole
+  assert.equal(parse("sec", CTX).lookup, undefined);                       // a screen's own error is no name
   assert.deepEqual(parse("sec ^gspc", CTX), { type: "error", msg: "^GSPC: NOT A TICKER" });
   assert.deepEqual(parse("sec", CTX), { type: "error", msg: "SEC <TICKER>" });
 });
@@ -35,7 +37,7 @@ test("help, refresh, closed", () => {
 });
 test("LEGACY is gone with the old HTML pages: an unknown command", () => {
   for (const s of ["legacy", "legacy report"]) {
-    assert.deepEqual(parse(s, CTX), { type: "error", msg: "UNKNOWN: LEGACY — NOT A COMMAND OR A TICKER IN YOUR BOOK" });
+    assert.deepEqual(parse(s, CTX), { type: "error", msg: "UNKNOWN: LEGACY — NOT A COMMAND OR A TICKER IN YOUR BOOK", lookup: s.toUpperCase() });
   }
   assert.ok(!helpRows(CTX).some((r) => r.cmd.includes("LEGACY")));
 });

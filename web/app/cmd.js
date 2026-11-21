@@ -99,7 +99,7 @@ export const VERBS = [
   { verb: "START", usage: fixed("START FRESH"), local: true, run: "START FRESH",
     desc: "empty your trades file to enter your own (asks first; a backup is kept)",
     parse: (rest) => (rest.length === 1 && rest[0] === "FRESH" ? { type: "fresh" } : err("START FRESH")) },
-  { verb: "FULL", alias: ["FS"], usage: fixed("FULL"), desc: "full screen on / off (Esc also leaves)",
+  { verb: "FULL", alias: ["FS"], usage: fixed("FULL"), desc: "full screen on / off (holding Esc also leaves)",
     parse: () => ({ type: "fullscreen" }) },
   { verb: "CASH", usage: fixed("CASH"), local: true, desc: "open Cashflow Monitor (its INV comes back; in full screen over this page)",
     when: (c) => !!c.cashflow,
@@ -133,7 +133,8 @@ export function parse(input, ctx) {
     if ((ctx.screens ?? []).some((s) => s.id === "SEC" && s.status === "live")) return { type: "screen", id: "SEC", param: head };
     if (isPrivate("SEC", ctx)) return { type: "private", id: "SEC" };          // a ticker on the static snapshot
   }
-  return err(`UNKNOWN: ${head} — NOT A COMMAND OR A TICKER IN YOUR BOOK`);
+  // no command: perhaps a company's name, for the app to look up (ALLIANZ → SEC ALV.DE)
+  return { ...err(`UNKNOWN: ${head} — NOT A COMMAND OR A TICKER IN YOUR BOOK`), lookup: text };
 }
 
 // An unparametrized screen by id: live → open it, otherwise SOON.

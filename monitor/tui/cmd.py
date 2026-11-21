@@ -299,7 +299,8 @@ def parse(text, c: dict) -> dict:
             return {"type": "screen", "id": sid, "param": head}
     if ticker_shaped(head) and any(s["id"] == "SEC" and s["status"] == "live" for s in c.get("screens", [])):
         return {"type": "screen", "id": "SEC", "param": head}
-    return _err(f"UNKNOWN: {head} — NOT A COMMAND OR A TICKER IN YOUR BOOK")
+    # no command: perhaps a company's name, for the app to look up (ALLIANZ → SEC ALV.DE)
+    return {**_err(f"UNKNOWN: {head} — NOT A COMMAND OR A TICKER IN YOUR BOOK"), "lookup": s}
 
 
 def help_rows(c: dict) -> list:
@@ -405,11 +406,12 @@ def resolve_watch(query: str, results: list) -> dict:
     return {"kind": "several", "rows": rows}
 
 
-def watch_items(results: list) -> list:
+def watch_items(results: list, verb: str = "WATCH") -> list:
+    """`verb` SEC: the rows for a name typed alone (ALLIANZ → SEC ALV.DE)."""
     return [
         {
-            "label": f"WATCH {r['ticker']}",
-            "run": f"WATCH {r['ticker']}",
+            "label": f"{verb} {r['ticker']}",
+            "run": f"{verb} {r['ticker']}",
             "desc": " · ".join(x for x in (r.get("name"), r.get("sector"), r.get("country")) if x and x != "—"),
         }
         for r in results or []

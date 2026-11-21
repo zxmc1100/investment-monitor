@@ -44,7 +44,7 @@ HELP = [
      "window: gain over the value at its start plus the buys since), MWR (money-weighted) or TWR (time-weighted: "
      "performance alone, comparable with the benchmarks however each book was paid in). A book younger than the "
      "window counts from its first trade. PORT's ROI chart is different: there each benchmark is bought with your own "
-     "euros on your own days. Crowded: click a name in the legend to hide its line, click it again to show it."},
+     "euros on your own days. Crowded: click a name in the legend to hide its line, click it again to show it (remembered in this browser)."},
 ]
 
 BOOK_COLS = [

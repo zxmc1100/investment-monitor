@@ -407,10 +407,11 @@ class FakeApi:
 
     def lookup(self, q):
         self.calls.append(("lookup", q))
-        return [
+        rows = [
             {"ticker": "ACU.DE", "name": "Acu Rhein", "country": "Germany"},
             {"ticker": "ACU2", "name": "Acu Two", "country": "USA"},
         ]
+        return [r for r in rows if q.upper() in r["name"].upper() or r["ticker"].startswith(q.upper())]
 
     def refresh(self, sid, tier=None, param=None):
         self._record("refresh", sid, tier, param)

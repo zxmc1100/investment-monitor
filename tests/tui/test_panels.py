@@ -232,6 +232,13 @@ def test_chart_raster_draws_lines_markers_band_labels():
     assert r.col_of(0) == r.left
 
 
+def test_chart_right_axis_reads_pnl_against_the_base():
+    r = chart_raster(X[:50], [{"name": "a", "y": [100.0 + i for i in range(50)]}], 60, 12, "num", pnl_base=100.0)
+    right = ["".join(c[0] for c in row[r.left + r.pw :]).strip() for row in r.cells[: r.ph]]
+    assert "+40%" in right and all(t.endswith("%") for t in right if t)
+    assert r.left + r.pw < 60
+
+
 def test_chart_gaps_stay_gaps():
     r = chart_raster(X[:40], [{"name": "a", "y": [1.0] * 10 + [None] * 20 + [1.0] * 10}], 42, 6, "num")
     row = max(r.cells, key=lambda cs: sum(0x2800 < ord(c[0]) <= 0x28FF for c in cs))

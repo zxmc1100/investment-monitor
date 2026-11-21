@@ -297,6 +297,7 @@ def _cmd_cases():
         "acme.de",
         "1913.HK",
         "hlep",
+        "deutsche bank",
         "edge1",
         "target",
         "target hrp",
@@ -390,6 +391,10 @@ def _misc_cases():
         "watch items": (
             ("watch", "watchItems", [{"ticker": "B1", "name": "Ac", "sector": "—", "country": "DE"}]),
             lambda: C.watch_items([{"ticker": "B1", "name": "Ac", "sector": "—", "country": "DE"}]),
+        ),
+        "sec items": (  # a name typed alone: its lookup rows open SEC
+            ("watch", "watchItems", [{"ticker": "B1", "name": "Ac", "country": "IT"}], "SEC"),
+            lambda: C.watch_items([{"ticker": "B1", "name": "Ac", "country": "IT"}], "SEC"),
         ),
         "fold": (("watch", "fold", " Crème "), lambda: C.fold(" Crème ")),
         "ticks months": (

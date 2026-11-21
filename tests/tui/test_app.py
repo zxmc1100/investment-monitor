@@ -244,6 +244,17 @@ def test_watch_one_match_adds_several_lets_you_pick(app, api):
     assert [i["label"] for i in app.ac["items"]] == ["WATCH ACU.DE", "WATCH ACU2"]
 
 
+def test_a_name_alone_opens_its_security_several_the_top_one(app, api):
+    typed(app, ":acu two")
+    press(app, "enter")
+    assert ("screen", "SEC", "ACU2") in api.calls
+    api.calls.clear()
+    typed(app, ":acu")
+    assert [i["label"] for i in app.ac["items"]][-2:] == ["SEC ACU.DE", "SEC ACU2"]  # after the ranked rows
+    press(app, "enter")
+    assert ("screen", "SEC", "ACU.DE") in api.calls and app.mode == "normal"  # Enter goes, never asks again
+
+
 def test_quit_variants(app):
     for keys in ([":", "q", "enter"], [":", "w", "q", "enter"], ["Z", "Z"], ["Z", "Q"]):
         app.quit = False

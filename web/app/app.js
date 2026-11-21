@@ -35,20 +35,30 @@ function keyRows() {
     ["Alt+↑ ↓", "command history"],
     ["Alt+1…9", "maximize panel n (again or Esc restores)"],
     ["drag on a chart", "zoom into that period · double-click zooms back out"],
-    ["click a legend line", "hide that line on the chart (crowded with benchmarks) · click it again to show it"],
+    ["click a legend line", "hide that line on the chart (a benchmark you don't follow) · click it again to show it — "
+      + "remembered in this browser"],
     ["⌥R · ⌥M · ⌥T (Alt+)", "the ROI chart over the period shown or dragged — ROI: return on investment, the gain "
       + "over every euro in it (default) · MWR: money-weighted (Modified Dietz), each euro for the time it was in · "
       + "TWR: time-weighted, buys and sales moving no line — who performed best"],
     ["⌥P (Alt+P)", "POSITIONS' period: DAY · 1W · 1M · YTD — which % and € pair it shows (or its title's chips)"],
     ["F1 or ?", "this help"],
-    ["Esc", "leave a form field · clear bar · close overlay · restore panel · back from a security · leave full screen"],
+    ["Esc", "leave a form field · clear bar · close overlay · restore panel · back from a security · held: leave full screen"],
   ];
+}
+
+// chart lines hidden from a legend (render/chart.js), kept in this browser: {"SCREEN:panel": [names]}
+const HIDDEN = "monitor.hidden";
+function loadHidden() {
+  try {
+    const h = JSON.parse(localStorage.getItem(HIDDEN));
+    return Object.fromEntries(Object.entries(h ?? {}).filter(([, v]) => Array.isArray(v)));
+  } catch { return {}; }
 }
 
 const cmd = $("#cmd");
 const S = {
   reg: { screens: [], private: [] }, id: null, param: null, key: null, back: [], backNav: false, resetScroll: false, payload: null, live: null, conn: !api.isStatic,
-  running: new Set(), tables: {}, ranges: {}, mode: {}, horizon: {}, hidden: {}, max: null, focus: null,
+  running: new Set(), tables: {}, ranges: {}, mode: {}, horizon: {}, hidden: loadHidden(), max: null, focus: null,
   ac: { items: [], i: 0, moved: false }, history: [], hi: -1, disposers: {}, noticeT: null,
   lookup: { q: "", items: [] }, lookupT: null, alerts: { active: 0, down: false }, alertErr: null,
   builds: {},                                       // screen builds in progress or failed (build.js)
@@ -249,8 +259,13 @@ function ui(pid) {
     setMode(id, m) { S.mode[id] = m; rerender(id); },
     chartHorizon: (id) => S.horizon[id],
     setHorizon(id, h) { S.horizon[id] = h; rerender(id); },
-    hiddenLines: (id) => S.hidden[id] ?? new Set(),
-    toggleLine(id, name) { const h = (S.hidden[id] ??= new Set()); h.has(name) ? h.delete(name) : h.add(name); rerender(id); },
+    hiddenLines: (id) => new Set(S.hidden[`${S.id}:${id}`]),
+    toggleLine(id, name) {
+      const k = `${S.id}:${id}`, h = S.hidden[k] ?? [];
+      S.hidden[k] = h.includes(name) ? h.filter((n) => n !== name) : [...h, name];
+      try { localStorage.setItem(HIDDEN, JSON.stringify(S.hidden)); } catch { /* storage off: this visit only */ }
+      rerender(id);
+    },
     onDispose: (fn) => (S.disposers[pid] ??= []).push(fn),
     // form / paste panels (TRADES)
     formState: (p) => (S.forms[formKey(p.id)] ??= blankForm(p)),
@@ -614,6 +629,12 @@ function updateAc() {
   if (w && !api.isStatic) lookupSoon(w[1]);
   S.ac.items = w ? (fold(S.lookup.q) === fold(w[1]) ? watchItems(S.lookup.items) : [])
     : rank(q, candidates(), (c) => [c.label, c.desc]);
+  // no command: a company's name, its lookup rows after the ranked ones (ALLIANZ → SEC ALV.DE)
+  if (!w && !api.isStatic && parse(q, ctx()).lookup) {
+    lookupSoon(q);
+    const have = new Set(S.ac.items.map((c) => c.run));
+    if (fold(S.lookup.q) === fold(q)) S.ac.items.push(...watchItems(S.lookup.items.filter((r) => !have.has(r.ticker)), "SEC"));
+  }
   if (!S.ac.items.length) { closeAc(); return; }
   S.ac.i = Math.min(S.ac.i, S.ac.items.length - 1);
   box.innerHTML = S.ac.items.map((c, i) => `<div class="${i === S.ac.i ? "on" : ""} ${c.dim ? "dim" : ""}" data-i="${i}"><b>${esc(c.label)}</b><span>${esc(c.desc)}</span></div>`).join("")
@@ -622,7 +643,7 @@ function updateAc() {
   box.querySelectorAll("[data-i]").forEach((el) => el.addEventListener("mousedown", (e) => { e.preventDefault(); pick(S.ac.items[Number(el.dataset.i)]); }));
 }
 
-// Debounced /api/lookup for "WATCH <query>"; the answer re-renders the list if still current.
+// Debounced /api/lookup for "WATCH <query>" or a name alone; the answer re-renders the list if still current.
 function lookupSoon(q) {
   clearTimeout(S.lookupT);
   if (fold(q) === fold(S.lookup.q)) return;
@@ -630,8 +651,8 @@ function lookupSoon(q) {
     try {
       const items = await api.lookup(q);
       S.lookup = { q, items };
-      const cur = /^WATCH\s+(.+)$/i.exec(cmd.value.trim());
-      if (cur && fold(cur[1]) === fold(q)) updateAc();
+      const bar = cmd.value.trim(), cur = /^WATCH\s+(.+)$/i.exec(bar);
+      if (fold(cur ? cur[1] : bar) === fold(q)) updateAc();
     } catch { /* best effort: Enter still resolves the query itself */ }
   }, 200);
 }
@@ -659,12 +680,14 @@ function closeAc() { const box = $("#ac"); box.hidden = true; box.innerHTML = ""
 const ctx = () => ({ screens: S.reg.screens, private: S.reg.private, params: S.reg.params ?? {}, targets: S.reg.targets ?? [],
   cashflow: S.reg.cashflow_url ?? null, static: api.isStatic });
 
-// Browser full screen (the Enter that runs the command is the user gesture the API requires).
+// Browser full screen (the Enter that runs the command is the user gesture the API requires). A keyboard lock keeps
+// Esc the app's (Firefox: keyboardLock, Chrome: navigator.keyboard); holding Esc leaves full screen.
 function toggleFullscreen() {
   if (document.fullscreenElement) { document.exitFullscreen?.(); return; }
-  const go = document.documentElement.requestFullscreen?.();
+  const go = document.documentElement.requestFullscreen?.({ keyboardLock: "browser" });
   if (!go) { notice("FULL SCREEN NOT SUPPORTED HERE", true); return; }
-  go.catch((e) => notice(`FULL SCREEN BLOCKED: ${api.why(e)}`, true));
+  go.then(() => navigator.keyboard?.lock?.(["Escape"]).catch(() => {}),
+    (e) => notice(`FULL SCREEN BLOCKED: ${api.why(e)}`, true));
 }
 
 function run(text) {
@@ -724,8 +747,18 @@ function run(text) {
       api.unwatch(a.ticker).then(async () => { notice(`UNWATCHED ${a.ticker}`); S.reg = await registry(); }).catch(fail);
       break;
     case "soon": notice(`${a.id} — SOON`); break;
-    case "error": notice(a.msg, true); break;
+    case "error": if (a.lookup && !api.isStatic) findName(raw, a.msg); else notice(a.msg, true); break;
   }
+}
+
+// A word that is no command, looked up as a company's name: the one match, the name exactly (resolveWatch), else the
+// top row — the most traded, the one the list showed first (↓ picks another); none says what the bar did not know.
+async function findName(query, msg) {
+  try {
+    const rows = await api.lookup(query), r = resolveWatch(query, rows);
+    if (rows.length) { run(`SEC ${r.kind === "one" ? r.ticker : rows[0].ticker}`); return; }
+  } catch { /* best effort: the bar's own answer below */ }
+  notice(msg, true);
 }
 
 // ── keyboard ─────────────────────────────────────────────────────────────────

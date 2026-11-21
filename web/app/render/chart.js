@@ -62,6 +62,28 @@ export function plotData(x, series, colorOf) {
   return { data, specs, bands };
 }
 
+// The point under a chart's cursor (SEC's price, DRAWDOWN … ; with a legend, nearestLine's): its date, the first line's value
+// and, with `base` (SEC: the average cost), the P&L % the right axis reads. Pure (tui panels.draw_chart).
+export function pointTip(lines, x, i, yfmt, base) {
+  const v = i === null || i === undefined || !lines.length ? null : valueAt(lines[0].y, i);
+  if (v === null || v === undefined) return null;
+  return { v, date: fmtDate(new Date(x[i] * 1000).toISOString().slice(0, 10)), value: fmt(v, yfmt),
+    pct: base ? fmt((v / base - 1) * 100, "pct+") : null };
+}
+
+// The line whose point at index i lies nearest the pointer's height `top` (pixels; `toPos` maps a value there) —
+// the one a chart with a legend names in its tip. Pure.
+export function nearestLine(lines, i, top, toPos) {
+  let best = null, gap = Infinity;
+  if (i === null || i === undefined) return null;
+  for (const s of lines) {
+    const v = valueAt(s.y, i);
+    const d = v === null || v === undefined ? Infinity : Math.abs(toPos(v) - top);
+    if (d < gap) [best, gap] = [s, d];
+  }
+  return best;
+}
+
 export function chart(body, p, ui) {
   const raw = chartSource(p, ui.followKey(p));
   if (!raw?.x || raw.x.length < 2 || !raw.series?.length) { body.innerHTML = `<div class="empty">NO DATA</div>`; return; }
@@ -138,18 +160,45 @@ export function chart(body, p, ui) {
   const size = () => ({ width: Math.max(el.clientWidth, 100), height: Math.max(el.clientHeight, 60) });
   const yfmt = AXIS_FMT[p.yfmt] ?? "num:0";
   const { data, specs, bands } = plotData(x, series.filter((s) => !off.has(s.name)), (s) => color(s, series.indexOf(s)));
+  // a dot on the point under the cursor and its tip beside it, turned away from the nearer edges — with a legend,
+  // on the shown line nearest the pointer, named in its colour
+  const tip = Object.assign(document.createElement("div"), { className: "tip", hidden: true });
+  const shown = lines.filter((s) => !off.has(s.name));
+  const showTip = (u) => {
+    const line = !legend.length ? lines[0] : nearestLine(shown, u.cursor.idx, u.cursor.top, (v) => u.valToPos(v, "y"));
+    const t = u.cursor.left >= 0 && line ? pointTip([line], x, u.cursor.idx, p.yfmt, p.pnl_base) : null;
+    tip.hidden = !t;
+    if (!t) return;
+    const left = u.valToPos(x[u.cursor.idx], "x"), top = u.valToPos(t.v, "y"), c = color(line, series.indexOf(line));
+    tip.className = `tip${left > u.over.clientWidth / 2 ? " l" : ""}${top < 40 ? " b" : ""}`;
+    Object.assign(tip.style, { left: `${left}px`, top: `${top}px` });
+    tip.style.setProperty("--c", legend.length ? c : "");
+    tip.innerHTML = `<div>${legend.length ? `<span style="color:${c}">${esc(line.name)}</span> ` : ""}<span class="dim">${
+      esc(t.date)}</span> ${esc(t.value.text)}${t.pct ? ` <span class="${t.pct.cls}">${esc(t.pct.text)}</span>` : ""}</div>`;
+  };
   const plot = new uPlot({
     ...size(),
     legend: { show: false },
-    hooks: { setCursor: [(u) => paint(u.cursor.idx)], setSelect: [zoom], ...(p.vlines?.length ? { draw: [(u) => drawMarks(u, p.vlines, p.vlabels)] } : {}) },
+    hooks: { setCursor: [(u) => { paint(u.cursor.idx); showTip(u); }], setSelect: [zoom], ...(p.vlines?.length ? { draw: [(u) => drawMarks(u, p.vlines, p.vlabels)] } : {}) },
     // Drag across a period to zoom into it (zoom); a double-click goes back to the range before.
     cursor: { points: { show: false }, drag: { x: true, y: false, setScale: false } },
     scales: { x: { time: true } },
     axes: [{ ...axis(), values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) },
-      { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) }],
+      { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) },
+      // SEC's price: the same scale on the right as P&L % against the average cost (p.pnl_base)
+      ...(p.pnl_base ? [{ ...axis(), scale: "y", side: 1, size: 52, grid: { show: false },
+        values: (u, ticks) => ticks.map((t) => fmt((t / p.pnl_base - 1) * 100, "pct+:0").text) }] : [])],
     series: specs,
     bands,
   }, data, el);
+  plot.over.append(tip);
+  // out past the plot on the right (the axis): the present, not a one-pixel target at the edge
+  el.addEventListener("mousemove", (e) => {
+    const r = plot.over.getBoundingClientRect();
+    if (e.clientX > r.right) plot.setCursor({ left: plot.valToPos(x[rest], "x"), top: Math.min(Math.max(e.clientY - r.top, 0), r.height) });
+  });
+  // never mid-drag: uPlot has just snapped the selection to the edge it left by — a cursor at -10 dragged it left
+  el.addEventListener("mouseleave", (e) => { if (!e.buttons) plot.setCursor({ left: -10, top: -10 }); });
   if (dragged) plot.over.addEventListener("dblclick", () => ui.setRange(p.id, back));
   const ro = new ResizeObserver(() => plot.setSize(size()));
   ro.observe(el);

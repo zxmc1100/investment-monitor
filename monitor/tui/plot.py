@@ -132,8 +132,11 @@ def time_axis(lo: float, hi: float, room: int) -> tuple[list, float]:
     return [lo, hi], span
 
 
-def chart_raster(x: list, series: list, w: int, h: int, yfmt: str | None, vlines=None, vlabels=None) -> Raster | None:
-    """Lines, markers and bands over a time axis, y labels on the left, time labels along the bottom row."""
+def chart_raster(
+    x: list, series: list, w: int, h: int, yfmt: str | None, vlines=None, vlabels=None, pnl_base=None
+) -> Raster | None:
+    """Lines, markers and bands over a time axis, y labels on the left (and with `pnl_base` the same ticks on the
+    right as P&L % against it: render/chart.js), time labels along the bottom row."""
     values = []
     for s in series:
         values.extend(s.get("lo") or [] if s.get("kind") == "band" else s.get("y") or [])
@@ -148,7 +151,9 @@ def chart_raster(x: list, series: list, w: int, h: int, yfmt: str | None, vlines
     yt = nice_ticks(lo, hi, max(2, min(5, ph // 2)))
     ytext = [fmt(t, AXIS_FMT.get(yfmt, "num:0"))[0] for t in yt]
     left = max((len(t) for t in ytext), default=4) + 1
-    pw = w - left
+    rtext = [fmt((t / pnl_base - 1) * 100, "pct+:0")[0] for t in yt] if pnl_base else []
+    right = max((len(t) for t in rtext), default=-1) + 1
+    pw = w - left - right
     if pw < 4:
         return None
     d = Dots(pw, ph)
@@ -209,6 +214,11 @@ def chart_raster(x: list, series: list, w: int, h: int, yfmt: str | None, vlines
         row = sy(t) // 4
         if 0 <= row < ph:
             for j, c in enumerate(text.rjust(left - 1)):
+                cells[row][j] = (c, DIM, BG)
+    for t, text in zip(yt, rtext):
+        row = sy(t) // 4
+        if 0 <= row < ph:
+            for j, c in enumerate(text, start=left + pw + 1):
                 cells[row][j] = (c, DIM, BG)
     for t, text in zip(vlines or [], vlabels or []):
         if x[0] <= t <= x[-1]:

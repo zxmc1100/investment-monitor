@@ -913,7 +913,7 @@ def draw_chart(v: Canvas, p: dict, ui) -> None:
     raster = ui.memo.get(memo)
     if raster is None:
         raster = ui.memo[memo] = chart_raster(
-            m["x"], m["series"], w, h, p.get("yfmt"), p.get("vlines"), p.get("vlabels")
+            m["x"], m["series"], w, h, p.get("yfmt"), p.get("vlines"), p.get("vlabels"), p.get("pnl_base")
         )
     if raster is None:
         v.put(1, top, "NO DATA", style(DIM))
@@ -945,7 +945,9 @@ def draw_chart(v: Canvas, p: dict, ui) -> None:
             text, cls = fmt(legend_value(m["series"], s, at, m["today"]), p.get("yfmt"))
             lv.put(legend_w - vw - 1, r, pad(text, vw, True), style(cls_fg(cls)))
     elif idx is not None and m["lines"]:  # no legend to read it from: the point under the cursor, in the plot
-        text = f" {fmt_date(iso_at(m['x'][idx]))} {fmt(value_at(m['lines'][0]['y'], idx), p.get('yfmt'))[0]} "
+        y, base = value_at(m["lines"][0]["y"], idx), p.get("pnl_base")  # with a base: its P&L % too (chart.js pointTip)
+        pct = f"{fmt((y / base - 1) * 100, 'pct+')[0]} " if base and y is not None else ""
+        text = f" {fmt_date(iso_at(m['x'][idx]))} {fmt(y, p.get('yfmt'))[0]} {pct}"
         plot.put(max(raster.left, w - tw(text)), 0, text, style(AMBER, "#1a1200"))
 
 

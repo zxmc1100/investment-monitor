@@ -13,7 +13,7 @@ import pandas as pd
 
 from monitor.alerts import watchlist
 from monitor.data.buffer import cached_price_history, cached_quotes
-from monitor.portfolio import riskmodel, snapshot
+from monitor.portfolio import analytics, riskmodel, snapshot
 from monitor.portfolio.ledger import ADDS
 from monitor.screens.base import Ctx, Screen
 from monitor.screens.common import PRIV, bar_on_or_after, epoch, kpi, num, thin_index
@@ -21,7 +21,8 @@ from monitor.screens.identity import identify
 from monitor.universe import lookup
 
 DEPS = ("monitor.screens.sec", "monitor.screens.common", "monitor.screens.base",
-        "monitor.portfolio.riskmodel", "monitor.portfolio.optimizer", "monitor.portfolio.snapshot",
+        "monitor.portfolio.riskmodel", "monitor.portfolio.analytics", "monitor.portfolio.optimizer",
+        "monitor.portfolio.snapshot",
         "monitor.portfolio.ledger", "monitor.data.buffer", "monitor.data.yahoo",
         "monitor.data.instruments", "monitor.alerts.watchlist", "monitor.universe.lookup", "monitor.config",
         "monitor.screens.identity")
@@ -128,7 +129,7 @@ def assemble(parts: dict, meta: dict, param: str) -> dict:
     return {"screen": "SEC", "title": f"{param} · {name}",
             "context": {"text": ("CLOSED POSITION · " if pos is None else "") + f"{len(q['txns'])} TRADES"},
             "meta": meta, "help": [],
-            "panels": [_quote(q, d["hist"]), _mine(q, pos, param), _price(d["hist"], q["txns"]),
+            "panels": [_quote(q, d["hist"]), _mine(q, pos, param), _price(d["hist"], q["txns"], pos and pos["avg_cost"]),
                        _risk(d, pos, param), _trades(q["txns"])]}
 
 
@@ -170,7 +171,7 @@ def _mine(q, pos, param) -> dict:
     return {"id": "mine", "n": 2, "title": "MY POSITION", "type": "kpi", "span": 6, "vis": PRIV, "items": items}
 
 
-def _price(hist, txns) -> dict:
+def _price(hist, txns, avg=None) -> dict:
     base = {"id": "price", "n": 3, "title": "PRICE", "type": "chart", "span": 8, "vis": PRIV,
             "ranges": ["1M", "6M", "YTD", "1Y", "ALL"], "yfmt": "num", "x": [], "series": []}
     if len(hist) < 2:
@@ -186,26 +187,61 @@ def _price(hist, txns) -> dict:
             continue
         i = idx.get_loc(b)
         (buy if t["action"] in ADDS else sell)[i] = y[i]          # a bonus is a BUY marker
-    return {**base, "x": epoch(idx), "series": [
+    return {**base, "x": epoch(idx), **({"pnl_base": num(round(avg, 4))} if avg else {}), "series": [
         {"name": "PRICE", "role": "primary", "kind": "line", "y": y},
+        # the average cost of the shares held, level across: the gap to the price is the P&L per share
+        *([{"name": "AVG COST", "kind": "line", "color": "#ffa028", "dash": True, "y": [num(round(avg, 4))] * len(y)}]
+          if avg else []),
         {"name": "BUY", "role": "buy", "kind": "markers", "y": buy},
         {"name": "SELL", "role": "sell", "kind": "markers", "y": sell}]}
 
 
 def _risk(d, pos, param) -> dict:
-    hist, m = d["hist_tr"], d["model"]           # total return: a dividend is not a loss
+    """PORT's RISK figures for this one line, over its last year of total-return closes (a dividend is not a
+    loss) — the same compute_quant_metrics, the S&P 500 in the line's currency. A position you hold adds each
+    loss in euros (VaR / CVaR: today's value × the day's %; CUR DD: your shares now vs their worth at the 1Y
+    high) and its place in the book."""
+    hist, m = d["hist_tr"], d["model"]
     yr = hist[hist.index >= hist.index[-1] - pd.Timedelta(days=365)] if len(hist) else hist
     r = yr.pct_change().dropna()
     vol = float(r.std() * np.sqrt(252) * 100) if len(r) > 20 else None
-    mdd = float((yr / yr.cummax() - 1).min() * 100) if len(yr) else None
-    items = [kpi("VOL 1Y", vol, "pct"), kpi("BETA SPX", riskmodel.beta_of(hist, d["spx"]), "num:2"),
-             kpi("MAX DD 1Y", mdd, "pct+")]
+    dd = (yr / yr.cummax() - 1) * 100
+    mdd, cur = (float(dd.min()), float(dd.iloc[-1])) if len(dd) else (None, None)
+    spx = d["spx"]
+    bench = (spx.dropna() / spx.dropna().iloc[0] - 1) * 100 if spx is not None and spx.notna().any() else None
+    q = analytics.compute_quant_metrics((yr / yr.iloc[0] - 1) * 100, bench) if len(r) > 20 else {}   # takes ROI %
+    value = pos["position_value"] if pos is not None else None
+
+    def item(k, v, fmt, size=None, eur=None):
+        it = kpi(k, v, fmt)
+        if size:
+            it["size"] = size
+        if value is not None and eur is not None:        # € (%) in one cell two columns wide, as on PORT
+            it["eur"] = num(eur)
+        return it
+
+    def at_value(pct):
+        return pct / 100 * value if pct is not None and value is not None else None
+    items = [item("VOL 1Y", vol, "pct", "big"), item("SHARPE", q.get("sharpe"), "num:2", "big"),
+             item("BETA SPX", riskmodel.beta_of(hist, spx), "num:2", "big"),
+             item("ALPHA", q.get("alpha"), "pct+", "big"),
+             item("CUR DD", cur, "pct+", "big", value * cur / (100 + cur) if value is not None and cur is not None
+                  else None),
+             item("MAX DD 1Y", mdd, "pct+", "big"), item("SORTINO", q.get("sortino"), "num:2"),
+             item("VaR95", q.get("var_95"), "pct+:2", eur=at_value(q.get("var_95"))),
+             item("CVaR95", q.get("cvar_95"), "pct+:2", eur=at_value(q.get("cvar_95"))),
+             item("INFO RATIO", q.get("info_ratio"), "num:2", "small"),
+             item("TRACK ERR", q.get("tracking_error"), "pct", "small"),
+             item("WORST DAY", q.get("worst_day"), "pct+:2", "small"),
+             item("BEST DAY", q.get("best_day"), "pct+:2", "small"),
+             item("UP DAYS", q.get("win_rate"), "pct", "small")]
     if pos is not None and m is not None and param in m.universe:
         i = m.universe.index(param)
         others = m.corr[param].drop(param).sort_values(ascending=False).head(3)
         items += [kpi("RISK %", m.risk_contrib[i] * 100, "pct"), kpi("CAPITAL %", m.cur_w[i] * 100, "pct"),
-                  kpi("TOP CORR", ", ".join(f"{t} {v:.2f}" for t, v in others.items()), "text")]
-    return {"id": "risk", "n": 4, "title": "RISK", "type": "kpi", "span": 4, "vis": PRIV, "items": items}
+                  {**kpi("TOP CORR", ", ".join(f"{t} {v:.2f}" for t, v in others.items()), "text"), "wide": True}]
+    return {"id": "risk", "n": 4, "title": "RISK", "type": "kpi", "span": 4, "vis": PRIV,
+            "context": {"text": f"DAILY · 1Y · {len(r)}D"}, "items": items}
 
 
 def _trades(txns) -> dict:

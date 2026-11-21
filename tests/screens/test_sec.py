@@ -86,6 +86,14 @@ def test_price_chart_marks_trades(ctx):
     assert len(buys) == 2
 
 
+def test_price_chart_levels_the_average_cost(ctx):
+    p = build(ctx, "AAA.F")
+    avg = next(s for s in panel(p, "price")["series"] if s["name"] == "AVG COST")
+    assert avg["y"] == [pytest.approx(kv(p, "mine")["AVG"])] * len(avg["y"]) and avg["dash"]
+    assert len(avg["y"]) == len(panel(p, "price")["x"])
+    assert panel(p, "price")["pnl_base"] == pytest.approx(kv(p, "mine")["AVG"])   # the right axis: P&L % from it
+
+
 def test_sec_with_empty_history_degrades(ctx, monkeypatch):
     monkeypatch.setattr(sec, "_history", lambda t, ctx, adjusted=True: pd.Series(dtype=float))
     p = build(ctx, "AAA.F")
@@ -145,6 +153,21 @@ def test_markers_and_quote_use_real_closes_risk_uses_total_return(ctx, monkeypat
     assert kv(p, "risk")["MAX DD 1Y"] == pytest.approx(float((yr / yr.cummax() - 1).min() * 100))
 
 
+def test_risk_shows_ports_figures_for_the_line_and_your_euros(ctx):
+    from monitor.portfolio.analytics import compute_quant_metrics
+    p = build(ctx, "AAA.F")
+    adj = sec._history("AAA.F", ctx)
+    yr = adj[adj.index >= adj.index[-1] - pd.Timedelta(days=365)]
+    want, r = compute_quant_metrics((yr / yr.iloc[0] - 1) * 100), kv(p, "risk")
+    assert (r["SHARPE"], r["VaR95"], r["WORST DAY"], r["UP DAYS"]) == (
+        want["sharpe"], want["var_95"], want["worst_day"], want["win_rate"])
+    assert r["CUR DD"] == pytest.approx((yr.iloc[-1] / yr.max() - 1) * 100)
+    items, value = {i["k"]: i for i in panel(p, "risk")["items"]}, kv(p, "mine")["VALUE"]
+    assert items["VaR95"]["eur"] == pytest.approx(want["var_95"] / 100 * value)
+    assert items["CUR DD"]["eur"] == pytest.approx(value - value * yr.max() / yr.iloc[-1])   # your shares vs at the high
+    assert "eur" not in items["MAX DD 1Y"]
+
+
 def test_price_chart_marks_a_bonus_as_a_buy():
     hist = pd.Series([10.0, 11.0, 12.0], index=pd.to_datetime(["2026-06-26", "2026-06-29", "2026-06-30"]))
     txns = [{"date": "2026-06-26", "action": "buy", "shares": 1, "pps": 10, "price": 10},
@@ -187,7 +210,9 @@ def test_a_name_you_never_traded_shows_quote_price_and_risk_only(ctx):
     assert [(q["id"], q["n"]) for q in p["panels"]] == [("quote", 1), ("price", 2), ("risk", 3)]
     assert p["context"]["text"] == "NOT IN YOUR BOOK · PRICES IN THE LISTING CURRENCY"
     assert kv(p, "quote")["LAST"] == pytest.approx(fakes_yf.series("RHM.DE", "2026-06-30").iloc[-1])
-    assert set(kv(p, "risk")) == {"VOL 1Y", "BETA SPX", "MAX DD 1Y"}
+    assert set(kv(p, "risk")) == {"VOL 1Y", "SHARPE", "BETA SPX", "ALPHA", "CUR DD", "MAX DD 1Y", "SORTINO", "VaR95",
+                                  "CVaR95", "INFO RATIO", "TRACK ERR", "WORST DAY", "BEST DAY", "UP DAYS"}
+    assert not any("eur" in i for i in panel(p, "risk")["items"])      # no position, no euros
     assert not any(s["name"] in ("BUY", "SELL") and any(y is not None for y in s["y"])
                    for s in panel(p, "price")["series"])
     json.dumps(p, allow_nan=False)
