@@ -997,7 +997,8 @@ def draw_chart(v: Canvas, p: dict, ui) -> None:
         lv.put(0, 0, fmt_date(iso_at(m["x"][at])), style(DIM))
         vw = 9
         cur = ui.legend_at.get(pid) if ui.focus == pid else None  # j k pick a line on a focused chart, x hides it
-        rows = m["legend"][: h - 1]
+        rows = ([s for s in m["legend"] if s.get("name") not in m["off"]]
+                + [s for s in m["legend"] if s.get("name") in m["off"]])[: h - 1]  # the hidden under the shown
         for r, s in enumerate(rows, 1):
             name, off = s.get("name"), s.get("name") in m["off"]
             bg = CURSOR if name == cur else BG
@@ -1020,8 +1021,8 @@ def draw_chart(v: Canvas, p: dict, ui) -> None:
 
 def _rasters(p: dict, m: dict, w: int, h: int, low_h: int) -> tuple:
     """The lines' raster (a hidden one drawn as nothing, so every other keeps its colour) and, with `low_h`, the gap
-    pane's under it: the lead an area, green above zero and red below, its edge a thin line, the alpha amber on top,
-    zero dashed — the time labels under it alone, both plots starting at the same column."""
+    pane's under it: the lead green above zero and red below, over an area of the same colours, the alpha amber on
+    top, zero dashed — the time labels under it alone, both plots starting at the same column (render/chart.js)."""
     drawn = [
         {**s, "y": []}
         if s.get("name") in m["off"] and s.get("kind") not in ("markers", "band") and not s.get("nolegend")
@@ -1035,11 +1036,13 @@ def _rasters(p: dict, m: dict, w: int, h: int, low_h: int) -> tuple:
     gap, alpha = (m["gaps"] + [None])[:2]
     part = lambda f: [None if v is None else f(v, 0) for v in gap["y"]]  # noqa: E731
     zero = [None if v is None else 0 for v in gap["y"]]
+    side = lambda keep: [v if v is not None and keep(v) else None for v in gap["y"]]  # noqa: E731
     low_series = [
         {"kind": "band", "lo": zero, "hi": part(max), "color": LEAD["up"]},
         {"kind": "band", "lo": part(min), "hi": zero, "color": LEAD["dn"]},
         {"kind": "line", "y": [0] * len(gap["y"]), "color": MARK, "dash": True},
-        {"kind": "line", "y": gap["y"], "color": LEAD["line"]},
+        {"kind": "line", "y": side(lambda v: v >= 0), "color": LEAD["up"]},
+        {"kind": "line", "y": side(lambda v: v <= 0), "color": LEAD["dn"]},
         *([{"kind": "line", "y": alpha["y"], "color": LEAD["alpha"], "role": "primary"}] if alpha else []),
     ]
     low = chart_raster(m["x"], low_series, w, low_h, m["gfmt"], left_min=raster.left)

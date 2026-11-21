@@ -8,6 +8,7 @@ const ROLE = { primary: "#ffffff", buy: "#00e676", sell: "#ff3d3d" };
 const AXIS_FMT = { eur: "eur:0", "eur+": "eur+:0", pct: "pct:0", "pct+": "pct+:0" };
 const GAP_FMT = { eur: "eur+", "eur+": "eur+", pct: "pp+", "pct+": "pp+" };   // a gap between two lines: signed, % in points
 const LEAD = { up: "#00e676", dn: "#ff3d3d", line: "#d0d0d0", alpha: "#ffa028" };      // the gap pane's colours
+const TAG_W = 56, TAGS_MAX = 5;     // the last-value tags' gutter on the right; more lines than this: none, too crowded
 
 const color = (s, i) => s.color ?? ROLE[s.role] ?? PALETTE[i % PALETTE.length];
 const axis = () => ({ stroke: "#8a8a8a", grid: { stroke: "#1c1c1c", width: 1 }, ticks: { stroke: "#2b2b2b", width: 1 },
@@ -169,7 +170,7 @@ export function chart(body, p, ui) {
   const alpha = spread && GAP_FMT[p.yfmt] === "pp+" ? alphaLine(shown[0], shown[1]) : null;
   const gaps = [spread, alpha].filter(Boolean), gfmt = GAP_FMT[p.yfmt] ?? "num+";
   const gapRows = gaps.map((g, i) => `<tr class="gap"><td style="color:${i ? LEAD.alpha : LEAD.line}">${esc(g.name)}</td><td class="r" data-g="${i}"></td></tr>`);
-  const legendHtml = legend.length ? `<table class="legend"><colgroup><col><col class="v"></colgroup><tr class="asof"><td colspan="2"></td></tr>${legend.map((s) =>
+  const legendHtml = legend.length ? `<table class="legend"><colgroup><col><col class="v"></colgroup><tr class="asof"><td colspan="2"></td></tr>${[...legend.filter((s) => !off.has(s.name)), ...legend.filter((s) => off.has(s.name))].map((s) =>
     `<tr${off.has(s.name) ? ' class="off"' : ""} data-name="${esc(s.name)}" title="click: ${off.has(s.name) ? "show" : "hide"} this line"><td style="color:${color(s, series.indexOf(s))}">${esc(s.name)}</td><td class="r" data-s="${series.indexOf(s)}"></td></tr>`
   ).join("")}${gapRows.length ? `<tr class="sep"><td colspan="2"></td></tr>${gapRows.join("")}` : ""}</table>` : "";
   body.innerHTML = `${ranges}<div class="plotwrap"><div class="plot"></div>${legendHtml}</div>`;
@@ -210,6 +211,12 @@ export function chart(body, p, ui) {
     height: !below ? Math.max(el.clientHeight, 60) : low ? lowH() : Math.max(el.clientHeight - lowH(), 40) });
   const yfmt = AXIS_FMT[p.yfmt] ?? "num:0";
   const sync = below ? { key: `chart:${p.id}`, setSeries: false, scales: ["x", null] } : undefined;
+  // Bloomberg's last-value tags: each shown line's last value in a box of its colour, in a gutter on the right
+  const tagged = legend.length && shown.length <= TAGS_MAX
+    ? shown.map((s) => ({ v: lastValue(s.y), color: color(s, series.indexOf(s)), text: fmt(lastValue(s.y), p.yfmt).text }))
+    : [];
+  const gutter = tagged.length ? [{ side: 1, size: TAG_W, stroke: "transparent", grid: { show: false },
+    ticks: { show: false }, values: (u, ticks) => ticks.map(() => "") }] : [];
   const { data, specs, bands } = plotData(x, series.filter((s) => !off.has(s.name)), (s) => color(s, series.indexOf(s)));
   // a dot on the point under the cursor and its tip beside it, turned away from the nearer edges — with a legend,
   // on the shown line nearest the pointer, named in its colour
@@ -230,14 +237,15 @@ export function chart(body, p, ui) {
   const plot = new uPlot({
     ...size(),
     legend: { show: false },
-    hooks: { setCursor: [(u) => { paint(u.cursor.idx); showTip(u); }], setSelect: [zoom], ...(p.vlines?.length ? { draw: [(u) => drawMarks(u, p.vlines, p.vlabels)] } : {}) },
+    hooks: { setCursor: [(u) => { paint(u.cursor.idx); showTip(u); }], setSelect: [zoom],
+      draw: [(u) => { if (p.vlines?.length) drawMarks(u, p.vlines, p.vlabels); if (tagged.length) drawTags(u, tagged); }] },
     // Drag across a period to zoom into it (zoom); a double-click goes back to the range before.
     cursor: { points: { show: false }, drag: { x: true, y: false, setScale: false }, sync },
     scales: { x: { time: true } },
     // with the gap pane below, the dates are read once, under it: here only their grid
     axes: [{ ...axis(), ...(below ? { size: 6, values: (u, ticks) => ticks.map(() => "") }
       : { values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) }) },
-      { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) },
+      { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, yfmt).text) }, ...gutter,
       // SEC's price: the same scale on the right as P&L % against the average cost (p.pnl_base)
       ...(p.pnl_base ? [{ ...axis(), scale: "y", side: 1, size: 52, grid: { show: false },
         values: (u, ticks) => ticks.map((t) => fmt((t / p.pnl_base - 1) * 100, "pct+:0").text) }] : [])],
@@ -249,7 +257,7 @@ export function chart(body, p, ui) {
     plot.over.addEventListener("mouseenter", () => { onTop = true; });
     plot.over.addEventListener("mouseleave", () => { onTop = false; });
   }
-  const low = below && gapPane(below, x, gaps, gfmt, size(true), { sync, paint, zoom });
+  const low = below && gapPane(below, x, gaps, gfmt, size(true), { sync, paint, zoom, gutter });
   // out past the plot on the right (the axis): the present, not a one-pixel target at the edge
   el.addEventListener("mousemove", (e) => {
     const r = plot.over.getBoundingClientRect();
@@ -263,32 +271,73 @@ export function chart(body, p, ui) {
   ui.onDispose(() => { ro.disconnect(); plot.destroy(); low?.destroy(); });
 }
 
-// The gap pane: the lead as an area, green above zero and red below, its edge a thin line; the alpha a solid amber
-// line; zero dashed. Its own scale (always holding zero) on the left like the pane above, so the two line up, and the
-// time axis. One cursor with the pane above (`sync`); a drag zooms both.
-function gapPane(el, x, [gap, alpha], gfmt, size, { sync, paint, zoom }) {
-  const part = (f) => gap.y.map((v) => (v === null || v === undefined ? null : f(v, 0)));
-  const area = (c) => ({ stroke: "transparent", fill: `${c}40`, fillTo: 0, points: { show: false }, spanGaps: false });
-  const line = (c, width) => ({ stroke: c, width, points: { show: false }, spanGaps: false });
-  const zero = (u) => {
-    const y = Math.round(u.valToPos(0, "y", true)), { left, width } = u.bbox, px = devicePixelRatio || 1;
-    u.ctx.save();
-    u.ctx.strokeStyle = "#5a5a5a"; u.ctx.setLineDash([3 * px, 3 * px]);
-    u.ctx.beginPath(); u.ctx.moveTo(left, y); u.ctx.lineTo(left + width, y); u.ctx.stroke();
-    u.ctx.restore();
+// The gap pane: the lead one line, green above zero and red below, over an area of the same colours; the alpha amber;
+// zero dashed; a caption naming both top left, a rule above, the last values tagged on the right as above. Its own
+// scale (always holding zero, finer ticks) on the left like the pane above, so the two line up; the time axis. One
+// cursor with the pane above (`sync`); a drag zooms both.
+function gapPane(el, x, [gap, alpha], gfmt, size, { sync, paint, zoom, gutter }) {
+  const px = devicePixelRatio || 1;
+  const signed = (a) => (u) => {        // a gradient switching colour where the scale crosses zero
+    const { top, height } = u.bbox, f = Math.min(1, Math.max(0, (u.valToPos(0, "y", true) - top) / (height || 1)));
+    const g = u.ctx.createLinearGradient(0, top, 0, top + height);
+    [[0, LEAD.up], [f, LEAD.up], [f, LEAD.dn], [1, LEAD.dn]].forEach(([at, c]) => g.addColorStop(at, c + a));
+    return g;
+  };
+  const decor = (u) => {
+    const { ctx } = u, { left, top, width } = u.bbox, y = Math.round(u.valToPos(0, "y", true));
+    ctx.save();
+    ctx.fillStyle = "#2b2b2b"; ctx.fillRect(0, 0, ctx.canvas.width, px);                     // the rule above
+    ctx.strokeStyle = "#5a5a5a"; ctx.setLineDash([3 * px, 3 * px]);
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke();
+    ctx.font = `${10 * px}px "SF Mono", ui-monospace, Menlo, monospace`; ctx.textBaseline = "top";
+    let at = left + 6 * px;
+    const label = (swatch, text, color) => {
+      swatch(at, top + 4 * px); at += 14 * px;
+      ctx.fillStyle = color; ctx.fillText(text, at, top + 3 * px); at += ctx.measureText(text).width + 14 * px;
+    };
+    label((cx, cy) => { ctx.fillStyle = LEAD.up; ctx.fillRect(cx, cy, 4 * px, 8 * px); ctx.fillStyle = LEAD.dn; ctx.fillRect(cx + 4 * px, cy, 4 * px, 8 * px); },
+      gap.name, LEAD.line);
+    if (alpha) label((cx, cy) => { ctx.fillStyle = LEAD.alpha; ctx.fillRect(cx, cy + 3 * px, 10 * px, 2 * px); }, alpha.name, LEAD.alpha);
+    ctx.restore();
+    if (gutter.length) drawTags(u, [gap, alpha].filter(Boolean).map((g, i) => {
+      const v = lastValue(g.y);
+      return { v, color: i ? LEAD.alpha : v < 0 ? LEAD.dn : LEAD.up, text: fmt(v, gfmt).text };
+    }));
   };
   const hold0 = (u, lo, hi) => {
-    const a = Math.min(lo ?? 0, 0), b = Math.max(hi ?? 0, 0), pad = (b - a) * 0.1 || 1;
-    return [a - pad, b + pad];
+    const a = Math.min(lo ?? 0, 0), b = Math.max(hi ?? 0, 0), pad = (b - a) * 0.12 || 1;
+    return [a - pad, b + pad * 2];                                        // headroom for the caption
   };
   return new uPlot({
     ...size,
     legend: { show: false },
-    hooks: { setCursor: [(u) => paint(u.cursor.idx)], setSelect: [zoom], draw: [zero] },
+    hooks: { setCursor: [(u) => paint(u.cursor.idx)], setSelect: [zoom], draw: [decor] },
     cursor: { points: { show: false }, drag: { x: true, y: false, setScale: false }, sync },
     scales: { x: { time: true }, y: { range: hold0 } },
     axes: [{ ...axis(), values: (u, ticks, _i, _space, incr) => timeTicks(ticks, incr) },
-      { ...axis(), size: 58, values: (u, ticks) => ticks.map((t) => fmt(t, `${gfmt}:0`).text) }],
-    series: [{}, area(LEAD.up), area(LEAD.dn), line(LEAD.line, 1), ...(alpha ? [line(LEAD.alpha, 1.6)] : [])],
-  }, [x, part(Math.max), part(Math.min), gap.y, ...(alpha ? [alpha.y] : [])], el);
+      // whole steps only: a 2.5 step read as +3 −3 −5 −8 once rounded
+      { ...axis(), size: 58, space: 14, incrs: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+        values: (u, ticks) => ticks.map((t) => fmt(t, `${gfmt}:0`).text) }, ...gutter],
+    series: [{}, { stroke: signed(""), fill: signed("33"), fillTo: 0, width: 1.2, points: { show: false }, spanGaps: false },
+      ...(alpha ? [{ stroke: LEAD.alpha, width: 1.6, points: { show: false }, spanGaps: false }] : [])],
+  }, [x, gap.y, ...(alpha ? [alpha.y] : [])], el);
+}
+
+// Last-value tags in the right gutter: a box of the line's colour at its last value, dark text, nudged apart where
+// two would overlap.
+function drawTags(u, tags) {
+  const { ctx } = u, px = devicePixelRatio || 1, h = 14 * px, { left, top, width, height } = u.bbox;
+  const at = tags.filter((t) => t.v !== null && t.v !== undefined)
+    .map((t) => ({ ...t, y: u.valToPos(t.v, "y", true) })).sort((a, b) => a.y - b.y);
+  let prev = -Infinity;
+  for (const t of at) prev = t.y = Math.max(t.y, prev + h);
+  const over = at.length ? at[at.length - 1].y + h / 2 - (top + height) : 0;
+  if (over > 0) at.forEach((t) => { t.y -= over; });
+  ctx.save();
+  ctx.font = `${10 * px}px "SF Mono", ui-monospace, Menlo, monospace`; ctx.textBaseline = "middle";
+  for (const t of at) {
+    ctx.fillStyle = t.color; ctx.fillRect(left + width + 3 * px, t.y - h / 2, ctx.measureText(t.text).width + 8 * px, h);
+    ctx.fillStyle = "#000"; ctx.fillText(t.text, left + width + 7 * px, t.y + px);
+  }
+  ctx.restore();
 }

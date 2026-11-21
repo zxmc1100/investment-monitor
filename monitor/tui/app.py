@@ -1745,8 +1745,13 @@ class App:
         self.legend_at[pid] = name
 
     def legend_names(self, pid: str) -> list:
+        """The legend's names as drawn: the shown lines, then the hidden ones (panels.draw_chart)."""
         plot = self.plots.get(pid)
-        return [s.get("name") for s in plot["model"]["legend"]] if plot else []
+        if not plot:
+            return []
+        m = plot["model"]
+        names = [s.get("name") for s in m["legend"]]
+        return [n for n in names if n not in m["off"]] + [n for n in names if n in m["off"]]
 
     def legend_step(self, pid: str, names: list, d: int) -> None:
         cur = self.legend_at.get(pid)
